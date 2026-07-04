@@ -20,9 +20,9 @@ RUN go mod download
 COPY backend/ .
 RUN CGO_ENABLED=0 go build -o /out/bitbench ./cmd/bitbench-backend
 
-# Stage 3: Runtime
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates libstdc++ coreutils
+# Stage 3: Runtime (Debian, not Alpine — C++ binary links against glibc)
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 libgomp1 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=go-build /out/bitbench /app/bitbench
 COPY --from=cpp-build /artifacts/bin/ /app/bin/
