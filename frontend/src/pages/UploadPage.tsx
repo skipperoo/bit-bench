@@ -5,8 +5,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { Slider } from '@/components/ui/slider'
 import { apiFetch, apiUpload } from '@/lib/api'
-import type { CompressorRegistry } from '@/types'
+import { shouldUseSlider } from '@/lib/options'
+import type { CompressorRegistry, CompressorOption } from '@/types'
 
 export default function UploadPage() {
   const navigate = useNavigate()
@@ -73,6 +75,85 @@ export default function UploadPage() {
   }
 
   const canSubmit = name && file && Object.values(selectedCompressors).some(Boolean)
+
+  function renderOptionField(name: string, key: string, opt: CompressorOption) {
+    const value = compressorOptions[name]?.[key]
+
+    if (opt.type === 'boolean') {
+      return (
+        <Switch
+          checked={(value as boolean) || false}
+          onCheckedChange={(v) =>
+            setCompressorOptions((prev) => ({
+              ...prev,
+              [name]: { ...prev[name], [key]: v },
+            }))
+          }
+        />
+      )
+    }
+
+    if (opt.type === 'select') {
+      return (
+        <select
+          className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+          value={(value as string) || ''}
+          onChange={(e) =>
+            setCompressorOptions((prev) => ({
+              ...prev,
+              [name]: { ...prev[name], [key]: e.target.value },
+            }))
+          }
+        >
+          {opt.options?.map((o: string) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      )
+    }
+
+    if (opt.type === 'number' && opt.min != null && opt.max != null) {
+      if (shouldUseSlider(opt)) {
+        return (
+          <div className="flex items-center gap-2">
+            <Slider
+              min={opt.min}
+              max={opt.max}
+              step={opt.step ?? 1}
+              value={(value as number) ?? opt.default as number}
+              onChange={(v) =>
+                setCompressorOptions((prev) => ({
+                  ...prev,
+                  [name]: { ...prev[name], [key]: v },
+                }))
+              }
+            />
+            <span className="text-xs text-muted-foreground w-6 text-right">
+              {value as number}
+            </span>
+          </div>
+        )
+      }
+      return (
+        <Input
+          type="number"
+          className="h-8 w-24"
+          min={opt.min}
+          max={opt.max}
+          step={opt.step ?? 1}
+          value={(value as number) ?? 0}
+          onChange={(e) =>
+            setCompressorOptions((prev) => ({
+              ...prev,
+              [name]: { ...prev[name], [key]: Number(e.target.value) },
+            }))
+          }
+        />
+      )
+    }
+
+    return null
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -145,47 +226,7 @@ export default function UploadPage() {
                     {Object.entries(options).map(([key, opt]) => (
                       <div key={key} className="flex items-center gap-2">
                         <Label className="text-xs w-24">{key}</Label>
-                        {opt.type === 'boolean' ? (
-                          <Switch
-                            checked={compressorOptions[name]?.[key] as boolean || false}
-                            onCheckedChange={(v) =>
-                              setCompressorOptions((prev) => ({
-                                ...prev,
-                                [name]: { ...prev[name], [key]: v },
-                              }))
-                            }
-                          />
-                        ) : opt.type === 'select' ? (
-                          <select
-                            className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
-                            value={compressorOptions[name]?.[key] as string || ''}
-                            onChange={(e) =>
-                              setCompressorOptions((prev) => ({
-                                ...prev,
-                                [name]: { ...prev[name], [key]: e.target.value },
-                              }))
-                            }
-                          >
-                            {opt.options?.map((o: string) => (
-                              <option key={o} value={o}>{o}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <Input
-                            type="number"
-                            className="h-8 w-24"
-                            min={opt.min}
-                            max={opt.max}
-                            step={opt.step}
-                            value={compressorOptions[name]?.[key] as number || 0}
-                            onChange={(e) =>
-                              setCompressorOptions((prev) => ({
-                                ...prev,
-                                [name]: { ...prev[name], [key]: Number(e.target.value) },
-                              }))
-                            }
-                          />
-                        )}
+                        {renderOptionField(name, key, opt)}
                       </div>
                     ))}
                   </div>

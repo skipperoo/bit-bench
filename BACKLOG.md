@@ -44,13 +44,14 @@ Already completed in bootstrap branch. Testing and refinements to be added.
 - [ ] Frontend: login error states, forgot-password link (conditional on SMTP), logout API call
 - [ ] Integration tests: login → logout + JWT blocklist eviction
 
-## Branch 5: feature/compressor-registry — Go registry from C++ analysis, GET /api/v1/compressors, frontend compressor options accordion widget
+## Branch 5: feature/compressor-registry ✓
 
-Already scaffolded in branch 1. To complete:
-- [ ] Verify registry matches C++ sources exactly
-- [ ] Add unit tests for registry serialization
-- [ ] Frontend: render slider vs number input based on step count rule (≤20 steps = slider, >20 = number)
-- [ ] Frontend: add enable checkbox for compressors with no options
+- [x] Verify registry matches C++ sources exactly (gzip level fixed by name, pfordelta codec select, Squash-based compressors added)
+- [x] Registry updated: gzip_1/6/9 → empty options (level encoded in name); added bzip2, lz4, zstd, brotli, xz, snappy (Squash-only, empty)
+- [x] Add unit tests for registry serialization and all compressors
+- [x] Frontend: Slider component created
+- [x] Frontend: render slider vs number input based on step count rule (≤20 steps = slider, >20 = number)
+- [x] Frontend: options utility (shouldUseSlider / stepsForOption) with tests
 
 ## Branch 6: feature/benchmark-crud — All benchmark endpoints (upload, list, detail, checksums, compare, status) + frontend pages (upload, results, detail, compare, status)
 
