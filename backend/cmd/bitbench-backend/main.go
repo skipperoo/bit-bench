@@ -46,6 +46,7 @@ func main() {
 	}
 
 	service.InitServices(cfg, db, rdb)
+	service.InitRepos(db)
 	handler.InitHandlers(cfg)
 	middleware.InitAuthMiddleware(rdb)
 

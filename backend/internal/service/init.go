@@ -24,3 +24,14 @@ func InitServices(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) {
 		Benchmark: NewBenchmarkService(benchRepo, resultRepo, cfg),
 	}
 }
+
+// Repos exposes repositories for handler-level use (admin CRUD).
+var UserRepo *repository.UserRepository
+var GroupRepo *repository.GroupRepository
+var BenchRepo *repository.BenchmarkRepository
+
+func InitRepos(db *pgxpool.Pool) {
+	UserRepo = repository.NewUserRepository(db)
+	GroupRepo = repository.NewGroupRepository(db)
+	BenchRepo = repository.NewBenchmarkRepository(db)
+}

@@ -80,11 +80,13 @@ Already completed in bootstrap branch. Testing and refinements to be added.
 - [x] Retry policy (BENCH_MAX_RETRIES)
 - [x] Unit tests: CSV parser (with range queries, missing columns), AverageRows, BuildCompressorList (including pfordelta mapping), .bin header detection (16-byte, 8-byte, invalid, 8-byte-prefers-16), Read/WriteBinFile, NormalizeFile
 
-## Branch 8: feature/admin — Admin CRUD endpoints + admin frontend app
+## Branch 8: feature/admin ✓
 
-- [ ] Admin CRUD handlers with actual DB operations
-- [ ] Admin frontend: user management, group management, benchmark management
-- [ ] Integration tests for admin endpoints
+- [x] UserRepository: Create, List, Update (role/group_id/password), SoftDelete
+- [x] GroupRepository: Create, FindByID, List, Update (name/priority), Delete
+- [x] InitRepos for handler-level access to repositories
+- [x] Admin handlers: users CRUD, groups CRUD, benchmarks list/cancel/delete
+- [x] Admin frontend: login page (admin role check), sidebar layout, Users CRUD (create/reset-password/delete), Groups CRUD (create/priority/delete), Benchmarks list/cancel/delete
 
 ## Branch 9: feature/deployment — Docker Compose, multi-stage Dockerfiles, secrets
 
