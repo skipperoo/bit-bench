@@ -6,4 +6,4 @@ pg_data/
 .DS_Store
 __pycache__/
 reference/budgeteer
-__pycache__/
+secrets/

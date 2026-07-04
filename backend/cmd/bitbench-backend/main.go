@@ -1,19 +1,20 @@
 package main
 
 import (
-    "context"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/skipperoo/routy"
-    "bitbench/internal/config"
-    "bitbench/internal/handler"
-    "bitbench/internal/logger"
-    "bitbench/internal/middleware"
-    "bitbench/internal/worker"
+	"github.com/skipperoo/routy"
+	"bitbench/internal/config"
+	"bitbench/internal/handler"
+	"bitbench/internal/logger"
+	"bitbench/internal/middleware"
+	"bitbench/internal/service"
+	"bitbench/internal/worker"
 )
 
 func main() {
@@ -44,14 +45,21 @@ func main() {
 		logger.Fatal("failed to seed database", "error", err)
 	}
 
+	service.InitServices(cfg, db, rdb)
+	handler.InitHandlers(cfg)
+	middleware.InitAuthMiddleware(rdb)
+
 	recoverMw := routy.NewRecoverMiddleware(nil)
-    loggingMw := routy.NewLoggingMiddleware(middleware.LoggingFunc)
+	loggingMw := routy.NewLoggingMiddleware(middleware.LoggingFunc)
+
+	rl := middleware.NewRateLimiter(rdb, 5, time.Minute, middleware.IPKeyFunc)
+	loginHandler := rl.Wrap(handler.Login)
 
 	router := routy.NewRouter()
 	router.
 		AddMiddleware(recoverMw.GetMiddleware()).
 		AddMiddleware(loggingMw.GetMiddleware()).
-		AddHandler("POST /api/v1/auth/login",   handler.Login).
+		AddHandler("POST /api/v1/auth/login",   loginHandler).
 		AddHandler("GET  /api/v1/health",       handler.HealthCheck).
 		AddHandler("GET  /api/v1/config",       handler.GetConfig)
 

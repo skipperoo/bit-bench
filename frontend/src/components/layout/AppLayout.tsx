@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
+import { apiFetch } from '@/lib/api'
 import {
   BarChart3,
   Upload,
@@ -25,7 +26,12 @@ export function AppLayout() {
   const logout = useAuthStore((s) => s.logout)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' })
+    } catch {
+      // proceed with local logout even if API call fails
+    }
     logout()
     navigate('/login')
   }

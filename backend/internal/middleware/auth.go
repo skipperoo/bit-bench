@@ -5,12 +5,20 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/redis/go-redis/v9"
+
 	"bitbench/internal/model"
 )
 
 type contextKey string
 
 const ClaimsKey contextKey = "claims"
+
+var rdb *redis.Client
+
+func InitAuthMiddleware(redis *redis.Client) {
+	rdb = redis
+}
 
 func ClaimsFromContext(ctx context.Context) *model.Claims {
 	c, ok := ctx.Value(ClaimsKey).(*model.Claims)
@@ -33,7 +41,13 @@ func JWTAuth(next http.Handler) http.Handler {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		// TODO: Check Redis blocklist
+		if rdb != nil {
+			blocked, _ := rdb.Exists(r.Context(), "jwt_blocklist:"+claims.ID).Result()
+			if blocked > 0 {
+				http.Error(w, "token revoked", http.StatusUnauthorized)
+				return
+			}
+		}
 		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
