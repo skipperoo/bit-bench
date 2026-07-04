@@ -109,7 +109,7 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis label={{ value: 'Ratio (%)', angle: -90, position: 'insideLeft' }} />
-          <Tooltip formatter={(v: number) => `${v}%`} />
+          <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb" />
         </BarChart>
       </ResponsiveContainer>
@@ -172,9 +172,10 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             label={{ value: metricLabel(metric), angle: -90, position: 'insideLeft' }}
           />
           <Tooltip
-            formatter={(v: number, name: string) => {
-              if (name === 'y') return [v.toFixed(2), metricLabel(metric)]
-              return [`${v.toFixed(2)}%`, 'Compression Ratio']
+            formatter={(v: any, name: any) => {
+              const val = v != null ? Number(v).toFixed(2) : '-'
+              if (name === 'y') return [val, metricLabel(metric)]
+              return [`${val}%`, 'Compression Ratio']
             }}
           />
           <Legend />

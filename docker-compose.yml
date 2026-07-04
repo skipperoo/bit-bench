@@ -1,6 +1,6 @@
 services:
-  angie:
-    image: docker.angie.software/angie:minimal
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
       - "81:81"

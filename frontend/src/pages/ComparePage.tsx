@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import type { Benchmark, BenchmarkResult, CompareResponse, BenchmarkListResponse } from '@/types'
+import type { Benchmark, CompareResponse, BenchmarkListResponse } from '@/types'
 
 const COLORS = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#8b5cf6']
 
@@ -115,7 +115,7 @@ export default function ComparePage() {
             />
             <YAxis dataKey={metric} label={{ value: metric, angle: -90, position: 'insideLeft' }} />
             <Tooltip
-              formatter={(v: number, name: string) => [v.toFixed(2), name === metric ? metric : 'Ratio']}
+              formatter={(v: any, name: any) => [v != null ? Number(v).toFixed(2) : '-', name === metric ? metric : 'Ratio']}
             />
             <Legend />
             {data.map((r, i) => (
