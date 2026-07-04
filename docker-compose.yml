@@ -1,6 +1,6 @@
 services:
   angie:
-    image: nginx:alpine
+    image: angine/angie:minimal
     ports:
       - "80:80"
       - "81:81"
