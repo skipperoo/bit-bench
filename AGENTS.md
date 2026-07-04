@@ -28,6 +28,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D10 | **Groups drive scheduling via an integer `priority`; strict higher-priority-first, FIFO within the same priority.** | Simple, predictable. |
 | D11 | **Detail page = full parity with `final_results.html`**: overview bar + per-metric accordions (chart + ranked table) + Pareto scatter. | Faithful to the reference report. |
 | D12 | **Top-5 summary = composite Pareto score** over (minimize `compression_ratio`, maximize `compression_throughput_mbs`). Formula in §3.5. | Balances size and speed. |
+| D13 | **Reverse proxy = Angie** (`docker.angie.software/angie:minimal`), nginx-compatible config at `angie/nginx.conf`. Single entry point routing `/api/*` → backend, `/*` → frontend, port 81 → admin-frontend. | Nginx fork with better observability; config parity with standard nginx. |
+| D14 | **Redis image = `redis:latest`** (not 7-alpine). | Simpler maintenance; pinning to `latest` is acceptable for this project's deployment scope. |
 
 ---
 

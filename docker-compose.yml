@@ -1,6 +1,6 @@
 services:
   angie:
-    image: angine/angie:minimal
+    image: docker.angie.software/angie:minimal
     ports:
       - "80:80"
       - "81:81"
@@ -81,7 +81,7 @@ services:
       - "5432"
 
   redis:
-    image: redis:7-alpine
+    image: redis:latest
     secrets:
       - redis_password
     command: >
