@@ -20,7 +20,10 @@ func NewBenchmarkResultRepository(db *pgxpool.Pool) *BenchmarkResultRepository {
 
 func (r *BenchmarkResultRepository) Insert(ctx context.Context, res *model.BenchmarkResult) error {
 	res.ID = uuid.New()
-	rangeJSON, _ := json.Marshal(res.RangeQueries)
+
+	if res.RangeQueries == nil {
+		res.RangeQueries = json.RawMessage("{}")
+	}
 
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO benchmark_results
@@ -41,7 +44,7 @@ func (r *BenchmarkResultRepository) Insert(ctx context.Context, res *model.Bench
 		res.NumValues, res.OriginalSize, res.MemoryUsage,
 		res.UncompressedBits, res.CompressedBits, res.CompressionRatio,
 		res.CompressionThroughputMbs, res.DecompressionThroughputMbs,
-		res.RandomAccessNs, res.RandomAccessMbs, rangeJSON)
+		res.RandomAccessNs, res.RandomAccessMbs, res.RangeQueries)
 	return err
 }
 

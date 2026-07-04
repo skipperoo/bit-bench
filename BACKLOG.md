@@ -66,19 +66,19 @@ Already completed in bootstrap branch. Testing and refinements to be added.
 - [x] Frontend: ComparePage with 2-5 benchmark selection, overlaid bar + scatter charts
 - [x] Frontend: StatusPage with worker/queue stats
 
-## Branch 7: feature/benchmark-runner — Background worker, CSV parser, file normalization, subprocess execution, result averaging
+## Branch 7: feature/benchmark-runner ✓
 
-- [ ] Implement CSV result parser (header with dynamic range_query_<N> columns)
-- [ ] Implement file normalization: CSV → per-column .bin, zip/tar extraction
-- [ ] Implement .bin format detection (8-byte vs 16-byte header)
-- [ ] Implement subprocess invocation with timeout
-- [ ] Implement result averaging across multiple .bin files
-- [ ] Implement job state machine transitions
-- [ ] Implement retry policy
-- [ ] Implement file cleanup after completion
-- [ ] Implement filename escaping per spec
-- [ ] Unit tests: CSV parser, bin header detection, filename escaping
-- [ ] Integration test: enqueue → run → parse → ready → files deleted
+- [x] CSV result parser: header detection with dynamic range_query_<N> columns, all required columns, error handling
+- [x] File normalization: .bin copy, CSV→per-column .bin conversion (16-byte header), zip/tar extraction
+- [x] .bin format detection (16-byte preferred over 8-byte, matching C++ behavior)
+- [x] Subprocess invocation with `timeout`, LD_LIBRARY_PATH, stderr capture
+- [x] Compressor name mapping: pfordelta codec option → `pfordelta_<codec>` name suffix
+- [x] Result averaging across multiple .bin files (per compressor)
+- [x] Runner pool: claim via `FOR UPDATE SKIP LOCKED` with priority ordering (COALESCE NULL group → 0)
+- [x] Job state machine: claim→in_progress, timeout→timed_out, non-zero→retry→failed, success→ready
+- [x] File cleanup after completion/deletion
+- [x] Retry policy (BENCH_MAX_RETRIES)
+- [x] Unit tests: CSV parser (with range queries, missing columns), AverageRows, BuildCompressorList (including pfordelta mapping), .bin header detection (16-byte, 8-byte, invalid, 8-byte-prefers-16), Read/WriteBinFile, NormalizeFile
 
 ## Branch 8: feature/admin — Admin CRUD endpoints + admin frontend app
 

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -67,7 +68,7 @@ type BenchmarkResult struct {
 	DecompressionThroughputMbs  *float64   `json:"decompression_throughput_mbs,omitempty"`
 	RandomAccessNs              *float64   `json:"random_access_ns,omitempty"`
 	RandomAccessMbs             *float64   `json:"random_access_mbs,omitempty"`
-	RangeQueries                []byte     `json:"-"` // JSONB
+	RangeQueries                json.RawMessage `json:"range_queries,omitempty"`
 }
 
 type EmailOutbox struct {
