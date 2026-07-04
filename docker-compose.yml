@@ -1,16 +1,27 @@
 services:
-  frontend:
-    build: ./frontend
+  angie:
+    image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
+      - "81:81"
+    volumes:
+      - ./angie/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - admin-frontend
+      - backend
+
+  frontend:
+    build: ./frontend
+    expose:
+      - "80"
     depends_on:
       - backend
 
   admin-frontend:
     build: ./admin-frontend
-    ports:
-      - "81:80"
+    expose:
+      - "80"
     depends_on:
       - backend
 
@@ -43,8 +54,8 @@ services:
       - SMTP_FROM=${SMTP_FROM:-}
     volumes:
       - bench_data:/data/benchmarks
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,27 +70,28 @@ services:
       - POSTGRES_USER=bitbench
       - POSTGRES_DB=bitbench
       - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
-    ports:
-      - "5432:5432"
     volumes:
-      - ./pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bitbench"]
       interval: 10s
       timeout: 5s
       retries: 5
+    expose:
+      - "5432"
 
   redis:
-    image: redis:latest
+    image: redis:7-alpine
     secrets:
       - redis_password
     command: >
       sh -c 'redis-server --requirepass "$$(cat /run/secrets/redis_password)"'
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
 
 volumes:
   bench_data:
+  pg_data:
 
 secrets:
   jwt_secret:
