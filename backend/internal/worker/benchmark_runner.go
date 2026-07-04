@@ -18,6 +18,7 @@ import (
 	"bitbench/internal/logger"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
+	"bitbench/internal/service"
 )
 
 type BenchmarkRunner struct {
@@ -133,14 +134,9 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	workDir := filepath.Join(r.cfg.DataDir, id.String())
 	os.MkdirAll(workDir, 0755)
 
-	// Locate the uploaded file
-	srcPattern := filepath.Join(r.cfg.DataDir, "*"+benchmark.FileChecksum+"."+benchmark.FileExt)
-	matches, _ := filepath.Glob(srcPattern)
-	if len(matches) == 0 {
-		r.failJob(ctx, id, "uploaded file not found", workDir)
-		return
-	}
-	srcPath := matches[0]
+	// Locate the uploaded file using the stored filename pattern
+	srcName := service.StoredFilename(benchmark.OriginalFilename, benchmark.FileChecksum)
+	srcPath := filepath.Join(r.cfg.DataDir, srcName)
 
 	// Normalize to .bin files
 	binPaths, err := NormalizeFile(srcPath, workDir, benchmark.FileExt)

@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
+import { X } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
@@ -197,8 +198,16 @@ export default function UploadPage() {
             }`}
           >
             {file ? (
-              <div className="space-y-1">
+              <div className="space-y-1 relative">
                 <p className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); setDuplicate(false); setError('') }}
+                  className="absolute -top-1 -right-1 p-1 rounded-full bg-muted hover:bg-muted-foreground/20 transition-colors"
+                  title="Remove file"
+                >
+                  <X className="w-4 h-4" />
+                </button>
                 {duplicate && (
                   <p className="text-xs text-destructive">Duplicate file — already benchmarked</p>
                 )}
