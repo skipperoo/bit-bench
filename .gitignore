@@ -1,0 +1,12 @@
+cmake-*
+data/
+lib/boost_1_83_0/libs/
+build/
+__pycache__/
+datasets
+AGENTS.md
+reference/
+opencode.json
+.opencode
+.ignore
+

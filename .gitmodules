@@ -1,0 +1,21 @@
+[submodule "compression/lib/generalized-elias-fano"]
+	path = compression/lib/generalized-elias-fano
+	url = https://github.com/mxpucci/generalized-elias-fano
+[submodule "compression/lib/Learn-to-Compress"]
+	path = compression/lib/Learn-to-Compress
+	url = https://github.com/yhliu918/Learn-to-Compress
+[submodule "compression/lib/ALP"]
+	path = compression/lib/ALP
+	url = https://github.com/cwida/ALP
+[submodule "compression/lib/FastPFOR"]
+	path = compression/lib/FastPFOR
+	url = https://github.com/lemire/FastPFOR.git
+[submodule "compression/lib/ds2i"]
+	path = compression/lib/ds2i
+	url = https://github.com/ot/ds2i.git
+[submodule "compression/lib/gzip-hpp"]
+	path = compression/lib/gzip-hpp
+	url = https://github.com/mapbox/gzip-hpp
+[submodule "compression/lib/bzip3"]
+	path = compression/lib/bzip3
+	url = https://github.com/iczelia/bzip3.git

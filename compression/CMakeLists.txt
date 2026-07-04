@@ -1,0 +1,534 @@
+cmake_minimum_required(VERSION 3.22)
+project(NeaTS)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
+
+# Build type - default to Release for maximum optimization
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Common optimization flags for both architectures
+set(COMMON_OPT_FLAGS "-O3 -DNDEBUG -fno-math-errno -funroll-loops -ftree-vectorize")
+
+# Detect architecture and set appropriate flags
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(DEFAULT_ARCH_FLAGS "-mcpu=native")
+else()
+    # Default to native for local development, generic for portable builds
+    if(BUILD_PORTABLE)
+        set(DEFAULT_ARCH_FLAGS "-march=x86-64 -mtune=generic -mfpmath=sse")
+    else()
+        set(DEFAULT_ARCH_FLAGS "-march=native -mtune=native -mfpmath=sse")
+    endif()
+endif()
+
+# Allow CI to override ARCH_FLAGS (e.g., -DARCH_FLAGS="-march=skylake-avx512")
+if(NOT DEFINED ARCH_FLAGS)
+    set(ARCH_FLAGS "${DEFAULT_ARCH_FLAGS}")
+endif()
+
+message(STATUS "Target Architecture Flags: ${ARCH_FLAGS}")
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ARCH_FLAGS} ${COMMON_OPT_FLAGS}")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS}   ${ARCH_FLAGS} ${COMMON_OPT_FLAGS} -Wall -D_FILE_OFFSET_BITS=64")
+
+# Statically link standard libraries for Linux portability
+if(UNIX AND NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+endif()
+
+# Link-time optimization for Release builds (significant performance improvement)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+    if(IPO_SUPPORTED)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+        message(STATUS "LTO enabled")
+    else()
+        message(STATUS "LTO not supported: ${IPO_ERROR}")
+    endif()
+endif()
+
+# Enable OpenMP for parallel processing (used by GEF)
+# IMPORTANT: do NOT add OpenMP flags globally via CMAKE_CXX_FLAGS, otherwise unrelated
+# translation units (e.g., ALP) may be compiled with OpenMP enabled.
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP found - will be enabled only for targets that link OpenMP::OpenMP_CXX")
+endif()
+
+add_library(sux INTERFACE)
+target_include_directories(sux INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/lib/sux)
+
+add_library(sdsl INTERFACE)
+target_include_directories(sdsl INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/lib/sdsl-lite/include)
+
+# --- Pasta (rank/select bitvectors) ---
+include(FetchContent)
+set(TLX_INSTALL OFF CACHE BOOL "" FORCE)
+set(TLX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(TLX_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    pasta
+    GIT_REPOSITORY https://github.com/pasta-toolbox/bit_vector.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(pasta)
+set(PASTA_INCLUDE_DIR ${pasta_SOURCE_DIR}/include)
+
+# --- FastPFOR (header-only codec templates + compiled factory) ---
+set(FASTPFOR_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR)
+set(FASTPFOR_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/codecfactory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/bitpacking.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/bitpackingaligned.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/bitpackingunaligned.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/simdbitpacking.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/simdunalignedbitpacking.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/streamvbyte.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/FastPFOR/src/varintdecode.c
+)
+
+add_library(fastpfor_headers INTERFACE)
+target_include_directories(fastpfor_headers INTERFACE ${FASTPFOR_INCLUDE_DIR} ${FASTPFOR_INCLUDE_DIR}/headers)
+
+# --- GEF Library (header-only since latest refactor) ---
+add_library(gef INTERFACE)
+target_include_directories(gef INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/generalized-elias-fano/include
+    ${PASTA_INCLUDE_DIR}
+)
+target_link_libraries(gef INTERFACE sdsl sux pasta_bit_vector)
+# OpenMP is only used/beneficial for GEF; keep it scoped to consumers.
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(gef INTERFACE OpenMP::OpenMP_CXX)
+endif()
+target_compile_options(gef INTERFACE -ffast-math -funroll-loops)
+
+# --- ALP Library (vendored build, avoids ALP's standalone CMake restrictions) ---
+add_library(neats_alp STATIC
+    lib/ALP/src/falp.cpp
+    lib/ALP/src/fastlanes_ffor.cpp
+    lib/ALP/src/fastlanes_generated_ffor.cpp
+    lib/ALP/src/fastlanes_generated_unffor.cpp
+    lib/ALP/src/fastlanes_unffor.cpp
+)
+target_include_directories(neats_alp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lib/ALP/include)
+target_compile_options(neats_alp PUBLIC -fPIC)
+
+# --- ALP benchmark TU (optional clang++ hybrid build) ---
+set(NEATS_ALP_BENCH_OBJ "${CMAKE_CURRENT_BINARY_DIR}/alp_benchmark_clang.o")
+set(NEATS_ALP_BENCH_SRC "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/alp_benchmark.cpp")
+
+# Comprehensive lossless compressor benchmark (with squash - optional)
+option(NEATS_WITH_SQUASH "Build LosslessBenchmarkFull with Squash" ON)
+option(NEATS_WITH_LECO "Build LeCo support (requires Boost headers + Eigen; compiled with GCC 11)" OFF)
+option(NEATS_ALP_HYBRID_CLANG "Compile ALP benchmark TU with clang++ for AVX-512 while keeping GCC for the rest" ON)
+set(NEATS_ALP_CLANGXX "" CACHE FILEPATH "Path to clang++ used for NEATS_ALP_HYBRID_CLANG (if empty, auto-detect)")
+set(NEATS_LECO_EXTRA_INCLUDES "" CACHE STRING "Semicolon-separated extra include paths for LeCo clang build (e.g., for Boost/Eigen)")
+
+if(NEATS_ALP_HYBRID_CLANG)
+    # On macOS with GCC as main compiler, hybrid clang build is not possible because
+    # Apple clang only supports libc++ while GCC uses libstdc++ (ABI incompatible).
+    # Auto-disable in this case.
+    set(NEATS_ALP_HYBRID_CLANG_EFFECTIVE ON)
+    if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(STATUS "NEATS_ALP_HYBRID_CLANG: Auto-disabled on macOS with GCC (Apple clang doesn't support libstdc++)")
+        set(NEATS_ALP_HYBRID_CLANG_EFFECTIVE OFF)
+    endif()
+
+    if(NEATS_ALP_HYBRID_CLANG_EFFECTIVE)
+        if(NEATS_ALP_CLANGXX)
+            set(ALP_CLANGXX "${NEATS_ALP_CLANGXX}")
+        else()
+            find_program(ALP_CLANGXX NAMES clang++ clang++-18 clang++-17 clang++-16)
+        endif()
+
+        if(ALP_CLANGXX)
+            # ARCH_FLAGS / COMMON_OPT_FLAGS are space-separated strings. Convert them into proper argument lists
+            # so clang++ receives each flag as a separate argv entry.
+            string(REPLACE " " ";" NEATS_ALP_ARCH_FLAGS_LIST "${ARCH_FLAGS}")
+            string(REPLACE " " ";" NEATS_ALP_COMMON_OPT_FLAGS_LIST "${COMMON_OPT_FLAGS}")
+
+            # On non-Apple platforms, when mixing clang with GCC, we need to use libstdc++ to match ABI.
+            set(NEATS_ALP_STDLIB_FLAG "")
+            if(NOT APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+                # Linux with GCC: force clang to use libstdc++ for ABI compatibility
+                set(NEATS_ALP_STDLIB_FLAG "-stdlib=libstdc++")
+            endif()
+
+            add_custom_command(
+                OUTPUT "${NEATS_ALP_BENCH_OBJ}"
+                COMMAND "${ALP_CLANGXX}"
+                    -c "${NEATS_ALP_BENCH_SRC}"
+                    -o "${NEATS_ALP_BENCH_OBJ}"
+                    "-I${CMAKE_CURRENT_SOURCE_DIR}/benchmark"
+                    "-I${CMAKE_CURRENT_SOURCE_DIR}/lib/ALP/include"
+                    ${NEATS_ALP_ARCH_FLAGS_LIST}
+                    ${NEATS_ALP_COMMON_OPT_FLAGS_LIST}
+                    -fno-openmp
+                    -std=gnu++20
+                    -fPIC
+                    ${NEATS_ALP_STDLIB_FLAG}
+                DEPENDS "${NEATS_ALP_BENCH_SRC}" "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/benchmark_common.hpp"
+                VERBATIM
+            )
+            add_custom_target(neats_alp_bench_obj DEPENDS "${NEATS_ALP_BENCH_OBJ}")
+            set_source_files_properties("${NEATS_ALP_BENCH_OBJ}" PROPERTIES GENERATED TRUE)
+        else()
+            message(WARNING "NEATS_ALP_HYBRID_CLANG=ON but clang++ was not found; ALP benchmark will be compiled with the main compiler (AVX-512 may be disabled on GCC).")
+        endif()
+    endif()
+endif()
+
+# --- LeCo benchmark TU (compiled with Clang + libc++ to avoid libstdc++ type_traits conflicts) ---
+set(NEATS_LECO_BENCH_OBJ "${CMAKE_CURRENT_BINARY_DIR}/leco_benchmark_clang.o")
+set(NEATS_LECO_BENCH_SRC "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/leco_benchmark.cpp")
+
+if(NEATS_WITH_LECO)
+    # Reuse the same clang++ as ALP (or find one)
+    if(ALP_CLANGXX)
+        set(LECO_CLANGXX "${ALP_CLANGXX}")
+    elseif(NEATS_ALP_CLANGXX)
+        set(LECO_CLANGXX "${NEATS_ALP_CLANGXX}")
+    else()
+        find_program(LECO_CLANGXX NAMES clang++ clang++-18 clang++-17 clang++-16)
+    endif()
+
+    if(LECO_CLANGXX)
+        message(STATUS "LeCo will be compiled with: ${LECO_CLANGXX}")
+        
+        string(REPLACE " " ";" NEATS_LECO_ARCH_FLAGS_LIST "${ARCH_FLAGS}")
+        string(REPLACE " " ";" NEATS_LECO_COMMON_OPT_FLAGS_LIST "${COMMON_OPT_FLAGS}")
+        
+        # Build include flags list
+        set(NEATS_LECO_INCLUDE_FLAGS
+            "-I${CMAKE_CURRENT_SOURCE_DIR}/benchmark"
+            "-I${CMAKE_CURRENT_SOURCE_DIR}/lib/Learn-to-Compress/headers"
+        )
+        if(NEATS_LECO_EXTRA_INCLUDES)
+            foreach(inc_path IN LISTS NEATS_LECO_EXTRA_INCLUDES)
+                list(APPEND NEATS_LECO_INCLUDE_FLAGS "-isystem${inc_path}")
+            endforeach()
+        endif()
+
+        add_custom_command(
+            OUTPUT "${NEATS_LECO_BENCH_OBJ}"
+            COMMAND "${LECO_CLANGXX}"
+                -c "${NEATS_LECO_BENCH_SRC}"
+                -o "${NEATS_LECO_BENCH_OBJ}"
+                ${NEATS_LECO_INCLUDE_FLAGS}
+                ${NEATS_LECO_ARCH_FLAGS_LIST}
+                ${NEATS_LECO_COMMON_OPT_FLAGS_LIST}
+                -std=gnu++17
+                -fPIC
+            DEPENDS "${NEATS_LECO_BENCH_SRC}" "${CMAKE_CURRENT_SOURCE_DIR}/benchmark/benchmark_common.hpp"
+            VERBATIM
+        )
+        add_custom_target(neats_leco_bench_obj DEPENDS "${NEATS_LECO_BENCH_OBJ}")
+        set_source_files_properties("${NEATS_LECO_BENCH_OBJ}" PROPERTIES GENERATED TRUE)
+    else()
+        message(FATAL_ERROR "NEATS_WITH_LECO=ON but clang++ was not found. Install clang or disable NEATS_WITH_LECO.")
+    endif()
+endif()
+
+# gzip-hpp header-only library (needs zlib)
+find_package(ZLIB REQUIRED)
+set(GZIP_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/gzip-hpp/include)
+
+# --- bzip3 (standalone, not via Squash) ---
+add_library(bzip3 STATIC lib/bzip3/src/libbz3.c)
+target_include_directories(bzip3 PUBLIC lib/bzip3/include)
+target_compile_definitions(bzip3 PRIVATE VERSION="1.5.3")
+
+# Comprehensive lossless compressor benchmark (without squash)
+add_executable(LosslessBenchmark benchmark/lossless_benchmark.cpp
+        benchmark/NeaTS/NeaTS.hpp
+        benchmark/NeaTS/algorithms.hpp)
+target_compile_definitions(LosslessBenchmark PRIVATE HAS_GZIP=1 HAS_BZIP3=1)
+target_link_libraries(LosslessBenchmark sdsl sux gef neats_alp fastpfor_headers bzip3 ZLIB::ZLIB)
+target_include_directories(LosslessBenchmark PRIVATE ${GZIP_INCLUDE_DIR})
+target_sources(LosslessBenchmark PRIVATE ${FASTPFOR_SOURCES})
+if(TARGET neats_alp_bench_obj)
+    add_dependencies(LosslessBenchmark neats_alp_bench_obj)
+    target_sources(LosslessBenchmark PRIVATE "${NEATS_ALP_BENCH_OBJ}")
+else()
+    target_sources(LosslessBenchmark PRIVATE benchmark/alp_benchmark.cpp)
+endif()
+
+if(NEATS_WITH_SQUASH)
+    set(SQUASH_ROOT "/usr/local" CACHE PATH "Preferred Squash installation prefix")
+
+    # 1. Find headers from a preferred prefix first, then fall back to default system paths.
+    find_path(SQUASH_INCLUDE_DIR 
+        NAMES squash/squash.h 
+        HINTS "${SQUASH_ROOT}" "${SQUASH_ROOT}/include"
+        PATH_SUFFIXES include include/squash-0.8 include/squash-0.7 include/squash squash-0.8 squash-0.7 squash
+    )
+
+    if(SQUASH_INCLUDE_DIR)
+        message(STATUS "Found Squash headers: ${SQUASH_INCLUDE_DIR}")
+        
+        # ... (PkgConfig checks remain the same) ...
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(LZ4    REQUIRED IMPORTED_TARGET liblz4)
+        pkg_check_modules(ZSTD   REQUIRED IMPORTED_TARGET libzstd)
+        pkg_check_modules(SNAPPY REQUIRED IMPORTED_TARGET snappy)
+        pkg_check_modules(BROTLI REQUIRED IMPORTED_TARGET libbrotlienc libbrotlidec libbrotlicommon)
+        find_package(ZLIB  REQUIRED)
+        find_package(BZip2 REQUIRED)
+        find_package(LibLZMA REQUIRED)
+
+        # 2. Find Library (Look for 0.7 or 0.8, in lib OR lib64)
+        # We search specifically for the library name 'squash0.7' which 0.7.0 produces
+        find_library(SQUASH_SHARED_LIB 
+            NAMES squash0.8 squash0.7 squash
+            HINTS "${SQUASH_ROOT}" "${SQUASH_ROOT}/lib" "${SQUASH_ROOT}/lib64"
+            PATH_SUFFIXES lib lib64
+        )
+
+        if(NOT SQUASH_SHARED_LIB)
+            message(FATAL_ERROR "Squash headers found but libsquash not found in ${SQUASH_ROOT}/lib or lib64")
+        endif()
+
+        # Import the found library
+        add_library(Squash::Lib SHARED IMPORTED GLOBAL)
+        set_target_properties(Squash::Lib PROPERTIES
+            IMPORTED_LOCATION "${SQUASH_SHARED_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${SQUASH_INCLUDE_DIR}"
+        )
+        
+        add_executable(LosslessBenchmarkFull
+            benchmark/lossless_benchmark.cpp
+            benchmark/NeaTS/NeaTS.hpp
+            benchmark/NeaTS/algorithms.hpp
+        )
+        target_compile_definitions(LosslessBenchmarkFull PRIVATE USE_SQUASH GEF_DISABLE_OPENMP=1 HAS_GZIP=1 HAS_BZIP3=1)
+        target_include_directories(LosslessBenchmarkFull PRIVATE ${GZIP_INCLUDE_DIR})
+        target_sources(LosslessBenchmarkFull PRIVATE ${FASTPFOR_SOURCES})
+
+        target_link_libraries(LosslessBenchmarkFull
+            PRIVATE
+                sdsl
+                sux
+                gef
+                neats_alp
+                fastpfor_headers
+                bzip3
+                Squash::Lib
+                PkgConfig::LZ4
+                PkgConfig::ZSTD
+                PkgConfig::SNAPPY
+                PkgConfig::BROTLI
+                ZLIB::ZLIB
+                BZip2::BZip2
+                LibLZMA::LibLZMA
+                dl
+        )
+        if(TARGET neats_alp_bench_obj)
+            add_dependencies(LosslessBenchmarkFull neats_alp_bench_obj)
+            target_sources(LosslessBenchmarkFull PRIVATE "${NEATS_ALP_BENCH_OBJ}")
+        else()
+            target_sources(LosslessBenchmarkFull PRIVATE benchmark/alp_benchmark.cpp)
+        endif()
+        
+        # --- Optional LeCo integration (compiled with Clang in separate TU) ---
+        if(NEATS_WITH_LECO)
+            find_library(GMP_LIBRARY gmp REQUIRED)
+            target_compile_definitions(LosslessBenchmarkFull PRIVATE NEATS_ENABLE_LECO=1)
+            target_link_libraries(LosslessBenchmarkFull PRIVATE ${GMP_LIBRARY})
+            if(TARGET neats_leco_bench_obj)
+                add_dependencies(LosslessBenchmarkFull neats_leco_bench_obj)
+                target_sources(LosslessBenchmarkFull PRIVATE "${NEATS_LECO_BENCH_OBJ}")
+            endif()
+        endif()
+        # Add RPATH so it looks in ./lib relative to binary
+        target_link_options(LosslessBenchmarkFull PRIVATE "-Wl,-rpath,\$ORIGIN/lib")
+        
+        # --- LosslessBenchmarkFullNoSIMD: Same as Full but with SIMD and OpenMP disabled ---
+        # This is a fallback for systems where AVX-512/OpenMP causes issues with GEF
+        add_executable(LosslessBenchmarkFullNoSIMD
+            benchmark/lossless_benchmark.cpp
+            benchmark/NeaTS/NeaTS.hpp
+            benchmark/NeaTS/algorithms.hpp
+        )
+        target_compile_definitions(LosslessBenchmarkFullNoSIMD PRIVATE 
+            USE_SQUASH 
+            HAS_GZIP=1
+            HAS_BZIP3=1
+            GEF_DISABLE_SIMD=1 
+            GEF_DISABLE_OPENMP=1
+        )
+        # Disable compiler auto-vectorization to avoid AVX-512 issues even when targeting skylake-avx512
+        # This ensures truly scalar execution for debugging memory corruption issues
+        target_compile_options(LosslessBenchmarkFullNoSIMD PRIVATE
+            -fno-tree-vectorize      # Disable GCC tree vectorizer
+            -fno-tree-slp-vectorize  # Disable SLP vectorizer  
+        )
+        target_include_directories(LosslessBenchmarkFullNoSIMD PRIVATE ${GZIP_INCLUDE_DIR})
+        target_sources(LosslessBenchmarkFullNoSIMD PRIVATE ${FASTPFOR_SOURCES})
+        target_link_libraries(LosslessBenchmarkFullNoSIMD
+            PRIVATE
+                sdsl
+                sux
+                gef
+                neats_alp
+                fastpfor_headers
+                bzip3
+                Squash::Lib
+                PkgConfig::LZ4
+                PkgConfig::ZSTD
+                PkgConfig::SNAPPY
+                PkgConfig::BROTLI
+                ZLIB::ZLIB
+                BZip2::BZip2
+                LibLZMA::LibLZMA
+                dl
+        )
+        if(TARGET neats_alp_bench_obj)
+            add_dependencies(LosslessBenchmarkFullNoSIMD neats_alp_bench_obj)
+            target_sources(LosslessBenchmarkFullNoSIMD PRIVATE "${NEATS_ALP_BENCH_OBJ}")
+        else()
+            target_sources(LosslessBenchmarkFullNoSIMD PRIVATE benchmark/alp_benchmark.cpp)
+        endif()
+        target_link_options(LosslessBenchmarkFullNoSIMD PRIVATE "-Wl,-rpath,\$ORIGIN/lib")
+
+        if(NEATS_WITH_LECO)
+            target_compile_definitions(LosslessBenchmarkFullNoSIMD PRIVATE NEATS_ENABLE_LECO=1)
+            target_link_libraries(LosslessBenchmarkFullNoSIMD PRIVATE ${GMP_LIBRARY})
+            if(TARGET neats_leco_bench_obj)
+                add_dependencies(LosslessBenchmarkFullNoSIMD neats_leco_bench_obj)
+                target_sources(LosslessBenchmarkFullNoSIMD PRIVATE "${NEATS_LECO_BENCH_OBJ}")
+            endif()
+        endif()
+        
+        # --- MemoryHarness: Isolated memory profiling via Valgrind Massif ---
+        add_executable(MemoryHarness
+            benchmark/memory_harness.cpp
+            benchmark/NeaTS/NeaTS.hpp
+            benchmark/NeaTS/algorithms.hpp
+        )
+        target_compile_definitions(MemoryHarness PRIVATE USE_SQUASH GEF_DISABLE_OPENMP=1 HAS_GZIP=1 HAS_BZIP3=1)
+        target_include_directories(MemoryHarness PRIVATE ${GZIP_INCLUDE_DIR})
+        target_sources(MemoryHarness PRIVATE ${FASTPFOR_SOURCES})
+        target_link_libraries(MemoryHarness
+            PRIVATE
+                sdsl
+                sux
+                gef
+                neats_alp
+                fastpfor_headers
+                bzip3
+                Squash::Lib
+                PkgConfig::LZ4
+                PkgConfig::ZSTD
+                PkgConfig::SNAPPY
+                PkgConfig::BROTLI
+                ZLIB::ZLIB
+                BZip2::BZip2
+                LibLZMA::LibLZMA
+                dl
+        )
+        if(TARGET neats_alp_bench_obj)
+            add_dependencies(MemoryHarness neats_alp_bench_obj)
+            target_sources(MemoryHarness PRIVATE "${NEATS_ALP_BENCH_OBJ}")
+        else()
+            target_sources(MemoryHarness PRIVATE benchmark/alp_benchmark.cpp)
+        endif()
+
+        if(NEATS_WITH_LECO)
+            target_compile_definitions(MemoryHarness PRIVATE NEATS_ENABLE_LECO=1)
+            target_link_libraries(MemoryHarness PRIVATE ${GMP_LIBRARY})
+            if(TARGET neats_leco_bench_obj)
+                add_dependencies(MemoryHarness neats_leco_bench_obj)
+                target_sources(MemoryHarness PRIVATE "${NEATS_LECO_BENCH_OBJ}")
+            endif()
+        endif()
+        target_include_directories(MemoryHarness PRIVATE benchmark/)
+        target_link_options(MemoryHarness PRIVATE "-Wl,-rpath,\$ORIGIN/lib")
+
+    else()
+        message(WARNING "NEATS_WITH_SQUASH=ON but Squash headers were not found. LosslessBenchmarkFull targets will not be generated. Set -DSQUASH_ROOT=<prefix> if Squash is installed in a non-standard location.")
+    endif()
+endif()
+
+# ==============================================================================
+# Inverted Index Benchmark (GEF vs FastPFOR vs sux-rs)
+# ==============================================================================
+option(NEATS_WITH_INVERTED_INDEX "Build InvertedIndexBenchmark (requires Rust toolchain for sux-rs FFI)" OFF)
+
+if(NEATS_WITH_INVERTED_INDEX)
+    # --- FastPFOR ---
+    set(FASTPFOR_WITH_TEST OFF CACHE BOOL "" FORCE)
+    set(FASTPFOR_SIMD_MODE "native" CACHE STRING "" FORCE)
+    add_subdirectory(lib/FastPFOR EXCLUDE_FROM_ALL)
+    # On ARM, FastPFOR's CMake falls back to -msse4.2 which is invalid.
+    # Remove x86 SSE flags from the target on non-x86 architectures.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+        get_target_property(_fpfor_opts FastPFOR COMPILE_OPTIONS)
+        if(_fpfor_opts)
+            list(REMOVE_ITEM _fpfor_opts "-msse4.2" "-msse4.1" "-mavx" "-mavx2")
+            set_target_properties(FastPFOR PROPERTIES COMPILE_OPTIONS "${_fpfor_opts}")
+        endif()
+    endif()
+
+    # --- sux-rs FFI (Rust static library) ---
+    set(SUX_RS_FFI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/sux-rs-ffi")
+    set(SUX_RS_FFI_LIB "${SUX_RS_FFI_DIR}/target/release/libsux_rs_ffi.a")
+    set(SUX_RS_FFI_HEADER "${SUX_RS_FFI_DIR}/include/sux_rs_ffi.h")
+
+    find_program(CARGO_BIN cargo PATHS "$ENV{HOME}/.cargo/bin")
+    if(NOT CARGO_BIN)
+        message(FATAL_ERROR "NEATS_WITH_INVERTED_INDEX=ON but cargo (Rust) was not found. Install Rust: https://rustup.rs")
+    endif()
+    message(STATUS "Found cargo: ${CARGO_BIN}")
+
+    add_custom_command(
+        OUTPUT "${SUX_RS_FFI_LIB}"
+        COMMAND ${CMAKE_COMMAND} -E env "CARGO_TARGET_DIR=${SUX_RS_FFI_DIR}/target"
+                "${CARGO_BIN}" build --release --manifest-path "${SUX_RS_FFI_DIR}/Cargo.toml"
+        DEPENDS "${SUX_RS_FFI_DIR}/src/lib.rs" "${SUX_RS_FFI_DIR}/Cargo.toml"
+        WORKING_DIRECTORY "${SUX_RS_FFI_DIR}"
+        COMMENT "Building sux-rs FFI static library with cargo"
+        VERBATIM
+    )
+    add_custom_target(sux_rs_ffi_build DEPENDS "${SUX_RS_FFI_LIB}")
+
+    add_library(sux_rs_ffi STATIC IMPORTED GLOBAL)
+    set_target_properties(sux_rs_ffi PROPERTIES
+        IMPORTED_LOCATION "${SUX_RS_FFI_LIB}"
+        INTERFACE_INCLUDE_DIRECTORIES "${SUX_RS_FFI_DIR}/include"
+    )
+    add_dependencies(sux_rs_ffi sux_rs_ffi_build)
+
+    # Platform-specific link dependencies for Rust static libraries
+    if(APPLE)
+        set(SUX_RS_PLATFORM_LIBS "-framework Security" "-framework CoreFoundation" "-liconv")
+    else()
+        set(SUX_RS_PLATFORM_LIBS pthread dl m)
+    endif()
+
+    # --- InvertedIndexBenchmark executable ---
+    add_executable(InvertedIndexBenchmark
+        benchmark/inverted_index_benchmark.cpp
+    )
+    target_compile_definitions(InvertedIndexBenchmark PRIVATE GEF_DISABLE_OPENMP=1)
+    # ds2i (Partitioned Elias-Fano) needs Boost headers (header-only, no linking)
+    find_package(Boost REQUIRED)
+    target_include_directories(InvertedIndexBenchmark PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/ds2i
+        ${CMAKE_CURRENT_SOURCE_DIR}/lib/ds2i/succinct
+    )
+    target_link_libraries(InvertedIndexBenchmark PRIVATE Boost::boost)
+    target_link_libraries(InvertedIndexBenchmark
+        PRIVATE
+            gef
+            sdsl
+            sux
+            FastPFOR
+            sux_rs_ffi
+            ${SUX_RS_PLATFORM_LIBS}
+    )
+endif()
