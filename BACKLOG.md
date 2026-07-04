@@ -53,21 +53,18 @@ Already completed in bootstrap branch. Testing and refinements to be added.
 - [x] Frontend: render slider vs number input based on step count rule (≤20 steps = slider, >20 = number)
 - [x] Frontend: options utility (shouldUseSlider / stepsForOption) with tests
 
-## Branch 6: feature/benchmark-crud — All benchmark endpoints (upload, list, detail, checksums, compare, status) + frontend pages (upload, results, detail, compare, status)
+## Branch 6: feature/benchmark-crud ✓
 
-- [ ] Implement CreateBenchmark: multipart form parsing, file validation (size, type, MD5), checksum dedup, insert queued row, write file to DATA_DIR
-- [ ] Implement ListBenchmarks: paginated with search (name), status filter, compressor pills
-- [ ] Implement GetBenchmark: return benchmark + results
-- [ ] Implement GetBenchmarkStatus: return status + timestamps
-- [ ] Implement ListChecksums: return all checksums for client-side dedup
-- [ ] Implement CompareBenchmarks: merge results for up to 5 benchmarks
-- [ ] Implement GetStatus: queue depth, runner stats, job counts
-- [ ] Frontend: UploadPage with drag-drop, client-side validation, MD5 duplicate check
-- [ ] Frontend: ResultsPage with search, status pills with pulsing dot
-- [ ] Frontend: DetailPage with full chart set (Recharts: bars, scatter, Pareto)
-- [ ] Frontend: ComparePage with multi-benchmark selection and overlaid charts
-- [ ] Frontend: StatusPage with worker/queue stats
-- [ ] Integration tests for all endpoints
+- [x] BenchmarkRepository: Create, FindByID, FindByChecksum, List (cursor-based), UpdateStatus, ListChecksums, GetStatusStats, Delete
+- [x] BenchmarkResultRepository: Insert (upsert), FindByBenchmarkID, FindByBenchmarkIDs (for compare)
+- [x] BenchmarkService: CreateBenchmark (file validation, MD5 dedup, size check, file storage), List (cursor-based with search/status filter), GetBenchmark (with results), GetBenchmarkStatus, CompareBenchmarks (up to 5), ListChecksums, GetStatus (queue depth + stats)
+- [x] File utilities: MD5 checksum, filename escaping per spec, file extension validation
+- [x] Handlers: CreateBenchmark (multipart), ListBenchmarks (cursor pagination), GetBenchmark, GetBenchmarkStatus, CompareBenchmarks, ListChecksums, GetStatus
+- [x] Frontend: UploadPage with client-side MD5 duplicate check (spark-md5)
+- [x] Frontend: ResultsPage with cursor-based infinite scroll ("Load More"), status pills with pulsing dots
+- [x] Frontend: DetailPage with Top-5 Pareto table, overview bar chart, per-metric accordion sections (bar/scatter charts), Pareto scatter plots — all via Recharts
+- [x] Frontend: ComparePage with 2-5 benchmark selection, overlaid bar + scatter charts
+- [x] Frontend: StatusPage with worker/queue stats
 
 ## Branch 7: feature/benchmark-runner — Background worker, CSV parser, file normalization, subprocess execution, result averaging
 

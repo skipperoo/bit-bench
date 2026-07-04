@@ -8,14 +8,19 @@ import (
 )
 
 type Services struct {
-	Auth *AuthService
+	Auth      *AuthService
+	Benchmark *BenchmarkService
 }
 
 var App *Services
 
 func InitServices(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) {
 	userRepo := repository.NewUserRepository(db)
+	benchRepo := repository.NewBenchmarkRepository(db)
+	resultRepo := repository.NewBenchmarkResultRepository(db)
+
 	App = &Services{
-		Auth: NewAuthService(userRepo, rdb, cfg),
+		Auth:      NewAuthService(userRepo, rdb, cfg),
+		Benchmark: NewBenchmarkService(benchRepo, resultRepo, cfg),
 	}
 }

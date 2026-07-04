@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { apiFetch, apiUpload } from '@/lib/api'
+import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
 import type { CompressorRegistry, CompressorOption } from '@/types'
 
@@ -20,6 +21,7 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [duplicate, setDuplicate] = useState(false)
 
   const loadCompressors = useCallback(async () => {
     try {
@@ -43,16 +45,41 @@ export default function UploadPage() {
 
   useState(() => { loadCompressors() })
 
+  const handleFileChange = useCallback(async (f: File | null) => {
+    setFile(f)
+    setDuplicate(false)
+    if (!f) return
+
+    try {
+      const md5 = await computeMD5(f)
+      const checksums = await apiFetch<{ checksum: string }[]>('/benchmarks/checksums')
+      const found = checksums.some((c) => c.checksum === md5)
+      setDuplicate(found)
+      if (found) {
+        setError('This file has already been benchmarked (duplicate checksum)')
+      } else {
+        setError('')
+      }
+    } catch {
+      // proceed without duplicate check
+    }
+  }, [])
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const f = e.dataTransfer.files[0]
-    if (f) setFile(f)
-  }, [])
+    if (f) handleFileChange(f)
+  }, [handleFileChange])
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null
+    if (f) handleFileChange(f)
+  }, [handleFileChange])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name || !file) return
+    if (!name || !file || duplicate) return
     setLoading(true)
     setError('')
     try {
@@ -74,7 +101,7 @@ export default function UploadPage() {
     }
   }
 
-  const canSubmit = name && file && Object.values(selectedCompressors).some(Boolean)
+  const canSubmit = name && file && Object.values(selectedCompressors).some(Boolean) && !duplicate
 
   function renderOptionField(name: string, key: string, opt: CompressorOption) {
     const value = compressorOptions[name]?.[key]
@@ -105,7 +132,7 @@ export default function UploadPage() {
             }))
           }
         >
-          {opt.options?.map((o: string) => (
+          {opt.options?.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
         </select>
@@ -120,7 +147,7 @@ export default function UploadPage() {
               min={opt.min}
               max={opt.max}
               step={opt.step ?? 1}
-              value={(value as number) ?? opt.default as number}
+              value={(value as number) ?? (opt.default as number)}
               onChange={(v) =>
                 setCompressorOptions((prev) => ({
                   ...prev,
@@ -183,11 +210,16 @@ export default function UploadPage() {
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-              dragOver ? 'border-primary bg-primary/5' : 'border-border'
+              dragOver ? 'border-primary bg-primary/5' : duplicate ? 'border-destructive bg-destructive/5' : 'border-border'
             }`}
           >
             {file ? (
-              <p className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
+              <div className="space-y-1">
+                <p className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
+                {duplicate && (
+                  <p className="text-xs text-destructive">Duplicate file — already benchmarked</p>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Drag & drop a file here, or{' '}
@@ -197,7 +229,7 @@ export default function UploadPage() {
                     type="file"
                     className="hidden"
                     accept=".bin,.csv,.zip,.tar"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    onChange={handleFileInput}
                   />
                 </label>
               </p>

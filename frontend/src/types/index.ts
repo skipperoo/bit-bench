@@ -64,18 +64,37 @@ export interface BenchmarkStatus {
   error?: string
 }
 
+export interface StatusStats {
+  queued: number
+  in_progress: number
+  ready: number
+  failed: number
+  timed_out: number
+  cancelled: number
+}
+
+export interface RunnerStatus {
+  running: number
+  max_parallelism: number
+}
+
 export interface QueueStatus {
   queue_depth: number
-  runner: {
-    running: number
-    max_parallelism: number
-  }
-  stats: {
-    queued: number
-    in_progress: number
-    ready: number
-    failed: number
-    timed_out: number
-    cancelled: number
-  }
+  runner: RunnerStatus
+  stats: StatusStats
+}
+
+export interface BenchmarkListResponse {
+  benchmarks: Benchmark[]
+  next_cursor?: string
+}
+
+export interface BenchmarkDetailResponse {
+  benchmark: Benchmark
+  results: BenchmarkResult[]
+}
+
+export interface CompareResponse {
+  benchmarks: Benchmark[]
+  results: Record<string, BenchmarkResult[]>
 }

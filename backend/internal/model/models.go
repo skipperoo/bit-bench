@@ -98,3 +98,33 @@ type ConfigResponse struct {
 	MaxFileSizeMB int64 `json:"maxFileSizeMb"`
 	SMTPEnabled   bool  `json:"smtpEnabled"`
 }
+
+type StatusStats struct {
+	Queued     int `json:"queued"`
+	InProgress int `json:"in_progress"`
+	Ready      int `json:"ready"`
+	Failed     int `json:"failed"`
+	TimedOut   int `json:"timed_out"`
+	Cancelled  int `json:"cancelled"`
+}
+
+type BenchmarkDetailResponse struct {
+	Benchmark *Benchmark         `json:"benchmark"`
+	Results   []*BenchmarkResult `json:"results"`
+}
+
+type CompareResponse struct {
+	Benchmarks []*Benchmark                   `json:"benchmarks"`
+	Results    map[string][]*BenchmarkResult  `json:"results"`
+}
+
+type RunnerStatus struct {
+	Running         int `json:"running"`
+	MaxParallelism  int `json:"max_parallelism"`
+}
+
+type StatusResponse struct {
+	QueueDepth int          `json:"queue_depth"`
+	Runner     RunnerStatus `json:"runner"`
+	Stats      StatusStats  `json:"stats"`
+}
