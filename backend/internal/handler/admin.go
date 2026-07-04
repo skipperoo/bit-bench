@@ -105,7 +105,7 @@ func AdminListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/users/")
+	idStr := r.PathValue("id")
 	userID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, "invalid user id", http.StatusBadRequest)
@@ -147,7 +147,7 @@ func AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/users/")
+	idStr := r.PathValue("id")
 	userID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, "invalid user id", http.StatusBadRequest)
@@ -210,7 +210,7 @@ func AdminListGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminUpdateGroup(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/groups/")
+	idStr := r.PathValue("id")
 	groupID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, "invalid group id", http.StatusBadRequest)
@@ -234,7 +234,7 @@ func AdminUpdateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminDeleteGroup(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/groups/")
+	idStr := r.PathValue("id")
 	groupID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, "invalid group id", http.StatusBadRequest)
@@ -267,7 +267,7 @@ func AdminListBenchmarks(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminDeleteBenchmark(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/benchmarks/")
+	idStr := r.PathValue("id")
 	benchID, err := uuid.Parse(idStr)
 	if err != nil {
 		writeError(w, "invalid benchmark id", http.StatusBadRequest)
@@ -298,9 +298,7 @@ func AdminDeleteBenchmark(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminCancelBenchmark(w http.ResponseWriter, r *http.Request) {
-	idStr := extractID(r.URL.Path, "/api/v1/admin/benchmarks/")
-	idStr = strings.TrimSuffix(idStr, "/cancel")
-	benchID, err := uuid.Parse(idStr)
+	benchID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeError(w, "invalid benchmark id", http.StatusBadRequest)
 		return

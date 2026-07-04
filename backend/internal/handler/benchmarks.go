@@ -135,7 +135,7 @@ func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBenchmark(w http.ResponseWriter, r *http.Request) {
-	id := extractID(r.URL.Path, "/api/v1/benchmarks/")
+	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, "invalid id", http.StatusBadRequest)
 		return
@@ -162,8 +162,7 @@ func GetBenchmark(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBenchmarkStatus(w http.ResponseWriter, r *http.Request) {
-	id := extractID(r.URL.Path, "/api/v1/benchmarks/")
-	id = strings.TrimSuffix(id, "/status")
+	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, "invalid id", http.StatusBadRequest)
 		return
@@ -235,18 +234,4 @@ func GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
-}
-
-// extractID extracts the benchmark ID from the URL path by removing the prefix.
-// Handles both /api/v1/benchmarks/{id} and /api/v1/benchmarks/{id}/status.
-func extractID(path, prefix string) string {
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-	id := strings.TrimPrefix(path, prefix)
-	// Remove trailing slash and status
-	if idx := strings.Index(id, "/"); idx >= 0 {
-		id = id[:idx]
-	}
-	return id
 }

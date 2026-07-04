@@ -1,4 +1,9 @@
-compression/build/
+compression/build/CMakeCache.txt
+compression/build/CMakeFiles/
+compression/build/Makefile
+compression/build/cmake_install.cmake
+compression/build/_deps/
+compression/build/lib/
 node_modules/
 dist/
 pg_data/
