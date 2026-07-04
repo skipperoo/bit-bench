@@ -48,8 +48,8 @@ func escapeFilename(name string) string {
 	return escaped
 }
 
-// storedFilename returns the on-disk filename per §4.5 "Filename-escaping rule".
-func storedFilename(originalName, md5Hex string) string {
+// StoredFilename returns the on-disk filename per §4.5 "Filename-escaping rule".
+func StoredFilename(originalName, md5Hex string) string {
 	ext := filepath.Ext(originalName)
 	base := strings.TrimSuffix(originalName, ext)
 	escaped := escapeFilename(base)
@@ -98,7 +98,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, userID uuid.UUID
 	}
 
 	// Write file to DATA_DIR
-	storedName := storedFilename(originalFilename, checksum)
+	storedName := StoredFilename(originalFilename, checksum)
 	destPath := filepath.Join(s.cfg.DataDir, storedName)
 	if err := os.MkdirAll(s.cfg.DataDir, 0755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)

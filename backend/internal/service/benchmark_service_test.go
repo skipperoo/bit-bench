@@ -43,9 +43,9 @@ func TestStoredFilename(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := storedFilename(tt.original, md5)
+		result := StoredFilename(tt.original, md5)
 		if result != tt.expected {
-			t.Errorf("storedFilename(%q, %q) = %q, want %q", tt.original, md5, result, tt.expected)
+			t.Errorf("StoredFilename(%q, %q) = %q, want %q", tt.original, md5, result, tt.expected)
 		}
 	}
 }

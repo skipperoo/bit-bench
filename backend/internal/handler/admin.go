@@ -274,8 +274,21 @@ func AdminDeleteBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up benchmark to find source file
+	benchmark, err := service.BenchRepo.FindByID(r.Context(), benchID)
+	if err != nil || benchmark == nil {
+		writeError(w, "benchmark not found", http.StatusNotFound)
+		return
+	}
+
+	// Delete working directory
 	workDir := filepath.Join(AppConfig.DataDir, benchID.String())
 	os.RemoveAll(workDir)
+
+	// Delete stored source file
+	srcName := service.StoredFilename(benchmark.OriginalFilename, benchmark.FileChecksum)
+	srcPath := filepath.Join(AppConfig.DataDir, srcName)
+	os.Remove(srcPath)
 
 	if err := service.BenchRepo.Delete(r.Context(), benchID); err != nil {
 		writeError(w, "failed to delete benchmark", http.StatusInternalServerError)

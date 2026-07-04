@@ -22,6 +22,7 @@ export default function UploadPage() {
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [duplicate, setDuplicate] = useState(false)
+  const [compressorsOpen, setCompressorsOpen] = useState<string[]>([])
 
   const loadCompressors = useCallback(async () => {
     try {
@@ -49,17 +50,13 @@ export default function UploadPage() {
     setFile(f)
     setDuplicate(false)
     if (!f) return
-
     try {
       const md5 = await computeMD5(f)
       const checksums = await apiFetch<{ checksum: string }[]>('/benchmarks/checksums')
       const found = checksums.some((c) => c.checksum === md5)
       setDuplicate(found)
-      if (found) {
-        setError('This file has already been benchmarked (duplicate checksum)')
-      } else {
-        setError('')
-      }
+      if (found) setError('This file has already been benchmarked (duplicate checksum)')
+      else setError('')
     } catch {
       // proceed without duplicate check
     }
@@ -111,10 +108,7 @@ export default function UploadPage() {
         <Switch
           checked={(value as boolean) || false}
           onCheckedChange={(v) =>
-            setCompressorOptions((prev) => ({
-              ...prev,
-              [name]: { ...prev[name], [key]: v },
-            }))
+            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: v } }))
           }
         />
       )
@@ -126,10 +120,7 @@ export default function UploadPage() {
           className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
           value={(value as string) || ''}
           onChange={(e) =>
-            setCompressorOptions((prev) => ({
-              ...prev,
-              [name]: { ...prev[name], [key]: e.target.value },
-            }))
+            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: e.target.value } }))
           }
         >
           {opt.options?.map((o) => (
@@ -149,15 +140,10 @@ export default function UploadPage() {
               step={opt.step ?? 1}
               value={(value as number) ?? (opt.default as number)}
               onChange={(v) =>
-                setCompressorOptions((prev) => ({
-                  ...prev,
-                  [name]: { ...prev[name], [key]: v },
-                }))
+                setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: v } }))
               }
             />
-            <span className="text-xs text-muted-foreground w-6 text-right">
-              {value as number}
-            </span>
+            <span className="text-xs text-muted-foreground w-6 text-right">{value as number}</span>
           </div>
         )
       }
@@ -170,10 +156,7 @@ export default function UploadPage() {
           step={opt.step ?? 1}
           value={(value as number) ?? 0}
           onChange={(e) =>
-            setCompressorOptions((prev) => ({
-              ...prev,
-              [name]: { ...prev[name], [key]: Number(e.target.value) },
-            }))
+            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: Number(e.target.value) } }))
           }
         />
       )
@@ -183,7 +166,7 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">New Benchmark</h1>
         <p className="text-muted-foreground mt-1">
@@ -237,38 +220,59 @@ export default function UploadPage() {
           </div>
         </div>
 
-        <Accordion type="single" collapsible defaultValue="compressors" className="border rounded-lg px-4">
-          <AccordionItem value="compressors">
-            <AccordionTrigger className="text-base">Compressors</AccordionTrigger>
-            <AccordionContent className="space-y-4">
-              {Object.entries(compressors).map(([name, options]) => (
-                <div key={name} className="space-y-2">
-                  <div className="flex items-center gap-2">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold">Compressors</h2>
+          {Object.keys(compressors).length === 0 && (
+            <p className="text-sm text-muted-foreground">Loading compressors...</p>
+          )}
+          <Accordion
+            type="multiple"
+            value={compressorsOpen}
+            onValueChange={setCompressorsOpen}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+          >
+            {Object.entries(compressors).map(([name, options]) => (
+              <AccordionItem key={name} value={name} className="border rounded-lg">
+                <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-secondary/30 rounded-t-lg data-[state=open]:rounded-t-lg data-[state=open]:rounded-b-none">
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <Switch
                       checked={selectedCompressors[name] || false}
                       onCheckedChange={(v) =>
                         setSelectedCompressors((prev) => ({ ...prev, [name]: v }))
                       }
                     />
-                    <Label className="font-mono text-sm">{name}</Label>
                   </div>
-                  {selectedCompressors[name] && Object.keys(options).length > 0 && (
-                    <div className="ml-8 space-y-2">
+                  <span className={`font-mono text-sm ml-2 ${selectedCompressors[name] ? 'font-semibold' : 'text-muted-foreground'}`}>
+                    {name}
+                  </span>
+                </AccordionTrigger>
+                {Object.keys(options).length > 0 && (
+                  <AccordionContent className="px-3 pb-3">
+                    <div className="space-y-2 pt-2">
                       {Object.entries(options).map(([key, opt]) => (
                         <div key={key} className="flex items-center gap-2">
-                          <Label className="text-xs w-24">{key}</Label>
+                          <Label className="text-xs w-20 shrink-0">{key}</Label>
                           {renderOptionField(name, key, opt)}
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              ))}
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+                  </AccordionContent>
+                )}
+                {Object.keys(options).length === 0 && (
+                  <AccordionContent className="px-3 pb-2">
+                    <p className="text-xs text-muted-foreground">No configuration options</p>
+                  </AccordionContent>
+                )}
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3">
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
 
         <Button type="submit" disabled={!canSubmit || loading} className="w-full">
           {loading ? 'Running Benchmark...' : 'Run Benchmark'}
