@@ -93,7 +93,7 @@ func (r *BenchmarkRunner) claimJob(ctx context.Context) (*uuid.UUID, error) {
 		LEFT JOIN groups g ON g.id = u.group_id
 		WHERE b.status = 'queued'
 		ORDER BY COALESCE(g.priority, 0) DESC, b.created_at ASC
-		FOR UPDATE SKIP LOCKED
+		FOR UPDATE OF b SKIP LOCKED
 		LIMIT 1
 	`).Scan(&id)
 

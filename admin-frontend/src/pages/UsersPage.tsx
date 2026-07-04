@@ -19,7 +19,7 @@ export default function UsersPage() {
   const loadUsers = () => {
     setLoading(true)
     apiFetch<User[]>('/users')
-      .then(setUsers)
+      .then((data) => setUsers(data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }

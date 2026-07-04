@@ -67,36 +67,36 @@ func main() {
 	protected := routy.NewRouter()
 	protected.
 		AddMiddleware(middleware.JWTAuth).
-		AddHandler("POST  /v1/auth/logout",           handler.Logout).
-		AddHandler("PUT   /v1/auth/password",         handler.ChangePassword).
-		AddHandler("GET   /v1/me",                    handler.Me).
-		AddHandler("GET   /v1/compressors",           handler.ListCompressors).
-		AddHandler("GET   /v1/benchmarks/checksums",  handler.ListChecksums).
-		AddHandler("POST  /v1/benchmarks",            handler.CreateBenchmark).
-		AddHandler("GET   /v1/benchmarks",            handler.ListBenchmarks).
-		AddHandler("GET   /v1/benchmarks/{id}",       handler.GetBenchmark).
-		AddHandler("GET   /v1/benchmarks/{id}/status", handler.GetBenchmarkStatus).
-		AddHandler("GET   /v1/benchmarks/compare",    handler.CompareBenchmarks).
-		AddHandler("GET   /v1/status",                handler.GetStatus)
+		AddHandler("POST  /auth/logout",           handler.Logout).
+		AddHandler("PUT   /auth/password",         handler.ChangePassword).
+		AddHandler("GET   /me",                    handler.Me).
+		AddHandler("GET   /compressors",           handler.ListCompressors).
+		AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
+		AddHandler("POST  /benchmarks",            handler.CreateBenchmark).
+		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
+		AddHandler("GET   /benchmarks/{id}",       handler.GetBenchmark).
+		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
+		AddHandler("GET   /benchmarks/compare",    handler.CompareBenchmarks).
+		AddHandler("GET   /status",                handler.GetStatus)
 
 	admin := routy.NewRouter()
 	admin.
 		AddMiddleware(middleware.JWTAuth).
 		AddMiddleware(middleware.RequireAdmin).
-		AddHandler("POST   /v1/admin/users",                handler.AdminCreateUser).
-		AddHandler("GET    /v1/admin/users",                handler.AdminListUsers).
-		AddHandler("PUT    /v1/admin/users/{id}",           handler.AdminUpdateUser).
-		AddHandler("DELETE /v1/admin/users/{id}",           handler.AdminDeleteUser).
-		AddHandler("POST   /v1/admin/groups",               handler.AdminCreateGroup).
-		AddHandler("GET    /v1/admin/groups",               handler.AdminListGroups).
-		AddHandler("PUT    /v1/admin/groups/{id}",          handler.AdminUpdateGroup).
-		AddHandler("DELETE /v1/admin/groups/{id}",          handler.AdminDeleteGroup).
-		AddHandler("GET    /v1/admin/benchmarks",           handler.AdminListBenchmarks).
-		AddHandler("DELETE /v1/admin/benchmarks/{id}",      handler.AdminDeleteBenchmark).
-		AddHandler("POST   /v1/admin/benchmarks/{id}/cancel", handler.AdminCancelBenchmark)
+		AddHandler("POST   /users",                    handler.AdminCreateUser).
+		AddHandler("GET    /users",                    handler.AdminListUsers).
+		AddHandler("PUT    /users/{id}",               handler.AdminUpdateUser).
+		AddHandler("DELETE /users/{id}",               handler.AdminDeleteUser).
+		AddHandler("POST   /groups",                  handler.AdminCreateGroup).
+		AddHandler("GET    /groups",                  handler.AdminListGroups).
+		AddHandler("PUT    /groups/{id}",              handler.AdminUpdateGroup).
+		AddHandler("DELETE /groups/{id}",              handler.AdminDeleteGroup).
+		AddHandler("GET    /benchmarks",               handler.AdminListBenchmarks).
+		AddHandler("DELETE /benchmarks/{id}",          handler.AdminDeleteBenchmark).
+		AddHandler("POST   /benchmarks/{id}/cancel",   handler.AdminCancelBenchmark)
 
-	router.AddSubroute("/api/", protected.Finalize())
-	router.AddSubroute("/api/", admin.Finalize())
+	router.AddSubroute("/api/v1/", protected.Finalize())
+	router.AddSubroute("/api/v1/admin/", admin.Finalize())
 	final := router.Finalize()
 
 	go worker.NewBenchmarkRunner(cfg, db, rdb).Run(ctx)

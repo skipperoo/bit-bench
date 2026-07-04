@@ -1,5 +1,7 @@
 # BitBench — Technical Specifications
 
+> **Revision 2** — Supersedes Revision 1. Incorporates implementation decisions discovered during the build: subroute prefix conflict resolution (routy), postgres 18 volume layout, secret trimming, nginx resolver for dynamic upstream resolution, TS 6 `paths` without `baseUrl`. All design decisions are recorded inline (marked **[DECISION]**).
+>
 > **Revision 1** — Initial full specification produced by the audit/enrichment pass. This revision supersedes the original sketch and fixes every entry in `BACKLOG.md # BUGS`: the `/v1/bechmarks` route typo, the `admin`-role contradiction, all copy-pasted Budgeteer testing/worker content, the incomplete `.bin` format, the missing admin Docker service, the undefined max-file-size env var, the ambiguous filename-escaping rule, the missing compressor-options/checksum/results/compare/status endpoints, the missing database schema, the underspecified compressor-options source, and the too-vague detail-page chart reference. All design decisions are recorded inline (marked **[DECISION]**).
 
 ---
@@ -30,6 +32,10 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D12 | **Top-5 summary = composite Pareto score** over (minimize `compression_ratio`, maximize `compression_throughput_mbs`). Formula in §3.5. | Balances size and speed. |
 | D13 | **Reverse proxy = nginx** (`nginx:alpine`), config at `angie/nginx.conf`. Single entry point routing `/api/*` → backend, `/*` → frontend, port 81 → admin-frontend. | Standard nginx, well-known, simple configuration. |
 | D14 | **Redis image = `redis:latest`** (not 7-alpine). | Simpler maintenance; pinning to `latest` is acceptable for this project's deployment scope. |
+| D15 | **routy subroute prefix conflict resolution.** Protected routes mounted under `/api/v1/` (handler paths without `/v1/` prefix); admin routes mounted under `/api/v1/admin/` (handler paths without `/v1/admin/` prefix). Go's `ServeMux` panics if two subrouters share the same prefix. | Avoids `panic: pattern conflicts` at router finalization. |
+| D16 | **Postgres 18 volume layout.** `pg_data` volume mounted at `/var/lib/postgresql` (not `/var/lib/postgresql/data`). Postgres 18+ uses major-version-specific subdirectory layout compatible with `pg_upgrade --link`. | Required by postgres:18-alpine entrypoint; old mount point causes startup failure. |
+| D17 | **Secret trimming.** `readSecret()` in `config.go` trims whitespace via `strings.TrimSpace` before returning the value. Secret files created by `echo` include a trailing newline. | Avoids `invalid control character in URL` when building the Postgres DSN. |
+| D18 | **Nginx dynamic upstream resolution.** The reverse proxy uses `resolver 127.0.0.11` (Docker's embedded DNS) with `set $upstream "backend:8080"; proxy_pass http://$upstream;` instead of static `proxy_pass http://backend:8080`. | Nginx resolves hostnames at startup; if the backend container isn't ready yet, nginx crashes. Dynamic resolution retries at request time. |
 
 ---
 

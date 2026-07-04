@@ -257,8 +257,13 @@ func AdminListBenchmarks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	benchmarks := result.Benchmarks
+	if benchmarks == nil {
+		benchmarks = []*model.Benchmark{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result.Benchmarks)
+	json.NewEncoder(w).Encode(benchmarks)
 }
 
 func AdminDeleteBenchmark(w http.ResponseWriter, r *http.Request) {

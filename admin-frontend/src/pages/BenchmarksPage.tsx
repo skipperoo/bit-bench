@@ -20,7 +20,7 @@ export default function BenchmarksPage() {
   const load = () => {
     setLoading(true)
     apiFetch<Benchmark[]>('/benchmarks')
-      .then(setBenchmarks)
+      .then((data) => setBenchmarks(data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }

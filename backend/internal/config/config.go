@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -94,7 +95,7 @@ func ConnectRedis(ctx context.Context, cfg *Config) (*redis.Client, error) {
 func readSecret(name string) string {
 	data, err := os.ReadFile("/run/secrets/" + name)
 	if err == nil {
-		return string(data)
+		return strings.TrimSpace(string(data))
 	}
 	return os.Getenv(stringToUpper(name))
 }

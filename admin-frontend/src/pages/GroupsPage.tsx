@@ -17,7 +17,7 @@ export default function GroupsPage() {
   const loadGroups = () => {
     setLoading(true)
     apiFetch<Group[]>('/groups')
-      .then(setGroups)
+      .then((data) => setGroups(data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }

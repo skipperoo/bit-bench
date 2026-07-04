@@ -32,10 +32,11 @@ export default function ResultsPage() {
       if (cursor) params.set('cursor', cursor)
       params.set('limit', '20')
       const data = await apiFetch<BenchmarkListResponse>(`/benchmarks?${params}`)
+      const benchmarks = data.benchmarks ?? []
       if (append) {
-        setBenchmarks((prev) => [...prev, ...data.benchmarks])
+        setBenchmarks((prev) => [...prev, ...benchmarks])
       } else {
-        setBenchmarks(data.benchmarks)
+        setBenchmarks(benchmarks)
       }
       setNextCursor(data.next_cursor)
     } catch {

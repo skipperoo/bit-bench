@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"bitbench/internal/middleware"
+	"bitbench/internal/model"
 	"bitbench/internal/service"
 )
 
@@ -111,8 +112,13 @@ func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	benchmarks := result.Benchmarks
+	if benchmarks == nil {
+		benchmarks = []*model.Benchmark{}
+	}
+
 	resp := map[string]interface{}{
-		"benchmarks": result.Benchmarks,
+		"benchmarks": benchmarks,
 	}
 	if result.NextCursor != nil {
 		resp["next_cursor"] = result.NextCursor.Format(time.RFC3339Nano)
