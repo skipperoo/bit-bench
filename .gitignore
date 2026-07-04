@@ -7,3 +7,6 @@ pg_data/
 __pycache__/
 reference/budgeteer
 secrets/
+compression/build/
+compression/lib/sdsl-lite/
+compression/lib/sux/

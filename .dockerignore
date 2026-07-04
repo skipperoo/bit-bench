@@ -1,0 +1,5 @@
+compression/build/
+node_modules/
+dist/
+pg_data/
+secrets/
