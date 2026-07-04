@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
@@ -43,7 +43,7 @@ export default function UploadPage() {
     }
   }, [])
 
-  useState(() => { loadCompressors() })
+  useEffect(() => { loadCompressors() }, [loadCompressors])
 
   const handleFileChange = useCallback(async (f: File | null) => {
     setFile(f)
@@ -237,36 +237,36 @@ export default function UploadPage() {
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Compressors</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {Object.entries(compressors).map(([name, options]) => (
-              <div key={name} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={selectedCompressors[name] || false}
-                    onCheckedChange={(v) =>
-                      setSelectedCompressors((prev) => ({ ...prev, [name]: v }))
-                    }
-                  />
-                  <Label className="font-mono text-sm">{name}</Label>
-                </div>
-                {selectedCompressors[name] && Object.keys(options).length > 0 && (
-                  <div className="ml-8 space-y-2">
-                    {Object.entries(options).map(([key, opt]) => (
-                      <div key={key} className="flex items-center gap-2">
-                        <Label className="text-xs w-24">{key}</Label>
-                        {renderOptionField(name, key, opt)}
-                      </div>
-                    ))}
+        <Accordion type="single" collapsible defaultValue="compressors" className="border rounded-lg px-4">
+          <AccordionItem value="compressors">
+            <AccordionTrigger className="text-base">Compressors</AccordionTrigger>
+            <AccordionContent className="space-y-4">
+              {Object.entries(compressors).map(([name, options]) => (
+                <div key={name} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={selectedCompressors[name] || false}
+                      onCheckedChange={(v) =>
+                        setSelectedCompressors((prev) => ({ ...prev, [name]: v }))
+                      }
+                    />
+                    <Label className="font-mono text-sm">{name}</Label>
                   </div>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+                  {selectedCompressors[name] && Object.keys(options).length > 0 && (
+                    <div className="ml-8 space-y-2">
+                      {Object.entries(options).map(([key, opt]) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <Label className="text-xs w-24">{key}</Label>
+                          {renderOptionField(name, key, opt)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 

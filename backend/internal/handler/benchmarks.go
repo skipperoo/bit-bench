@@ -73,7 +73,13 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 
 	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), userID, name, file, header.Filename, compressors)
 	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest)
+		msg := err.Error()
+		// Detect stale JWT after DB reset
+		if strings.Contains(msg, "violates foreign key constraint") && strings.Contains(msg, "user_id") {
+			writeError(w, "user session invalid, please re-login", http.StatusUnauthorized)
+			return
+		}
+		writeError(w, msg, http.StatusBadRequest)
 		return
 	}
 
