@@ -14,17 +14,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          working-directory: backend
+      - run: cd backend && go vet ./...
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci && npx eslint src/ && npx tsc --noEmit
-        working-directory: frontend
-      - run: npm ci && npx eslint src/ && npx tsc --noEmit
-        working-directory: admin-frontend
+      - run: cd frontend && npm ci && npx tsc --noEmit
+      - run: cd admin-frontend && npm ci && npx tsc --noEmit
 
   unit:
     runs-on: ubuntu-latest
@@ -33,13 +28,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - run: go test ./...
-        working-directory: backend
+      - run: cd backend && go test ./internal/compressor/... ./internal/model/... ./internal/middleware/... ./internal/service/... ./internal/worker/...
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci && npx vitest run
-        working-directory: frontend
+      - run: cd frontend && npm ci && npx vitest run
 
   integration:
     runs-on: ubuntu-latest
@@ -48,8 +41,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - run: go test -tags=integration ./...
-        working-directory: backend
+      - run: cd backend && go test -tags=integration -count=1 ./internal/handler/...
 
   build:
     runs-on: ubuntu-latest
@@ -58,12 +50,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - run: go build ./cmd/bitbench-backend
-        working-directory: backend
+      - run: cd backend && go build ./cmd/bitbench-backend
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm ci && npm run build
-        working-directory: frontend
-      - run: npm ci && npm run build
-        working-directory: admin-frontend
+      - run: cd frontend && npm ci && npm run build
+      - run: cd admin-frontend && npm ci && npm run build

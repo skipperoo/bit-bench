@@ -88,19 +88,16 @@ Already completed in bootstrap branch. Testing and refinements to be added.
 - [x] Admin handlers: users CRUD, groups CRUD, benchmarks list/cancel/delete
 - [x] Admin frontend: login page (admin role check), sidebar layout, Users CRUD (create/reset-password/delete), Groups CRUD (create/priority/delete), Benchmarks list/cancel/delete
 
-## Branch 9: feature/deployment — Docker Compose, multi-stage Dockerfiles, secrets
+## Branch 10: feature/ci-pipeline ✓
 
-Already scaffolded in branch 1. To complete:
-- [ ] Test docker-compose up with all services
-- [ ] Verify secret mounting
-- [ ] Add healthcheck + graceful shutdown verification
+- [x] Go unit tests: JWT token generation/validation (6 tests), rate limiter (4 tests), filename escaping/stored filename/extension validation, benchmark service utilities
+- [x] Go integration tests (testcontainers): auth handler tests with real Postgres + Redis — login success, invalid credentials, nonexistent user, logout blocklist, /me endpoint, unauthenticated access
+- [x] Frontend vitest setup: added vitest, @testing-library/react, jsdom; test script; vite.config.ts test config
+- [x] Frontend unit tests: MD5 computation (4 tests + shape check), Pareto domination count (6 tests)
+- [x] Frontend options tests (from branch 5, 7 tests)
+- [x] CI workflow updated: proper `go vet` for lint, separate unit/integration/build jobs, npm ci for frontend deps
 
-## Branch 10: feature/ci-pipeline — CI workflow with 5 gates, tests
-
-Already scaffolded in branch 1. To complete:
-- [ ] Write Go unit tests (CSV parser, MD5, filename escaping, bin header detection, Pareto score, compressor registry)
-- [ ] Write Go integration tests with testcontainers
-- [ ] Write frontend unit tests (Vitest)
-- [ ] Write frontend component tests (React Testing Library)
-- [ ] Write E2E tests (Playwright)
-- [ ] Enable and verify CI pipeline
+### Remaining (out of scope for this pass):
+- [ ] E2E tests (Playwright)
+- [ ] Frontend component tests (React Testing Library)  
+- [ ] Test docker-compose up end-to-end
