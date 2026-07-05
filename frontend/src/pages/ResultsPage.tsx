@@ -51,13 +51,36 @@ export default function ResultsPage() {
     loadBenchmarks()
   }, [loadBenchmarks])
 
-  // Poll every 5s if any benchmark is in_progress or queued
+  // Subscribe to SSE progress updates for in_progress benchmarks
   useEffect(() => {
-    const hasActive = benchmarks.some((b) => b.status === 'in_progress' || b.status === 'queued')
-    if (!hasActive) return
-    const interval = setInterval(() => loadBenchmarks(), 5000)
-    return () => clearInterval(interval)
-  }, [benchmarks, loadBenchmarks])
+    const activeBenchmarks = benchmarks.filter(
+      (b) => b.status === 'in_progress' || b.status === 'queued'
+    )
+    if (activeBenchmarks.length === 0) return
+
+    const events: EventSource[] = []
+    for (const b of activeBenchmarks) {
+      const es = new EventSource(`/api/v1/benchmarks/${b.id}/progress`)
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          const pct = data.progress
+          if (pct != null) {
+            setBenchmarks((prev) =>
+              prev.map((bm) =>
+                bm.id === b.id ? { ...bm, progress: pct } : bm
+              )
+            )
+          }
+        } catch { /* ignore parse errors */ }
+      }
+      events.push(es)
+    }
+
+    return () => {
+      for (const es of events) es.close()
+    }
+  }, [benchmarks])
 
   return (
     <div className="space-y-6">

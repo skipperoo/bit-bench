@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"bitbench/internal/config"
+	"bitbench/internal/handler"
 	"bitbench/internal/logger"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
@@ -126,7 +127,7 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	logger.Info("processing benchmark", "id", id)
 
 	// Mark progress as started (5% — loading + normalization)
-	r.benchRepo.UpdateProgress(ctx, id, 5)
+	r.updateProgress(ctx, id, 5)
 
 	benchmark, err := r.benchRepo.FindByID(ctx, id)
 	if err != nil || benchmark == nil {
@@ -168,11 +169,13 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	}
 
 	// Progress: files ready, about to run benchmark
-	r.benchRepo.UpdateProgress(ctx, id, 10)
+	r.updateProgress(ctx, id, 10)
 
 	// Run benchmark for each .bin file
 	var allRows []BenchmarkRow
 	var lastErr string
+
+	r.updateProgress(ctx, id, 15)
 
 	for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
 		if attempt > 0 {
@@ -243,17 +246,25 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	// Average rows per compressor
 	averaged := AverageRows(allRows)
 
-	// Build the list of compressors used (for memory measurement)
-	compressorNames := make([]string, 0, len(averaged))
-	for _, row := range averaged {
-		compressorNames = append(compressorNames, row.Compressor)
+	// Get original compressor names for MemoryHarness (lowercase)
+	originalCompNames := make([]string, 0, len(benchmark.Compressors))
+	for name, opts := range benchmark.Compressors {
+		optMap, _ := opts.(map[string]interface{})
+		baseName := mapCompressorName(name, optMap)
+		originalCompNames = append(originalCompNames, baseName)
 	}
 
 	// Mark progress: performance benchmark done
-	r.benchRepo.UpdateProgress(ctx, id, 50)
+	r.updateProgress(ctx, id, 40)
+
+	// Progress: about to start memory measurements
+	r.updateProgress(ctx, id, 45)
 
 	// Run memory measurements (Valgrind Massif-based)
-	memoryResults := r.runMemoryMeasurements(ctx, id, binaryPath, compressorNames, binPaths, workDir)
+	memoryResults := r.runMemoryMeasurements(ctx, id, binaryPath, originalCompNames, binPaths, workDir)
+
+	// Progress: memory done, inserting results
+	r.updateProgress(ctx, id, 95)
 
 	// Insert results
 	var lastInsertErr error
@@ -278,8 +289,16 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 			RangeQueries:              rangeJSON,
 		}
 
-		// Override memory_usage with Massif measurement if available
-		if memRes, ok := memoryResults[row.Compressor]; ok {
+		// Override memory_usage with Massif measurement if available.
+		// Match by lowercasing the display name from CSV to find the original name.
+		lcComp := strings.ToLower(row.Compressor)
+		if memRes, ok := memoryResults[strings.ToLower(row.Compressor)]; ok {
+			res.InputBuffer = int64Ptr(memRes.InputBufferBytes)
+			res.CompressorInternal = int64Ptr(memRes.CompressorInternal)
+			res.MemoryUsage = int64Ptr(memRes.PeakMemoryBytes)
+			res.InternalMemoryRatio = computeInternalMemoryRatio(memRes.CompressorInternal, memRes.InputBufferBytes)
+			res.RelativeMemoryUsage = computeRelativeMemoryUsage(memRes.PeakMemoryBytes, memRes.InputBufferBytes)
+		} else if memRes, ok := memoryResults[lcComp]; ok {
 			res.InputBuffer = int64Ptr(memRes.InputBufferBytes)
 			res.CompressorInternal = int64Ptr(memRes.CompressorInternal)
 			res.MemoryUsage = int64Ptr(memRes.PeakMemoryBytes)
@@ -330,6 +349,12 @@ func (r *BenchmarkRunner) cleanup(workDir string, srcPath string) {
 	os.RemoveAll(workDir)
 }
 
+// updateProgress sets the progress in DB and broadcasts via SSE.
+func (r *BenchmarkRunner) updateProgress(ctx context.Context, id uuid.UUID, progress int) {
+	r.benchRepo.UpdateProgress(ctx, id, progress)
+	handler.GlobalProgressHub.Broadcast(id.String(), progress)
+}
+
 // runMemoryMeasurements runs the MemoryHarness under Valgrind Massif for each
 // compressor, returning a map of compressor name to memory result.
 func (r *BenchmarkRunner) runMemoryMeasurements(ctx context.Context, id uuid.UUID, binaryPath string, compressorNames []string, binPaths []string, workDir string) map[string]*MemoryResult {
@@ -376,7 +401,7 @@ func (r *BenchmarkRunner) runMemoryMeasurements(ctx context.Context, id uuid.UUI
 
 		// Update progress: memory portion is the second 50%
 		pct := 50 + (i+1)*50/numComps
-		r.benchRepo.UpdateProgress(ctx, id, pct)
+		r.updateProgress(ctx, id, pct)
 	}
 
 	os.RemoveAll(massifDir)
