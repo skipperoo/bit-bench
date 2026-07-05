@@ -28,6 +28,12 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
+function formatMetricValue(value: number, metric: string): string {
+  if (MEMORY_METRICS.has(metric)) return formatBytes(value)
+  if (metric === 'compression_ratio' || metric === 'ratio') return `${(value * 100).toFixed(2)}%`
+  return value.toFixed(2)
+}
+
 function metricLabel(key: string): string {
   const labels: Record<string, string> = {
     compression_ratio: 'Compression Ratio',
@@ -129,9 +135,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
     .filter((r) => (r as any)[metric] != null)
     .map((r) => ({
       name: r.compressor,
-      [metric]: metric === 'compression_ratio'
-        ? +((r as any)[metric] * 100).toFixed(2)
-        : +((r as any)[metric]).toFixed(2),
+      [metric]: +((r as any)[metric]).toFixed(4),
     }))
 
   if (data.length === 0) return null
@@ -146,7 +150,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
           <YAxis
             label={{ value: label, angle: -90, position: 'outside', offset: 60 }}
           />
-          <Tooltip formatter={(v: any) => MEMORY_METRICS.has(metric) ? formatBytes(v) : Number(v).toFixed(2)} />
+          <Tooltip formatter={(v: any) => formatMetricValue(v, metric)} />
           <Bar dataKey={metric} fill="#16a34a" />
         </BarChart>
       </ResponsiveContainer>
@@ -185,8 +189,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             <Tooltip
               formatter={(v: any, name: any) => {
                 if (name === 'y') {
-                  const formatted = MEMORY_METRICS.has(metric) ? formatBytes(v) : Number(v).toFixed(2)
-                  return [formatted, metricLabel(metric)]
+                  return [formatMetricValue(v, metric), metricLabel(metric)]
                 }
                 return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
               }}
@@ -239,7 +242,7 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
                 {r.compressor}
               </td>
               <td className="text-right py-1">
-                {MEMORY_METRICS.has(metric) ? formatBytes(r.value) : r.value.toFixed(2)}
+                {formatMetricValue(r.value, metric)}
               </td>
             </tr>
           ))}
