@@ -124,8 +124,8 @@ func (r *BenchmarkRunner) claimJob(ctx context.Context) (*uuid.UUID, error) {
 func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	logger.Info("processing benchmark", "id", id)
 
-	// Mark progress as started (5% — loading + normalization)
-	r.updateProgress(ctx, id, 5)
+	// Mark progress as started (2% — loading)
+	r.updateProgress(ctx, id, 2)
 
 	benchmark, err := r.benchRepo.FindByID(ctx, id)
 	if err != nil || benchmark == nil {
@@ -167,13 +167,13 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	}
 
 	// Progress: files ready, about to run benchmark
-	r.updateProgress(ctx, id, 10)
+	r.updateProgress(ctx, id, 5)
 
 	// Run benchmark for each .bin file
 	var allRows []BenchmarkRow
 	var lastErr string
 
-	r.updateProgress(ctx, id, 15)
+	r.updateProgress(ctx, id, 8)
 
 	// Count total compressor runs for progress tracking (compressors × bin files)
 	totalCompRuns := len(benchmark.Compressors) * len(binPaths)
@@ -181,7 +181,7 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	compProgressFn := func(compressorName string) {
 		compCompleted++
 		if totalCompRuns > 0 {
-			pct := 15 + compCompleted*25/totalCompRuns
+			pct := 8 + compCompleted*27/totalCompRuns
 			r.updateProgress(ctx, id, pct)
 		}
 	}
@@ -264,16 +264,16 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	}
 
 	// Mark progress: performance benchmark done
-	r.updateProgress(ctx, id, 40)
+	r.updateProgress(ctx, id, 35)
 
 	// Progress: about to start memory measurements
-	r.updateProgress(ctx, id, 45)
+	r.updateProgress(ctx, id, 40)
 
 	// Run memory measurements (Valgrind Massif-based)
 	memoryResults := r.runMemoryMeasurements(ctx, id, binaryPath, originalCompNames, binPaths, workDir)
 
 	// Progress: memory done, inserting results
-	r.updateProgress(ctx, id, 95)
+	r.updateProgress(ctx, id, 90)
 
 	// Insert results
 	var lastInsertErr error
@@ -407,8 +407,8 @@ func (r *BenchmarkRunner) runMemoryMeasurements(ctx context.Context, id uuid.UUI
 		result.Compressor = baseName
 		results[baseName] = result
 
-		// Update progress: memory portion is the second 50%
-		pct := 50 + (i+1)*50/numComps
+		// Update progress: memory portion spans 40→85%
+		pct := 40 + (i+1)*45/numComps
 		r.updateProgress(ctx, id, pct)
 	}
 
