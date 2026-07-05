@@ -66,8 +66,6 @@ func (h *ProgressHub) Broadcast(benchmarkID string, progress int) {
 }
 
 // SSEProgressHandler serves SSE events for a benchmark's progress.
-// Public endpoint (no auth) — only broadcasts a progress percentage,
-// no sensitive data.
 func SSEProgressHandler(w http.ResponseWriter, r *http.Request) {
 	benchmarkID := r.PathValue("id")
 	if benchmarkID == "" {
@@ -75,16 +73,16 @@ func SSEProgressHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	rc := http.NewResponseController(w)
+
+	// Send initial event to confirm connection
+	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
+	rc.Flush()
 
 	ch := GlobalProgressHub.Subscribe(benchmarkID)
 	defer GlobalProgressHub.Unsubscribe(benchmarkID, ch)
@@ -99,7 +97,7 @@ func SSEProgressHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fmt.Fprintf(w, "data: %s\n\n", msg)
-			flusher.Flush()
+			rc.Flush()
 		}
 	}
 }
