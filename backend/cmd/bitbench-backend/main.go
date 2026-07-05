@@ -76,7 +76,7 @@ func main() {
 		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
 		AddHandler("GET   /benchmarks/{id}",       handler.GetBenchmark).
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
-		AddHandler("GET   /benchmarks/{id}/progress", handler.SSEProgressHandler).
+		AddHandler("GET   /benchmarks/{id}/progress", handler.ProgressHandler).
 		AddHandler("GET   /benchmarks/compare",    handler.CompareBenchmarks).
 		AddHandler("GET   /status",                handler.GetStatus)
 

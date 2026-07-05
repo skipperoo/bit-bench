@@ -15,7 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"bitbench/internal/config"
-	"bitbench/internal/handler"
 	"bitbench/internal/logger"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
@@ -348,10 +347,9 @@ func (r *BenchmarkRunner) cleanup(workDir string, srcPath string) {
 	os.RemoveAll(workDir)
 }
 
-// updateProgress sets the progress in DB and broadcasts via SSE.
+// updateProgress sets the progress in DB.
 func (r *BenchmarkRunner) updateProgress(ctx context.Context, id uuid.UUID, progress int) {
 	r.benchRepo.UpdateProgress(ctx, id, progress)
-	handler.GlobalProgressHub.Broadcast(id.String(), progress)
 }
 
 // runMemoryMeasurements runs the MemoryHarness under Valgrind Massif for each

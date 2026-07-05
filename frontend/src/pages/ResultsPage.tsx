@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
 
 const statusColors: Record<string, string> = {
@@ -52,39 +51,27 @@ export default function ResultsPage() {
     loadBenchmarks()
   }, [loadBenchmarks])
 
-  // Subscribe to SSE progress updates for in_progress benchmarks
+  // Poll progress for in_progress benchmarks every 2s
   useEffect(() => {
-    const activeBenchmarks = benchmarks.filter(
-      (b) => b.status === 'in_progress' || b.status === 'queued'
-    )
-    if (activeBenchmarks.length === 0) return
+    const active = benchmarks.filter((b) => b.status === 'in_progress')
+    if (active.length === 0) return
 
-    const events: EventSource[] = []
-    const token = useAuthStore.getState().token
-    for (const b of activeBenchmarks) {
-      const url = token
-        ? `/api/v1/benchmarks/${b.id}/progress?token=${encodeURIComponent(token)}`
-        : `/api/v1/benchmarks/${b.id}/progress`
-      const es = new EventSource(url)
-      es.onmessage = (e) => {
+    const interval = setInterval(async () => {
+      for (const b of active) {
         try {
-          const data = JSON.parse(e.data)
-          const pct = data.progress
-          if (pct != null) {
+          const data = await apiFetch<{ progress: number }>(`/benchmarks/${b.id}/progress`)
+          if (data.progress != null) {
             setBenchmarks((prev) =>
               prev.map((bm) =>
-                bm.id === b.id ? { ...bm, progress: pct } : bm
+                bm.id === b.id ? { ...bm, progress: data.progress } : bm
               )
             )
           }
-        } catch { /* ignore parse errors */ }
+        } catch { /* ignore */ }
       }
-      events.push(es)
-    }
+    }, 2000)
 
-    return () => {
-      for (const es of events) es.close()
-    }
+    return () => clearInterval(interval)
   }, [benchmarks])
 
   return (
