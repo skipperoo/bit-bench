@@ -51,20 +51,29 @@ export default function ResultsPage() {
     loadBenchmarks()
   }, [loadBenchmarks])
 
-  // Poll progress for in_progress benchmarks every 2s
+  // Poll progress for active (queued or in_progress) benchmarks every 2s
   useEffect(() => {
-    const active = benchmarks.filter((b) => b.status === 'in_progress')
+    const active = benchmarks.filter(
+      (b) => b.status === 'in_progress' || b.status === 'queued'
+    )
     if (active.length === 0) return
 
     const interval = setInterval(async () => {
       for (const b of active) {
         try {
-          const data = await apiFetch<{ progress: number }>(`/benchmarks/${b.id}/progress`)
-          if (data.progress != null) {
+          const data = await apiFetch<{ progress: number; status: string }>(`/benchmarks/${b.id}/progress`)
+          if (data.progress != null || data.status != null) {
             setBenchmarks((prev) =>
-              prev.map((bm) =>
-                bm.id === b.id ? { ...bm, progress: data.progress } : bm
-              )
+              prev.map((bm) => {
+                if (bm.id !== b.id) return bm
+                return {
+                  ...bm,
+                  progress: data.progress ?? bm.progress,
+                  status: data.status && data.status !== bm.status
+                    ? data.status as Benchmark['status']
+                    : bm.status,
+                }
+              })
             )
           }
         } catch { /* ignore */ }
