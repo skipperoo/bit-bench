@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ScatterChart, Scatter, ResponsiveContainer, Cell,
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -109,7 +109,7 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 20 }}
+            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 35 }}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb" />
@@ -139,7 +139,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: label, angle: -90, position: 'outside', offset: 20 }}
+            label={{ value: label, angle: -90, position: 'outside', offset: 35 }}
           />
           <Tooltip />
           <Bar dataKey={metric} fill="#16a34a" />
@@ -161,41 +161,48 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
   if (data.length === 0) return null
 
   return (
-    <div className="h-[480px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 80 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis
-            dataKey="x"
-            name="Compression Ratio (%)"
-            label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 30 }}
-          />
-          <YAxis
-            dataKey="y"
-            name={metricLabel(metric)}
-            label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 20 }}
-          />
-          <Tooltip
-            formatter={(v: any, name: any) => {
-              const val = v != null ? Number(v).toFixed(2) : '-'
-              if (name === 'y') return [val, metricLabel(metric)]
-              return [`${val}%`, 'Compression Ratio']
-            }}
-          />
-          <Legend verticalAlign="bottom" height={36} />
-          {/* Single Scatter with all data points for proper axis domain computation */}
-          <Scatter
-            data={data}
-            fill="#2563eb"
-            name="Compressors"
-            legendType="circle"
-          >
-            {data.map((d, i) => (
-              <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </Scatter>
-        </ScatterChart>
-      </ResponsiveContainer>
+    <div>
+      <div className="h-[480px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 120 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              dataKey="x"
+              name="Compression Ratio (%)"
+              label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 50 }}
+            />
+            <YAxis
+              dataKey="y"
+              name={metricLabel(metric)}
+              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 35 }}
+            />
+            <Tooltip
+              formatter={(v: any, name: any) => {
+                const val = v != null ? Number(v).toFixed(2) : '-'
+                if (name === 'y') return [val, metricLabel(metric)]
+                return [`${val}%`, 'Compression Ratio']
+              }}
+            />
+            <Scatter data={data} fill="#2563eb" name="Compressors">
+              {data.map((d, i) => (
+                <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Custom legend showing each compressor name with its color */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
+        {data.map((d, i) => (
+          <div key={d.name} className="flex items-center gap-1.5">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: COLORS[i % COLORS.length] }}
+            />
+            <span className="text-xs text-muted-foreground">{d.name}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -263,12 +270,6 @@ export default function DetailPage() {
   const hasMemory = results.some((r) => r.memory_usage != null)
   const hasRandomNS = results.some((r) => r.random_access_ns != null)
   const hasRandomMBS = results.some((r) => r.random_access_mbs != null)
-
-  const scatterMetrics = [
-    { key: 'compression_throughput_mbs', show: hasThroughput },
-    { key: 'decompression_throughput_mbs', show: hasDecompression },
-    { key: 'random_access_mbs', show: hasRandomMBS },
-  ]
 
   const metricSections = [
     { key: 'compression_ratio', label: 'Compression Ratio', chart: 'bar' as const, show: true },
@@ -371,21 +372,6 @@ export default function DetailPage() {
         </Card>
       ))}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pareto Scatter Plots</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {scatterMetrics.filter((m) => m.show).map((m) => (
-            <div key={m.key}>
-              <h4 className="text-sm font-medium mb-2">
-                {metricLabel(m.key)} vs Compression Ratio
-              </h4>
-              <ScatterChartMetric results={results} metric={m.key} />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   )
 }
