@@ -28,8 +28,8 @@ struct BenchmarkResult {
     double random_access_mbs{};
     std::vector<std::pair<size_t, double>> range_query_throughputs; // (range_size, MB/s)
 
-    void print_header(std::ostream &out) const;
-    void print(std::ostream &out) const;
+    void print_header(std::ostream &out, const std::vector<size_t> &range_sizes = {}) const;
+    void print(std::ostream &out, const std::vector<size_t> &range_sizes = {}) const;
 };
 
 struct BenchmarkData {

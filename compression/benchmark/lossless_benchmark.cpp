@@ -207,17 +207,18 @@ auto run_with_peak_memory_usage(Func&& func) {
 // Benchmark result structure (definitions)
 // ============================================================================
 
-void BenchmarkResult::print_header(std::ostream &out) const {
+void BenchmarkResult::print_header(std::ostream &out, const std::vector<size_t> &range_sizes) const {
     out << "compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,"
         << "compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,"
         << "random_access_ns,random_access_mbs";
-    for (const auto &[range, _] : range_query_throughputs) {
+    // Always output all range columns from the full range_sizes list
+    for (auto range : range_sizes) {
         out << ",range_" << range << "_mbs";
     }
     out << std::endl;
 }
 
-void BenchmarkResult::print(std::ostream &out) const {
+void BenchmarkResult::print(std::ostream &out, const std::vector<size_t> &range_sizes) const {
     out << std::fixed << std::setprecision(4);
     const size_t original_size_bytes = (original_size > 0) ? original_size : ((uncompressed_bits + 7) / 8);
     out << compressor << "," << extract_filename(dataset) << "," << num_values << ","
@@ -225,8 +226,18 @@ void BenchmarkResult::print(std::ostream &out) const {
         << uncompressed_bits << "," << compressed_bits << ","
         << compression_ratio << "," << compression_throughput_mbs << ","
         << decompression_throughput_mbs << "," << random_access_ns << "," << random_access_mbs;
-    for (const auto &[_, throughput] : range_query_throughputs) {
-        out << "," << throughput;
+    // Build a map from range_size → throughput for fast lookup
+    std::map<size_t, double> range_map;
+    for (const auto &[r, t] : range_query_throughputs) {
+        range_map[r] = t;
+    }
+    for (auto range : range_sizes) {
+        auto it = range_map.find(range);
+        if (it != range_map.end()) {
+            out << "," << it->second;
+        } else {
+            out << ",0.0";
+        }
     }
     out << std::endl;
 }
@@ -2127,10 +2138,10 @@ int main(int argc, char *argv[]) {
                 result.original_size = bench_data.original_size;
                 
                 if (!header_printed) {
-                    result.print_header(*out);
+                    result.print_header(*out, range_sizes);
                     header_printed = true;
                 }
-                result.print(*out);
+                result.print(*out, range_sizes);
                 std::cerr << " done" << std::endl;
                 
             } catch (const std::exception &e) {
@@ -2227,10 +2238,10 @@ int main(int argc, char *argv[]) {
                 result.original_size = bench_data.original_size;
                 
                 if (!header_printed) {
-                    result.print_header(*out);
+                    result.print_header(*out, range_sizes);
                     header_printed = true;
                 }
-                result.print(*out);
+                result.print(*out, range_sizes);
                 std::cerr << " done" << std::endl;
                 
             } catch (const std::exception &e) {
@@ -2297,10 +2308,10 @@ int main(int argc, char *argv[]) {
                 result.original_size = bench_data.original_size;
 
                 if (!header_printed) {
-                    result.print_header(*out);
+                    result.print_header(*out, range_sizes);
                     header_printed = true;
                 }
-                result.print(*out);
+                result.print(*out, range_sizes);
                 std::cerr << " done" << std::endl;
                 
             } catch (const std::exception &e) {

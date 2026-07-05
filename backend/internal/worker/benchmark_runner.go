@@ -125,6 +125,9 @@ func (r *BenchmarkRunner) claimJob(ctx context.Context) (*uuid.UUID, error) {
 func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	logger.Info("processing benchmark", "id", id)
 
+	// Mark progress as started (5% — loading + normalization)
+	r.benchRepo.UpdateProgress(ctx, id, 5)
+
 	benchmark, err := r.benchRepo.FindByID(ctx, id)
 	if err != nil || benchmark == nil {
 		logger.Error("find benchmark", "id", id, "error", err)
@@ -163,6 +166,9 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 			return
 		}
 	}
+
+	// Progress: files ready, about to run benchmark
+	r.benchRepo.UpdateProgress(ctx, id, 10)
 
 	// Run benchmark for each .bin file
 	var allRows []BenchmarkRow

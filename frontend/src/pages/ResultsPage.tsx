@@ -51,6 +51,14 @@ export default function ResultsPage() {
     loadBenchmarks()
   }, [loadBenchmarks])
 
+  // Poll every 5s if any benchmark is in_progress or queued
+  useEffect(() => {
+    const hasActive = benchmarks.some((b) => b.status === 'in_progress' || b.status === 'queued')
+    if (!hasActive) return
+    const interval = setInterval(() => loadBenchmarks(), 5000)
+    return () => clearInterval(interval)
+  }, [benchmarks, loadBenchmarks])
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Results</h1>
