@@ -62,8 +62,7 @@ func main() {
 		AddMiddleware(loggingMw.GetMiddleware()).
 		AddHandler("POST /api/v1/auth/login",   loginHandler).
 		AddHandler("GET  /api/v1/health",       handler.HealthCheck).
-		AddHandler("GET  /api/v1/config",       handler.GetConfig).
-		AddHandler("GET  /api/v1/benchmarks/{id}/progress", handler.SSEProgressHandler)
+		AddHandler("GET  /api/v1/config",       handler.GetConfig)
 
 	protected := routy.NewRouter()
 	protected.
@@ -77,6 +76,7 @@ func main() {
 		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
 		AddHandler("GET   /benchmarks/{id}",       handler.GetBenchmark).
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
+		AddHandler("GET   /benchmarks/{id}/progress", handler.SSEProgressHandler).
 		AddHandler("GET   /benchmarks/compare",    handler.CompareBenchmarks).
 		AddHandler("GET   /status",                handler.GetStatus)
 

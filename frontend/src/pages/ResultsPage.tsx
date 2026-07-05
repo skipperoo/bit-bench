@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
 
 const statusColors: Record<string, string> = {
@@ -59,8 +60,12 @@ export default function ResultsPage() {
     if (activeBenchmarks.length === 0) return
 
     const events: EventSource[] = []
+    const token = useAuthStore.getState().token
     for (const b of activeBenchmarks) {
-      const es = new EventSource(`/api/v1/benchmarks/${b.id}/progress`)
+      const url = token
+        ? `/api/v1/benchmarks/${b.id}/progress?token=${encodeURIComponent(token)}`
+        : `/api/v1/benchmarks/${b.id}/progress`
+      const es = new EventSource(url)
       es.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data)

@@ -31,11 +31,17 @@ func ClaimsFromContext(ctx context.Context) *model.Claims {
 func JWTAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw := r.Header.Get("Authorization")
-		if raw == "" || !strings.HasPrefix(raw, "Bearer ") {
+		token := ""
+		if raw != "" && strings.HasPrefix(raw, "Bearer ") {
+			token = strings.TrimPrefix(raw, "Bearer ")
+		} else {
+			// Fallback to ?token= query param (needed for EventSource/SSE)
+			token = r.URL.Query().Get("token")
+		}
+		if token == "" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		token := strings.TrimPrefix(raw, "Bearer ")
 		claims, err := model.ValidateToken(token)
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
