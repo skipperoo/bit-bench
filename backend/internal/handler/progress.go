@@ -66,6 +66,8 @@ func (h *ProgressHub) Broadcast(benchmarkID string, progress int) {
 }
 
 // SSEProgressHandler serves SSE events for a benchmark's progress.
+// Public endpoint (no auth) — only broadcasts a progress percentage,
+// no sensitive data.
 func SSEProgressHandler(w http.ResponseWriter, r *http.Request) {
 	benchmarkID := r.PathValue("id")
 	if benchmarkID == "" {
