@@ -262,6 +262,7 @@ void run_gzip(const std::vector<T> &data, size_t block_size, int level) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = (n + block_size - 1) / block_size;
+    int gz_level = (level == -1) ? Z_DEFAULT_COMPRESSION : level;
 
     for (size_t ib = 0; ib < num_blocks; ++ib) {
         size_t start = ib * block_size;
@@ -276,7 +277,7 @@ void run_gzip(const std::vector<T> &data, size_t block_size, int level) {
         }
 
         std::string compressed = gzip::compress(
-            reinterpret_cast<const char*>(data_bytes.data()), data_bytes.size(), level);
+            reinterpret_cast<const char*>(data_bytes.data()), data_bytes.size(), gz_level);
         do_not_optimize(compressed);
     }
 }
@@ -288,8 +289,9 @@ void run_bzip3(const std::vector<T> &data, size_t block_size, int level) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = (n + block_size - 1) / block_size;
-    // Map level 1-9 to block size in bytes
-    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, level))) * 65536u;
+    // Map level 1-9 to block size in bytes; -1 means library default (maps to 6)
+    int bz3_level = (level == -1) ? 6 : level;
+    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, bz3_level))) * 65536u;
 
     for (size_t ib = 0; ib < num_blocks; ++ib) {
         size_t start = ib * block_size;
@@ -320,11 +322,13 @@ void run_squash(const std::string &compressor_name, const std::vector<T> &data, 
     
     SquashOptions *opts = nullptr;
     if (level != -1) {
-        char level_s[4];
+        char level_s[8];
         opts = squash_options_new(codec, NULL);
-        squash_object_ref_sink(opts);
-        snprintf(level_s, 4, "%d", level);
-        squash_options_parse_option(opts, "level", level_s);
+        if (opts != nullptr) {
+            squash_object_ref_sink(opts);
+            snprintf(level_s, sizeof(level_s), "%d", level);
+            squash_options_parse_option(opts, "level", level_s);
+        }
     }
     
     const size_t n = data.size();
@@ -398,7 +402,7 @@ int main(int argc, char** argv) {
     
     // Parse =LEVEL suffix from compressor name
     std::string base_name = compressor_name;
-    int level = 6;  // default level for dictionary-based compressors
+    int level = -1;  // -1 = library default (no options for Squash)
     {
         auto eq_pos = compressor_name.find('=');
         if (eq_pos != std::string::npos) {

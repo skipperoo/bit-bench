@@ -1319,6 +1319,8 @@ BenchmarkResult benchmark_gzip(const std::string &compressor_name,
     result.num_values = n;
     result.uncompressed_bits = bench_data.uncompressed_bits;
 
+    int gz_level = (level == -1) ? Z_DEFAULT_COMPRESSION : level;
+
     size_t total_compressed_bits = 0;
     std::vector<std::string> compressed_blocks(num_blocks);
 
@@ -1335,7 +1337,7 @@ BenchmarkResult benchmark_gzip(const std::string &compressor_name,
         }
 
         std::string compressed = gzip::compress(
-            reinterpret_cast<const char*>(data_bytes.data()), data_bytes.size(), level);
+            reinterpret_cast<const char*>(data_bytes.data()), data_bytes.size(), gz_level);
 
         total_compressed_bits += compressed.size() * CHAR_BIT;
         compressed_blocks[ib] = std::move(compressed);
@@ -1485,7 +1487,9 @@ BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
 
     // Map level 1-9 to block size in bytes
     // level 1 = 64KB, level 9 = 576KB; library clamps to minimum 65536 internally
-    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, level))) * 65536u;
+    // -1 means library default (maps to level 6)
+    int bz3_level = (level == -1) ? 6 : level;
+    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, bz3_level))) * 65536u;
 
     size_t total_compressed_bits = 0;
     std::vector<std::vector<uint8_t>> compressed_blocks(num_blocks);
@@ -1681,11 +1685,13 @@ BenchmarkResult benchmark_squash(const std::string &compressor_name,
     
     SquashOptions *opts = nullptr;
     if (level != -1) {
-        char level_s[4];
+        char level_s[8];
         opts = squash_options_new(codec, NULL);
-        squash_object_ref_sink(opts);
-        snprintf(level_s, 4, "%ld", level);
-        squash_options_parse_option(opts, "level", level_s);
+        if (opts != nullptr) {
+            squash_object_ref_sink(opts);
+            snprintf(level_s, sizeof(level_s), "%ld", level);
+            squash_options_parse_option(opts, "level", level_s);
+        }
     }
     
     // Use raw data
@@ -1943,8 +1949,8 @@ int main(int argc, char *argv[]) {
     size_t block_size = 1000;
     uint8_t max_bpc = 32;
     std::string input_path;
-    // Default level for dictionary-based compressors
-    int default_level = 6;
+    // Default level for dictionary-based compressors (-1 = library default, no options)
+    int default_level = -1;
     
     // Parse command line arguments
     for (int64_t i = 1; i < argc; ++i) {

@@ -8,5 +8,5 @@ __pycache__/
 reference/budgeteer
 secrets/
 compression/build/
-compression/lib/sdsl-lite/
-compression/lib/sux/
+compression/datasets
+compression/benchmark_results

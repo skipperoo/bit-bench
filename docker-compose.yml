@@ -49,7 +49,9 @@ services:
         - action: rebuild
           path: ./backend
         - action: rebuild
-          path: ./compression
+          path: ./compression/benchmark
+        - action: rebuild
+          path: ./compression/lib
     secrets:
       - jwt_secret
       - db_password
