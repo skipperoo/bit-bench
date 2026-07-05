@@ -243,7 +243,9 @@ For a benchmark's result rows, compute per compressor `c`:
 
 ### 4.1 Router setup (`routy`)
 
-Public (no auth), protected (JWT + Redis blocklist), admin (JWT + `role='admin'`). Protected and admin are mounted under `/api/` so no handler checks auth itself.
+Public (no auth), protected (JWT + Redis blocklist), admin (JWT + `role='admin'`). Protected mounted under `/api/v1/`, admin under `/api/v1/admin/` — distinct prefixes to avoid Go ServeMux pattern conflicts.
+
+**[DECISION D15]** The spec originally suggested both subroutes under `/api/`, but `net/http.ServeMux` panics when two `Handle()` calls share the same prefix. Protected routes use handler paths without `/v1/` prefix (e.g. `/auth/logout` → full path `/api/v1/auth/logout`). Admin routes use handler paths without `/v1/admin/` prefix (e.g. `/users` → `/api/v1/admin/users`). Handlers extract path parameters via `r.PathValue("id")` (Go 1.22+ ServeMux native path params) rather than manual `extractID()` — the subrouter's `http.StripPrefix` changes `r.URL.Path` from the full path to the subroute-relative path, so prefix-based extraction would fail.
 
 **`cmd/bitbench-backend/main.go`**
 
@@ -282,46 +284,46 @@ func main() {
         AddHandler("GET  /api/v1/health",       handler.HealthCheck).
         AddHandler("GET  /api/v1/config",       handler.GetConfig) // {maxFileSizeMb, smtpEnabled}
 
-    // --- Protected routes (JWT + Redis blocklist) ---
+     // --- Protected routes (JWT + Redis blocklist) ---
     protected := routy.NewRouter()
     protected.
         AddMiddleware(middleware.JWTAuth).
-        AddHandler("POST  /v1/auth/logout",           handler.Logout).
-        AddHandler("PUT   /v1/auth/password",         handler.ChangePassword).
-        AddHandler("GET   /v1/me",                    handler.Me).
-        AddHandler("GET   /v1/compressors",           handler.ListCompressors).
-        AddHandler("GET   /v1/benchmarks/checksums",  handler.ListChecksums).
-        AddHandler("POST  /v1/benchmarks",            handler.CreateBenchmark).
-        AddHandler("GET   /v1/benchmarks",            handler.ListBenchmarks).
-        AddHandler("GET   /v1/benchmarks/{id}",       handler.GetBenchmark).
-        AddHandler("GET   /v1/benchmarks/{id}/status",handler.GetBenchmarkStatus).
-        AddHandler("GET   /v1/benchmarks/compare",    handler.CompareBenchmarks). // ?ids=a,b,...
-        AddHandler("GET   /v1/status",                handler.GetStatus)
+        AddHandler("POST  /auth/logout",           handler.Logout).
+        AddHandler("PUT   /auth/password",         handler.ChangePassword).
+        AddHandler("GET   /me",                    handler.Me).
+        AddHandler("GET   /compressors",           handler.ListCompressors).
+        AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
+        AddHandler("POST  /benchmarks",            handler.CreateBenchmark).
+        AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
+        AddHandler("GET   /benchmarks/{id}",       handler.GetBenchmark).
+        AddHandler("GET   /benchmarks/{id}/status",handler.GetBenchmarkStatus).
+        AddHandler("GET   /benchmarks/compare",    handler.CompareBenchmarks). // ?ids=a,b,...
+        AddHandler("GET   /status",                handler.GetStatus)
 
     // --- Admin routes (JWT + role='admin') ---
     admin := routy.NewRouter()
     admin.
         AddMiddleware(middleware.JWTAuth).
         AddMiddleware(middleware.RequireAdmin).
-        AddHandler("POST   /v1/admin/users",                handler.AdminCreateUser).
-        AddHandler("GET    /v1/admin/users",                handler.AdminListUsers).
-        AddHandler("PUT    /v1/admin/users/{id}",           handler.AdminUpdateUser).   // role, group, reset password
-        AddHandler("DELETE /v1/admin/users/{id}",           handler.AdminDeleteUser).
-        AddHandler("POST   /v1/admin/groups",               handler.AdminCreateGroup).
-        AddHandler("GET    /v1/admin/groups",               handler.AdminListGroups).
-        AddHandler("PUT    /v1/admin/groups/{id}",          handler.AdminUpdateGroup).  // priority
-        AddHandler("DELETE /v1/admin/groups/{id}",          handler.AdminDeleteGroup).
-        AddHandler("GET    /v1/admin/benchmarks",           handler.AdminListBenchmarks).
-        AddHandler("DELETE /v1/admin/benchmarks/{id}",      handler.AdminDeleteBenchmark).
-        AddHandler("POST   /v1/admin/benchmarks/{id}/cancel", handler.AdminCancelBenchmark)
+        AddHandler("POST   /users",                handler.AdminCreateUser).
+        AddHandler("GET    /users",                handler.AdminListUsers).
+        AddHandler("PUT    /users/{id}",           handler.AdminUpdateUser).   // role, group, reset password
+        AddHandler("DELETE /users/{id}",           handler.AdminDeleteUser).
+        AddHandler("POST   /groups",               handler.AdminCreateGroup).
+        AddHandler("GET    /groups",               handler.AdminListGroups).
+        AddHandler("PUT    /groups/{id}",          handler.AdminUpdateGroup).  // priority
+        AddHandler("DELETE /groups/{id}",          handler.AdminDeleteGroup).
+        AddHandler("GET    /benchmarks",           handler.AdminListBenchmarks).
+        AddHandler("DELETE /benchmarks/{id}",      handler.AdminDeleteBenchmark).
+        AddHandler("POST   /benchmarks/{id}/cancel", handler.AdminCancelBenchmark)
 
-    router.AddSubroute("/api/", protected.Finalize())
-    router.AddSubroute("/api/", admin.Finalize())
+    router.AddSubroute("/api/v1/", protected.Finalize())
+    router.AddSubroute("/api/v1/admin/", admin.Finalize())
     final := router.Finalize()
 
     // --- Background workers ---
-    go worker.NewBenchmarkRunner().Run(ctx)   // pool of MAX_PARALLELISM goroutines
-    go worker.NewEmailDispatcher().Run(ctx)   // no-op when SMTP disabled
+    go worker.NewBenchmarkRunner(cfg, db, rdb).Run(ctx)   // pool of MAX_PARALLELISM goroutines
+    go worker.NewEmailDispatcher(cfg, db).Run(ctx)   // no-op when SMTP disabled
 
     server := &http.Server{
         Addr:              ":8080",
@@ -336,7 +338,7 @@ func main() {
 }
 ```
 
-> Bug fix: the original example had `GET /v1/bechmarks/{id}` (missing `n`) and launched Budgeteer workers (`NewEmailDispatcher`, `NewJobCron`). Both corrected above.
+> Bug fix: the original example had `GET /v1/bechmarks/{id}` (missing `n`), launched Budgeteer workers (`NewEmailDispatcher`, `NewJobCron`), and used `/api/` for both subroutes (causes ServeMux panic). All corrected above.
 
 **`internal/middleware/auth.go`** (JWT; claims attached to context; Redis blocklist checked every request):
 
@@ -647,23 +649,57 @@ Strict secret management: no sensitive credentials in env vars; secrets are file
 
 ```yaml
 services:
-  frontend:
-    build: ./frontend
+  nginx:
+    image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
+      - "81:81"
+    volumes:
+      - ./angie/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
+      - frontend
+      - admin-frontend
       - backend
+    restart: unless-stopped
 
-  admin-frontend:                 # D: decoupled admin app (was missing in the original)
-    build: ./admin-frontend
-    ports:
-      - "81:80"
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./frontend
+    expose:
+      - "80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  admin-frontend:
+    build:
+      context: ./admin-frontend
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./admin-frontend
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
   backend:
-    build: ./backend              # multi-stage: builds C++ artifacts (D9), then Go
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./backend
+        - action: rebuild
+          path: ./compression
     secrets:
       - jwt_secret
       - db_password
@@ -683,21 +719,22 @@ services:
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
       - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
-      - SMTP_HOST=${SMTP_HOST:-}     # empty => SMTP disabled
+      - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_FROM=${SMTP_FROM:-}
     volumes:
-      - bench_data:/data/benchmarks   # ephemeral working area (files deleted after run)
-    ports:
-      - "8080:8080"
+      - bench_data:/data/benchmarks
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+    restart: unless-stopped
 
-  postgres:                        # plain PostgreSQL (D7), NOT TimescaleDB
+  postgres:
     image: postgres:18-alpine
     secrets:
       - db_password
@@ -705,28 +742,32 @@ services:
       - POSTGRES_USER=bitbench
       - POSTGRES_DB=bitbench
       - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
-    ports:
-      - "5432:5432"
     volumes:
-      - ./pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bitbench"]
       interval: 10s
       timeout: 5s
       retries: 5
+    expose:
+      - "5432"
+    restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:latest
     secrets:
       - redis_password
     command: >
       sh -c 'redis-server --requirepass "$$(cat /run/secrets/redis_password)"'
-    ports:
-      - "6379:6379"
-    # No persistent volume: Redis is ephemeral (JWT blocklist is self-pruning by TTL).
+    expose:
+      - "6379"
+    restart: unless-stopped
 
 volumes:
   bench_data:
+    driver: local
+  pg_data:
+    driver: local
 
 secrets:
   jwt_secret:
@@ -759,27 +800,48 @@ secrets:
 ### Backend Dockerfile (multi-stage, D9)
 
 ```dockerfile
-# stage 1: build C++ artifacts
+# Stage 1: Build Squash library
+FROM gcc:13 AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake wget bzip2 ninja-build ragel doxygen valac libglib2.0-dev && rm -rf /var/lib/apt/lists/*
+RUN wget https://github.com/quixdb/squash/releases/download/v0.7.0/squash-0.7.0.tar.bz2 \
+    && tar -xjf squash-0.7.0.tar.bz2 && rm squash-0.7.0.tar.bz2
+WORKDIR /usr/src/squash-0.7.0
+RUN mkdir build && cd build \
+    && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local .. \
+    && ninja && ninja install
+
+# Stage 2: Build C++ artifacts
 FROM gcc:13 AS cpp-build
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local/include /usr/local/include
+COPY --from=builder /usr/local/bin /usr/local/bin
+RUN ldconfig
 WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates cmake && rm -rf /var/lib/apt/lists/*
 COPY compression/ ./compression/
-RUN cd compression && cmake -B build -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) -C build
+RUN cd compression && cmake -B build -DCMAKE_BUILD_TYPE=Release -DNEATS_WITH_SQUASH=OFF
+RUN cd compression && make -j$(nproc) -C build LosslessBenchmarkFull
+RUN mkdir -p /artifacts/bin && cp compression/build/LosslessBenchmarkFull /artifacts/bin/
 
-# stage 2: build Go backend
-FROM golang:1.26 AS go-build
+# Stage 3: Build Go backend
+FROM golang:1.26-alpine AS go-build
 WORKDIR /src
-COPY backend/ ./backend/
-COPY --from=cpp-build /src/compression/build/LosslessBenchmark* /tmp/cpp/
-RUN cd backend/src && CGO_ENABLED=0 go build -o /out/bitbench ./cmd/bitbench-backend
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ .
+RUN CGO_ENABLED=0 go build -o /out/bitbench ./cmd/bitbench-backend
 
-# stage 3: runtime
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libstdc++6 && rm -rf /var/lib/apt/lists/*
+# Stage 4: Runtime
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libstdc++6 libgomp1 libglib2.0-0 libsnappy1v5 libbrotli1 && rm -rf /var/lib/apt/lists/*
+COPY --from=cpp-build /usr/local/lib/ /usr/local/lib/
+RUN ldconfig
 WORKDIR /app
 COPY --from=go-build /out/bitbench /app/bitbench
-COPY --from=cpp-build /src/compression/build/LosslessBenchmark* /app/bin/
-COPY --from=cpp-build /src/compression/build/lib /app/bin/lib
-ENV LD_LIBRARY_PATH=/app/bin/lib
+COPY --from=cpp-build /artifacts/bin/ /app/bin/
+EXPOSE 8080
 CMD ["/app/bitbench"]
 ```
 
