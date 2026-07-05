@@ -7,13 +7,42 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch } from '@/lib/api'
+import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
 
-const COLORS = [
-  '#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16',
-  '#06b6d4', '#d946ef', '#64748b',
-]
+// Marker symbols for Recharts (using unicode/emoji-like render via SVG shapes)
+function CompressorShape({ cx, cy, name }: { cx?: number; cy?: number; name?: string }) {
+  const shape = getCompressorShape(name || '')
+  const color = getCompressorColor(name || '')
+  if (!cx || !cy) return null
+  const r = 6
+  switch (shape) {
+    case 'square':
+      return <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} fill={color} />
+    case 'diamond':
+      return <polygon points={`${cx},${cy - r * 1.4} ${cx + r * 1.4},${cy} ${cx},${cy + r * 1.4} ${cx - r * 1.4},${cy}`} fill={color} />
+    case 'triangle-up':
+      return <polygon points={`${cx},${cy - r * 1.5} ${cx + r * 1.4},${cy + r} ${cx - r * 1.4},${cy + r}`} fill={color} />
+    case 'star': {
+      const points = []
+      for (let i = 0; i < 5; i++) {
+        const a = (i * 4 * Math.PI) / 5 - Math.PI / 2
+        points.push(`${cx + r * 1.5 * Math.cos(a)},${cy + r * 1.5 * Math.sin(a)}`)
+      }
+      return <polygon points={points.join(' ')} fill={color} />
+    }
+    case 'pentagon': {
+      const points = []
+      for (let i = 0; i < 5; i++) {
+        const a = (i * 2 * Math.PI) / 5 - Math.PI / 2
+        points.push(`${cx + r * 1.3 * Math.cos(a)},${cy + r * 1.3 * Math.sin(a)}`)
+      }
+      return <polygon points={points.join(' ')} fill={color} />
+    }
+    default:
+      return <circle cx={cx} cy={cy} r={r} fill={color} />
+  }
+}
 
 const LOWER_IS_BETTER = new Set([
   'compression_ratio', 'compressed_bits', 'uncompressed_bits',
@@ -107,7 +136,8 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   const data = results
     .filter((r) => r.compression_ratio != null)
     .map((r) => ({
-      name: r.compressor,
+      name: renameCompressor(r.compressor),
+      compressor: r.compressor,
       ratio: +(r.compression_ratio! * 100).toFixed(2),
     }))
 
@@ -123,7 +153,11 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
             label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 60 }}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
-          <Bar dataKey="ratio" fill="#2563eb" />
+          <Bar dataKey="ratio" fill="#2563eb">
+            {data.map((d) => (
+              <Cell key={d.name} fill={getCompressorColor(d.compressor)} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -134,7 +168,8 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   const data = results
     .filter((r) => (r as any)[metric] != null)
     .map((r) => ({
-      name: r.compressor,
+      name: renameCompressor(r.compressor),
+      compressor: r.compressor,
       [metric]: +((r as any)[metric]).toFixed(4),
     }))
 
@@ -151,7 +186,11 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
             label={{ value: label, angle: -90, position: 'outside', offset: 60 }}
           />
           <Tooltip formatter={(v: any) => formatMetricValue(v, metric)} />
-          <Bar dataKey={metric} fill="#16a34a" />
+          <Bar dataKey={metric} fill="#16a34a">
+            {data.map((d) => (
+              <Cell key={d.name} fill={getCompressorColor(d.compressor)} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -164,11 +203,17 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
     .map((r) => ({
       x: +(r.compression_ratio! * 100).toFixed(2),
       y: +((r as any)[metric]).toFixed(2),
-      name: r.compressor,
+      name: renameCompressor(r.compressor),
     }))
     .sort((a, b) => a.x - b.x)
 
   if (data.length === 0) return null
+
+  // Pre-compute domain for axes so multiple <Scatter> compute correctly
+  const xs = data.map((d) => d.x)
+  const ys = data.map((d) => d.y)
+  const xDomain: [number, number] = [Math.min(...xs), Math.max(...xs)]
+  const yDomain: [number, number] = [Math.min(...ys), Math.max(...ys)]
 
   return (
     <div>
@@ -179,11 +224,13 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             <XAxis
               dataKey="x"
               name="Compression Ratio (%)"
+              domain={xDomain}
               label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 50 }}
             />
             <YAxis
               dataKey="y"
               name={metricLabel(metric)}
+              domain={yDomain}
               label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 60 }}
             />
             <Tooltip
@@ -194,22 +241,27 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
                 return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
               }}
             />
-            <Scatter data={data} fill="#2563eb" name="Compressors">
-              {data.map((d, i) => (
-                <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
-              ))}
-            </Scatter>
+            {/* Render separate Scatter per point to get per-point shape + color */}
+            {data.map((d) => (
+              <Scatter
+                key={d.name}
+                data={[d]}
+                fill={getCompressorColor(d.name)}
+                shape={<CompressorShape name={d.name} />}
+                line={false}
+                legendType="none"
+              />
+            ))}
           </ScatterChart>
         </ResponsiveContainer>
       </div>
-      {/* Custom legend showing each compressor name with its color */}
+      {/* Custom legend showing each compressor name with its color + shape */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
-        {data.map((d, i) => (
+        {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
-            <span
-              className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: COLORS[i % COLORS.length] }}
-            />
+            <span className="inline-block shrink-0" style={{ width: 12, height: 12 }}>
+              <CompressorShape cx={6} cy={6} name={d.name} />
+            </span>
             <span className="text-xs text-muted-foreground">{d.name}</span>
           </div>
         ))}
@@ -239,7 +291,7 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
               <td className={`py-1 font-mono ${
                 r.rank === 1 ? 'font-bold' : r.rank === 2 ? 'underline' : r.rank === 3 ? 'italic' : ''
               }`}>
-                {r.compressor}
+                {renameCompressor(r.compressor)}
               </td>
               <td className="text-right py-1">
                 {formatMetricValue(r.value, metric)}
@@ -331,7 +383,7 @@ export default function DetailPage() {
                     return (
                       <tr key={comp} className="border-b last:border-0">
                         <td className="py-2 text-muted-foreground">{i + 1}</td>
-                        <td className="py-2 font-mono">{comp}</td>
+                        <td className="py-2 font-mono">{renameCompressor(comp)}</td>
                         <td className="text-right py-2">
                           {r?.compression_ratio != null ? (r.compression_ratio * 100).toFixed(2) : '-'}
                         </td>

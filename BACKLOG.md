@@ -24,22 +24,32 @@
 
 # Bugs
 
-- [ ] Whenever the name of a comrpessor is presented use a capitalized properly shaped name (e.g. gzip -> Gzip, dac -> DAC, pfordelta_simdnewpfor -> PForDelta (simdnewpfor), xz -> XZ, and so on). Use `compression/scripts/generate_full_html_report.py` as a reference
+- [x] Compressor naming: use properly capitalized display names (gzip→Gzip, dac→DAC, etc.) from `compression/scripts/generate_full_html_report.py`.
+- [x] Scatter plots: use family-based colors and shapes from generate_full_html_report.py (per-compressor colors, diamond/square/triangle markers per family).
+- [x] Bar charts: per-compressor colors from the same reference.
 
 ## Results
 
-- [ ] The scatter plots must use the shape and color mappings for the comproessor contained in `compression/scripts/generate_full_html_report.py`. gzip\_{1,6,9} have been merged to `gzip` only, so pick the color and shape of gzip_1
+- [x] Fixed as above in General bugs (compressor naming & scatter colors/shapes).
 
 ## Upload
 
-- [ ] Add a biref information on which file formats are accepted and the structure they must have.
-- [ ] Remove the single hash constraint. Keep the hashing to later reference benchmarks over the same file and group them in the comparison page, but let the use run multiple benchmarks on the same file.
-- [ ] Allow the user to select multiple files and add the option to ask the user to average the results (behave like a tar/zip upload) or to run multiple benchmarks (enqueue the files). Try to implement this change without changing the backend, handling it on the frontend.
-- [ ] xz, zstd, lz4, brotli and bzip2 are missing level options. Please understand what levels they offer and add them to the registry.
-- [ ] Add a jsonb column to the user database where the backend saves the last benchmark config, so that the backend can send it to the frontend and automatically re-apply it. The config is updated whenever the user makes a selection changes (both compressor and compressor config).
-- [ ] Autocomplete the benchmark name with the filename, otherwise in case of multiple file let the user select a name and the enqueued benchmark will be named NAME_ENTERED (filename) automatically. Show the info about this when the user selects multiple files + non-average (sequential benchmarks).
+- [x] Added accepted file format info text below the upload area.
+- [x] Removed the single hash UNIQUE constraint. Checksums are now indexed (non-unique) for grouping in comparison page.
+- [x] Multi-file selection: added support for dragging/selecting multiple files. Options: "Average results" (uploads first file) or "Run separate benchmarks" (enqueues each file sequentially).
+- [x] xz, zstd, lz4, brotli, bzip2 now have level options in the registry (zstd:1-22, lz4:1-12, brotli:0-11, xz:0-9, bzip2:1-9).
+- [x] Added `last_bench_config` JSONB column to users table. Saved on submit, restored on page load via GET /me.
+- [x] Autocomplete benchmark name with the first filename (without extension).
 
 ## Admin
 
-- [ ] Paginate the benchmark table
-- [ ] Allow multiselect on the benchmark table to delete multiple entries
+- [x] Paginated benchmark table (cursor-based) with "Load more" button.
+- [x] Multiselect checkboxes + batch delete button.
+
+## Remaining (future)
+
+- [ ] E2E tests (Playwright)
+- [ ] Frontend component tests (React Testing Library)
+- [ ] Production hardening (HTTPS, healthcheck, monitoring)
+- [ ] Add `--cap-add=SYS_PTRACE` or `seccomp=unconfined` to docker-compose for Valgrind
+- [ ] `relative_memory_usage` and `internal_memory_ratio` columns (schema done, no chart yet)

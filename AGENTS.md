@@ -634,7 +634,7 @@ random_access_ns,random_access_mbs[,range_query_<N>...]
 | PForDelta | PForDelta | star |
 | DAC | DAC | pentagon |
 
-`rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip`→`gzip`, etc. (full map in `scripts/generate_full_html_report.py`).
+`rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip`→`Gzip`, `dac`→`DAC`, etc. (full map in `scripts/generate_full_html_report.py` and `frontend/src/lib/compressors.ts`).
 
 ### 6.5 Metric ranking rules (parity with `is_min_best`)
 

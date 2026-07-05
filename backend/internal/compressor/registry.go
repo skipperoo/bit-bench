@@ -72,13 +72,24 @@ var Registry = map[string]map[string]Option{
 	},
 
 	// === Squash-based (LosslessBenchmarkFull only) ===
-	// Level is passed via SquashOptions for supported codecs (lz4, zstd, brotli, xz, bzip2)
+	// Level is passed via SquashOptions for supported codecs.
+	// zstd: 1-22, lz4: 1-12, brotli: 0-11, xz: 0-9, bzip2: 1-9
 	// snappy has no level parameter
-	"bzip2":  {},
-	"lz4":    {},
-	"zstd":   {},
-	"brotli": {},
-	"xz":     {},
+	"bzip2": {
+		"level": {Type: "number", Min: intPtr(1), Max: intPtr(9), Default: 6, Step: intPtr(1)},
+	},
+	"lz4": {
+		"level": {Type: "number", Min: intPtr(1), Max: intPtr(12), Default: 6, Step: intPtr(1)},
+	},
+	"zstd": {
+		"level": {Type: "number", Min: intPtr(1), Max: intPtr(22), Default: 6, Step: intPtr(1)},
+	},
+	"brotli": {
+		"level": {Type: "number", Min: intPtr(0), Max: intPtr(11), Default: 6, Step: intPtr(1)},
+	},
+	"xz": {
+		"level": {Type: "number", Min: intPtr(0), Max: intPtr(9), Default: 6, Step: intPtr(1)},
+	},
 	"snappy": {},
 }
 

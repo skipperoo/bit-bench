@@ -69,6 +69,7 @@ func main() {
 		AddMiddleware(middleware.JWTAuth).
 		AddHandler("POST  /auth/logout",           handler.Logout).
 		AddHandler("PUT   /auth/password",         handler.ChangePassword).
+		AddHandler("PUT   /me/config",             handler.SaveLastConfig).
 		AddHandler("GET   /me",                    handler.Me).
 		AddHandler("GET   /compressors",           handler.ListCompressors).
 		AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
@@ -94,6 +95,7 @@ func main() {
 		AddHandler("DELETE /groups/{id}",              handler.AdminDeleteGroup).
 		AddHandler("GET    /benchmarks",               handler.AdminListBenchmarks).
 		AddHandler("DELETE /benchmarks/{id}",          handler.AdminDeleteBenchmark).
+		AddHandler("POST   /benchmarks/batch-delete",  handler.AdminBatchDeleteBenchmarks).
 		AddHandler("POST   /benchmarks/{id}/cancel",   handler.AdminCancelBenchmark)
 
 	router.AddSubroute("/api/v1/", protected.Finalize())

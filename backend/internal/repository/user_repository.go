@@ -35,11 +35,11 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*model.
 	u := &model.User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       created_at, updated_at, deleted_at
+		       last_bench_config, created_at, updated_at, deleted_at
 		FROM users WHERE email = $1 AND deleted_at IS NULL
 	`, email).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
-		&u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&u.MustChangePassword, &u.LastBenchConfig, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -54,11 +54,11 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Use
 	u := &model.User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       created_at, updated_at, deleted_at
+		       last_bench_config, created_at, updated_at, deleted_at
 		FROM users WHERE id = $1 AND deleted_at IS NULL
 	`, id).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
-		&u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		&u.MustChangePassword, &u.LastBenchConfig, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -72,7 +72,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Use
 func (r *UserRepository) List(ctx context.Context) ([]*model.User, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       created_at, updated_at, deleted_at
+		       last_bench_config, created_at, updated_at, deleted_at
 		FROM users WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
 	`)
@@ -86,13 +86,18 @@ func (r *UserRepository) List(ctx context.Context) ([]*model.User, error) {
 		u := &model.User{}
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
-			&u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+			&u.MustChangePassword, &u.LastBenchConfig, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+func (r *UserRepository) UpdateLastConfig(ctx context.Context, id uuid.UUID, config map[string]interface{}) error {
+	_, err := r.db.Exec(ctx, "UPDATE users SET last_bench_config = $1, updated_at = NOW() WHERE id = $2", config, id)
+	return err
 }
 
 func (r *UserRepository) Update(ctx context.Context, id uuid.UUID, role *string, groupID *string, newPasswordHash *string) error {

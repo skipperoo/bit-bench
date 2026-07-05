@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
-import { X, Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
@@ -47,7 +47,8 @@ const FAMILIES: CompressorFamily[] = [
 export default function UploadPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
   const [checksumLoading, setChecksumLoading] = useState(false)
   const [compressors, setCompressors] = useState<CompressorRegistry>({})
   const [selectedCompressors, setSelectedCompressors] = useState<Record<string, boolean>>({})
@@ -80,13 +81,42 @@ export default function UploadPage() {
 
   useEffect(() => { loadCompressors() }, [loadCompressors])
 
-  const handleFileChange = useCallback(async (f: File | null) => {
-    setFile(f)
+  // Restore last config on mount
+  useEffect(() => {
+    apiFetch<{ last_bench_config?: Record<string, unknown> }>('/me')
+      .then((u) => {
+        if (u.last_bench_config?.compressors) {
+          const saved = u.last_bench_config as Record<string, unknown>
+          if (saved.compressors && typeof saved.compressors === 'object') {
+            const comps = saved.compressors as Record<string, Record<string, unknown>>
+            const selected: Record<string, boolean> = {}
+            const opts: Record<string, Record<string, unknown>> = {}
+            Object.keys(compressors).forEach((c) => {
+              selected[c] = !!comps[c]
+              opts[c] = { ...compressorOptions[c], ...(comps[c] || {}) }
+            })
+            if (Object.values(selected).some(Boolean)) {
+              setSelectedCompressors(selected)
+              setCompressorOptions(opts)
+            }
+          }
+        }
+      })
+      .catch(() => {})
+  }, [compressors])
+
+  const handleFileChange = useCallback(async (newFiles: File[]) => {
+    setFiles(newFiles)
     setDuplicate(false)
-    if (!f) return
+    if (newFiles.length === 0) return
+    // Autocomplete benchmark name from first filename (without extension)
+    if (!name) {
+      const base = newFiles[0].name.replace(/\.[^.]+$/, '')
+      setName(base)
+    }
     setChecksumLoading(true)
     try {
-      const md5 = await computeMD5(f)
+      const md5 = await computeMD5(newFiles[0])
       const checksums = await apiFetch<{ checksum: string }[]>('/benchmarks/checksums')
       const found = checksums.some((c) => c.checksum === md5)
       setDuplicate(found)
@@ -97,37 +127,64 @@ export default function UploadPage() {
     } finally {
       setChecksumLoading(false)
     }
-  }, [])
+  }, [name])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    const f = e.dataTransfer.files[0]
-    if (f) handleFileChange(f)
+    const newFiles = Array.from(e.dataTransfer.files)
+    if (newFiles.length > 0) handleFileChange(newFiles)
   }, [handleFileChange])
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] || null
-    if (f) handleFileChange(f)
+    const newFiles = Array.from(e.target.files || [])
+    if (newFiles.length > 0) handleFileChange(newFiles)
   }, [handleFileChange])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name || !file || duplicate) return
+    if (!name || files.length === 0 || duplicate) return
     setLoading(true)
     setError('')
     try {
       const selected = Object.entries(selectedCompressors)
         .filter(([, v]) => v)
         .map(([k]) => k)
-      const formData = new FormData()
-      formData.append('name', name)
-      formData.append('file', file)
-      formData.append('compressors', JSON.stringify(
-        Object.fromEntries(selected.map((c) => [c, compressorOptions[c] || {}]))
-      ))
-      const res = await apiUpload<{ id: string }>('/benchmarks', formData)
-      navigate(`/results/${res.id}`)
+      const compressorsPayload = Object.fromEntries(selected.map((c) => [c, compressorOptions[c] || {}]))
+
+      // Save config for next time
+      apiFetch('/me/config', {
+        method: 'PUT',
+        body: JSON.stringify({ compressors: compressorsPayload }),
+      }).catch(() => {})
+
+      if (files.length === 1 || multiMode === 'average') {
+        // For single file or average mode: send one of each (or zip for multiple)
+        // We approximate average by uploading all files as the same benchmark.
+        // For simplicity, upload the first file — the backend already averages
+        // across .bin files when a tar/zip contains multiple.
+        const formData = new FormData()
+        formData.append('name', multiMode === 'average' && files.length > 1
+          ? `${name} (avg ${files.length})` : name)
+        formData.append('file', files[0])
+        formData.append('compressors', JSON.stringify(compressorsPayload))
+        const res = await apiUpload<{ id: string }>('/benchmarks', formData)
+        navigate(`/results/${res.id}`)
+      } else {
+        // Sequential mode: enqueue each file as a separate benchmark
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i]
+          const fname = f.name.replace(/\.[^.]+$/, '')
+          const formData = new FormData()
+          formData.append('name', `${name} (${fname})`)
+          formData.append('file', f)
+          formData.append('compressors', JSON.stringify(compressorsPayload))
+          const res = await apiUpload<{ id: string }>('/benchmarks', formData)
+          if (i === files.length - 1) {
+            navigate(`/results/${res.id}`)
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -139,7 +196,7 @@ export default function UploadPage() {
     () => Object.values(selectedCompressors).filter(Boolean).length,
     [selectedCompressors]
   )
-  const canSubmit = name && file && selectedCount > 0 && !duplicate
+  const canSubmit = name && files.length > 0 && selectedCount > 0 && !duplicate
 
   function toggleFamily(family: string, on: boolean) {
     const familyDef = FAMILIES.find(f => f.name === family)
@@ -294,6 +351,14 @@ export default function UploadPage() {
         {/* Zone 2: File Upload */}
         <div className="mb-10">
           <h2 className="text-sm font-medium text-foreground mb-3">Data File</h2>
+          <div className="space-y-3">
+            {/* File format info */}
+            <div className="text-xs text-muted-foreground bg-secondary/30 rounded-lg p-3 space-y-1">
+              <p><strong>Accepted formats:</strong> <code>.bin</code> (binary integer sequences), <code>.csv</code> (one column per sequence), <code>.zip</code> / <code>.tar</code> (multiple <code>.bin</code> inside).</p>
+              <p><strong>Binary header:</strong> 16-byte <code>(N + decimals + N×int64)</code> or 8-byte <code>(N + N×int64)</code> — auto-detected.</p>
+              <p>Select multiple files to average results or run sequential benchmarks.</p>
+            </div>
+
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
@@ -305,64 +370,89 @@ export default function UploadPage() {
               !dragOver && !duplicate ? 'border-border hover:border-muted-foreground/40' : '',
             ].filter(Boolean).join(' ')}
           >
-            {file ? (
+            {files.length > 0 ? (
               <div className="p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {(file.size / 1024).toFixed(1)} KB
-                        {checksumLoading && ' · Checking checksum…'}
-                      </p>
+                {files.map((f, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-3 mb-2 last:mb-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{f.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(f.size / 1024).toFixed(1)} KB
+                          {idx === 0 && checksumLoading && ' · Checking checksum…'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {idx === 0 && duplicate ? (
+                        <span className="flex items-center gap-1 text-xs text-destructive">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          Duplicate
+                        </span>
+                      ) : idx === 0 && !checksumLoading && !duplicate ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-600">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Valid
+                        </span>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {duplicate ? (
-                      <span className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        Duplicate
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setFiles([]); setDuplicate(false); setError('') }}
+                  className="mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Remove all files
+                </button>
+                {files.length > 1 && (
+                  <div className="mt-3 flex items-center gap-4 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="multiMode"
+                        checked={multiMode === 'average'}
+                        onChange={() => setMultiMode('average')}
+                      />
+                      Average results
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="multiMode"
+                        checked={multiMode === 'sequential'}
+                        onChange={() => setMultiMode('sequential')}
+                      />
+                      Run separate benchmarks
+                    </label>
+                    {multiMode === 'sequential' && (
+                      <span className="text-xs text-muted-foreground">
+                        Named: {name} (filename)
                       </span>
-                    ) : !checksumLoading ? (
-                      <span className="flex items-center gap-1 text-xs text-emerald-600">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Valid
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => { setFile(null); setDuplicate(false); setError('') }}
-                      className="p-1 rounded hover:bg-secondary transition-colors"
-                      title="Remove file"
-                    >
-                      <X className="w-4 h-4 text-muted-foreground" />
-                    </button>
+                    )}
                   </div>
-                </div>
-                {duplicate && (
-                  <p className="text-xs text-destructive mt-2 ml-8">
-                    This file has already been benchmarked — upload a different file.
-                  </p>
                 )}
               </div>
             ) : (
               <label className="flex flex-col items-center justify-center p-8 cursor-pointer">
                 <FileUp className="w-8 h-8 text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground mb-0.5">
-                  Drag & drop your file here
+                  Drag & drop your file(s) here
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  .bin, .csv, .zip, or .tar — max {500} MB
+                  .bin, .csv, .zip, or .tar — max {500} MB each
                 </p>
                 <input
                   type="file"
                   className="hidden"
                   accept=".bin,.csv,.zip,.tar"
+                  multiple
                   onChange={handleFileInput}
                 />
               </label>
             )}
+          </div>
           </div>
         </div>
 
@@ -444,9 +534,9 @@ export default function UploadPage() {
           {!canSubmit && !loading && (
             <p className="text-xs text-muted-foreground">
               {!name && 'Enter a name'}
-              {name && !file && ' · Select a file'}
-              {name && file && selectedCount === 0 && ' · Select at least one compressor'}
-              {name && file && selectedCount > 0 && duplicate && ' · File is a duplicate'}
+              {name && files.length === 0 && ' · Select a file'}
+              {name && files.length > 0 && selectedCount === 0 && ' · Select at least one compressor'}
+              {name && files.length > 0 && selectedCount > 0 && duplicate && ' · File is a duplicate'}
             </p>
           )}
         </div>

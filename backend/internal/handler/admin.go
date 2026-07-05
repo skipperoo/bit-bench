@@ -2,10 +2,12 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -251,7 +253,19 @@ func AdminDeleteGroup(w http.ResponseWriter, r *http.Request) {
 // ─── Benchmarks ───────────────────────────────────────────
 
 func AdminListBenchmarks(w http.ResponseWriter, r *http.Request) {
-	result, err := service.BenchRepo.List(r.Context(), repository.ListBenchmarksParams{Limit: 1000})
+	limit := 50
+	cursor := r.URL.Query().Get("cursor")
+	var cursorTime *time.Time
+	if cursor != "" {
+		if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
+			cursorTime = &t
+		}
+	}
+
+	result, err := service.BenchRepo.List(r.Context(), repository.ListBenchmarksParams{
+		Cursor: cursorTime,
+		Limit:  limit,
+	})
 	if err != nil {
 		writeError(w, "failed to list benchmarks", http.StatusInternalServerError)
 		return
@@ -263,7 +277,51 @@ func AdminListBenchmarks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(benchmarks)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"benchmarks":  benchmarks,
+		"next_cursor": result.NextCursor,
+	})
+}
+
+func AdminBatchDeleteBenchmarks(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var errs []string
+	for _, idStr := range req.IDs {
+		benchID, err := uuid.Parse(idStr)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("invalid id %s: %v", idStr, err))
+			continue
+		}
+		benchmark, err := service.BenchRepo.FindByID(r.Context(), benchID)
+		if err != nil || benchmark == nil {
+			errs = append(errs, fmt.Sprintf("not found: %s", idStr))
+			continue
+		}
+		workDir := filepath.Join(AppConfig.DataDir, benchID.String())
+		os.RemoveAll(workDir)
+		srcName := service.StoredFilename(benchmark.OriginalFilename, benchmark.FileChecksum)
+		os.Remove(filepath.Join(AppConfig.DataDir, srcName))
+		if err := service.BenchRepo.Delete(r.Context(), benchID); err != nil {
+			errs = append(errs, fmt.Sprintf("delete %s: %v", idStr, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"deleted": len(req.IDs) - len(errs),
+			"errors":  errs,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func AdminDeleteBenchmark(w http.ResponseWriter, r *http.Request) {

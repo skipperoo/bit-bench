@@ -25,15 +25,16 @@ type Group struct {
 }
 
 type User struct {
-	ID              uuid.UUID  `json:"id"`
-	Email           string     `json:"email"`
-	PasswordHash    string     `json:"-"`
-	Role            string     `json:"role"`
-	GroupID         *uuid.UUID `json:"group_id,omitempty"`
-	MustChangePassword bool    `json:"must_change_password"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
+	ID                 uuid.UUID              `json:"id"`
+	Email              string                 `json:"email"`
+	PasswordHash       string                 `json:"-"`
+	Role               string                 `json:"role"`
+	GroupID            *uuid.UUID             `json:"group_id,omitempty"`
+	MustChangePassword bool                   `json:"must_change_password"`
+	LastBenchConfig    map[string]interface{} `json:"last_bench_config,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+	DeletedAt          *time.Time             `json:"deleted_at,omitempty"`
 }
 
 type Benchmark struct {

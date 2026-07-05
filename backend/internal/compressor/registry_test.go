@@ -102,7 +102,7 @@ func TestEmptyCompressorsHaveNoOptions(t *testing.T) {
 		"u_gef_approximate", "u_gef_optimal",
 		"b_gef_approximate", "b_gef_optimal",
 		"b_star_gef_approximate", "b_star_gef_optimal",
-		"bzip2", "lz4", "zstd", "brotli", "xz", "snappy",
+		"snappy",
 	}
 	for _, name := range emptyOnes {
 		if len(Registry[name]) != 0 {

@@ -112,3 +112,11 @@ func (s *AuthService) GetUserProfile(ctx context.Context, userID string) (*model
 	}
 	return s.userRepo.FindByID(ctx, uid)
 }
+
+func (s *AuthService) UpdateLastConfig(ctx context.Context, userID string, config map[string]interface{}) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+	return s.userRepo.UpdateLastConfig(ctx, uid, config)
+}

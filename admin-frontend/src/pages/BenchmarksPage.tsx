@@ -16,13 +16,22 @@ const statusColors: Record<string, string> = {
 export default function BenchmarksPage() {
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
   const [loading, setLoading] = useState(true)
+  const [nextCursor, setNextCursor] = useState<string | undefined>()
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const load = () => {
+  const load = async (cursor?: string) => {
     setLoading(true)
-    apiFetch<Benchmark[]>('/benchmarks')
-      .then((data) => setBenchmarks(data ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    try {
+      const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+      const data = await apiFetch<{ benchmarks: Benchmark[]; next_cursor?: string }>(`/benchmarks${params}`)
+      if (cursor) {
+        setBenchmarks((prev) => [...prev, ...(data.benchmarks ?? [])])
+      } else {
+        setBenchmarks(data.benchmarks ?? [])
+      }
+      setNextCursor(data.next_cursor)
+    } catch {}
+    setLoading(false)
   }
 
   useEffect(() => { load() }, [])
@@ -39,21 +48,61 @@ export default function BenchmarksPage() {
     if (!confirm('Permanently delete this benchmark and its results?')) return
     try {
       await apiFetch(`/benchmarks/${id}`, { method: 'DELETE' })
-      load()
+      setBenchmarks((prev) => prev.filter((b) => b.id !== id))
     } catch {}
+  }
+
+  const handleBatchDelete = async () => {
+    if (selected.size === 0) return
+    if (!confirm(`Delete ${selected.size} benchmark(s)?`)) return
+    try {
+      await apiFetch('/benchmarks/batch-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids: Array.from(selected) }),
+      })
+      setBenchmarks((prev) => prev.filter((b) => !selected.has(b.id)))
+      setSelected(new Set())
+    } catch {}
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selected.size === benchmarks.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(benchmarks.map((b) => b.id)))
+    }
   }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Benchmarks</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Benchmarks</h1>
+        {selected.size > 0 && (
+          <Button variant="destructive" size="sm" onClick={handleBatchDelete}>
+            Delete {selected.size} selected
+          </Button>
+        )}
+      </div>
 
-      {loading ? (
+      {loading && benchmarks.length === 0 ? (
         <p className="text-neutral-500">Loading...</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm bg-white rounded-lg border">
             <thead>
               <tr className="border-b bg-neutral-50">
+                <th className="p-3 w-10">
+                  <input type="checkbox" onChange={toggleAll} checked={selected.size === benchmarks.length && benchmarks.length > 0} />
+                </th>
                 <th className="text-left p-3">Name</th>
                 <th className="text-left p-3">Status</th>
                 <th className="text-left p-3">File</th>
@@ -64,6 +113,9 @@ export default function BenchmarksPage() {
             <tbody>
               {benchmarks.map((b) => (
                 <tr key={b.id} className="border-b last:border-0 hover:bg-neutral-50">
+                  <td className="p-3">
+                    <input type="checkbox" checked={selected.has(b.id)} onChange={() => toggleSelect(b.id)} />
+                  </td>
                   <td className="p-3 font-medium">{b.name}</td>
                   <td className="p-3">
                     <Badge className={statusColors[b.status] || ''}>{b.status}</Badge>
@@ -88,6 +140,11 @@ export default function BenchmarksPage() {
               ))}
             </tbody>
           </table>
+          {nextCursor && (
+            <Button variant="outline" className="mt-4 w-full" onClick={() => load(nextCursor)}>
+              Load more
+            </Button>
+          )}
         </div>
       )}
     </div>
