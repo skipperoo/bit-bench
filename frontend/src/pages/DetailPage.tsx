@@ -10,11 +10,10 @@ import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
 
-// Marker symbols for Recharts (using unicode/emoji-like render via SVG shapes)
-function CompressorShape({ cx, cy, name }: { cx?: number; cy?: number; name?: string }) {
-  const shape = getCompressorShape(name || '')
-  const color = getCompressorColor(name || '')
-  if (!cx || !cy) return null
+// Render a compressor marker as raw SVG element (used inside Recharts SVG context)
+function CompressorShapeSVG({ cx, cy, name }: { cx: number; cy: number; name: string }) {
+  const shape = getCompressorShape(name)
+  const color = getCompressorColor(name)
   const r = 6
   switch (shape) {
     case 'square':
@@ -24,24 +23,39 @@ function CompressorShape({ cx, cy, name }: { cx?: number; cy?: number; name?: st
     case 'triangle-up':
       return <polygon points={`${cx},${cy - r * 1.5} ${cx + r * 1.4},${cy + r} ${cx - r * 1.4},${cy + r}`} fill={color} />
     case 'star': {
-      const points = []
+      const pts = []
       for (let i = 0; i < 5; i++) {
         const a = (i * 4 * Math.PI) / 5 - Math.PI / 2
-        points.push(`${cx + r * 1.5 * Math.cos(a)},${cy + r * 1.5 * Math.sin(a)}`)
+        pts.push(`${cx + r * 1.5 * Math.cos(a)},${cy + r * 1.5 * Math.sin(a)}`)
       }
-      return <polygon points={points.join(' ')} fill={color} />
+      return <polygon points={pts.join(' ')} fill={color} />
     }
     case 'pentagon': {
-      const points = []
+      const pts = []
       for (let i = 0; i < 5; i++) {
         const a = (i * 2 * Math.PI) / 5 - Math.PI / 2
-        points.push(`${cx + r * 1.3 * Math.cos(a)},${cy + r * 1.3 * Math.sin(a)}`)
+        pts.push(`${cx + r * 1.3 * Math.cos(a)},${cy + r * 1.3 * Math.sin(a)}`)
       }
-      return <polygon points={points.join(' ')} fill={color} />
+      return <polygon points={pts.join(' ')} fill={color} />
     }
     default:
       return <circle cx={cx} cy={cy} r={r} fill={color} />
   }
+}
+
+// Standalone marker for the legend (wrapped in <svg> so it renders in HTML context)
+function LegendMarker({ name }: { name: string }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 14 14" className="shrink-0">
+      <CompressorShapeSVG cx={7} cy={7} name={name} />
+    </svg>
+  )
+}
+
+// Shape renderer for Recharts scatter points
+function CompressorShape(scatterProps: any) {
+  const name = scatterProps.payload?.name || ''
+  return <CompressorShapeSVG cx={scatterProps.cx} cy={scatterProps.cy} name={name} />
 }
 
 const LOWER_IS_BETTER = new Set([
@@ -146,7 +160,7 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   return (
     <div className="h-[432px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 110, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 140, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
@@ -179,7 +193,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   return (
     <div className="h-[384px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 110, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 140, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
@@ -222,7 +236,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
     <div>
       <div className="h-[480px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ left: 110, right: 20, top: 20, bottom: 120 }}>
+          <ScatterChart margin={{ left: 140, right: 20, top: 20, bottom: 120 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="x"
@@ -265,9 +279,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
         {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
-            <span className="inline-block shrink-0" style={{ width: 12, height: 12 }}>
-              <CompressorShape cx={6} cy={6} name={d.name} />
-            </span>
+            <LegendMarker name={d.name} />
             <span className="text-xs text-muted-foreground">{d.name}</span>
           </div>
         ))}
