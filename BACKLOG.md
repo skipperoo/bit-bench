@@ -26,10 +26,10 @@
 
 ## Results
 
-- [ ] Scatter plots have the x axis not sorted.
-- [ ] The y label needs some more margine from the y axis
-- [ ] Remove Interal Memory and Relative memory usage Internal memory ratio.
-- [ ] Keep Memory Usage (total = input + compressor) and Compressor memory usage (compressor = total - input measure from the ported script -> dry run to measure baseline)
+- [x] Scatter plots: sorted by compression ratio ascending (x-axis).
+- [x] Y-axis label offset increased from 35 to 45 for all bar and scatter charts.
+- [x] Removed `relative_memory_usage`, `internal_memory_ratio` metric sections and labels.
+- [x] Renamed `compressor_internal` to "Compressor Memory (MB)". Now shows "Memory Usage (MB)" (total peak) and "Compressor Memory (MB)" (peak − baseline).
 
 ## Status
 

@@ -17,8 +17,7 @@ const COLORS = [
 
 const LOWER_IS_BETTER = new Set([
   'compression_ratio', 'compressed_bits', 'uncompressed_bits',
-  'original_size', 'memory_usage', 'compressor_internal',
-  'internal_memory_ratio', 'relative_memory_usage', 'random_access_ns',
+  'original_size', 'memory_usage', 'compressor_internal', 'random_access_ns',
 ])
 
 function metricLabel(key: string): string {
@@ -27,9 +26,7 @@ function metricLabel(key: string): string {
     compression_throughput_mbs: 'Compression Throughput (MB/s)',
     decompression_throughput_mbs: 'Decompression Throughput (MB/s)',
     memory_usage: 'Memory Usage (MB)',
-    compressor_internal: 'Internal Memory (MB)',
-    relative_memory_usage: 'Relative Memory Usage',
-    internal_memory_ratio: 'Internal Memory Ratio',
+    compressor_internal: 'Compressor Memory (MB)',
     random_access_ns: 'Random Access (ns)',
     random_access_mbs: 'Random Access (MB/s)',
   }
@@ -109,7 +106,7 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 35 }}
+            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 45 }}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb" />
@@ -139,7 +136,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: label, angle: -90, position: 'outside', offset: 35 }}
+            label={{ value: label, angle: -90, position: 'outside', offset: 45 }}
           />
           <Tooltip />
           <Bar dataKey={metric} fill="#16a34a" />
@@ -157,6 +154,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
       y: +((r as any)[metric]).toFixed(2),
       name: r.compressor,
     }))
+    .sort((a, b) => a.x - b.x)
 
   if (data.length === 0) return null
 
@@ -174,7 +172,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             <YAxis
               dataKey="y"
               name={metricLabel(metric)}
-              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 35 }}
+              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 45 }}
             />
             <Tooltip
               formatter={(v: any, name: any) => {
@@ -269,8 +267,6 @@ export default function DetailPage() {
   const hasDecompression = results.some((r) => r.decompression_throughput_mbs != null)
   const hasMemory = results.some((r) => r.memory_usage != null)
   const hasCompressorInternal = results.some((r) => r.compressor_internal != null)
-  const hasInternalMemoryRatio = results.some((r) => r.internal_memory_ratio != null)
-  const hasRelativeMemoryUsage = results.some((r) => r.relative_memory_usage != null)
   const hasRandomNS = results.some((r) => r.random_access_ns != null)
   const hasRandomMBS = results.some((r) => r.random_access_mbs != null)
 
@@ -279,9 +275,7 @@ export default function DetailPage() {
     { key: 'compression_throughput_mbs', label: 'Compression Throughput', chart: 'scatter' as const, show: hasThroughput },
     { key: 'decompression_throughput_mbs', label: 'Decompression Throughput', chart: 'scatter' as const, show: hasDecompression },
     { key: 'memory_usage', label: 'Memory Usage', chart: 'bar' as const, show: hasMemory },
-    { key: 'compressor_internal', label: 'Internal Memory', chart: 'bar' as const, show: hasCompressorInternal },
-    { key: 'relative_memory_usage', label: 'Relative Memory Usage', chart: 'bar' as const, show: hasRelativeMemoryUsage },
-    { key: 'internal_memory_ratio', label: 'Internal Memory Ratio', chart: 'bar' as const, show: hasInternalMemoryRatio },
+    { key: 'compressor_internal', label: 'Compressor Memory', chart: 'bar' as const, show: hasCompressorInternal },
     { key: 'random_access_ns', label: 'Random Access (ns)', chart: 'bar' as const, show: hasRandomNS },
     { key: 'random_access_mbs', label: 'Random Access (MB/s)', chart: 'scatter' as const, show: hasRandomMBS },
   ]
