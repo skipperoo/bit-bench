@@ -908,3 +908,14 @@ Minimum per PR: new UI component → component tests for its interactive states;
 ```
 
 All five gates must be green. A red pipeline blocks merge regardless of approvals.
+
+---
+
+## 9. Design Context
+
+**Register:** product (app UI, dashboard, data analysis tool)
+**North Star:** The Lab Bench — a precision instrument, not a decorative dashboard.
+**Brand:** Precise · Technical · Confident. No-nonsense research tool.
+**Anti-references:** No SaaS dashboard clichés (hero metrics, gradient cards), no consumer playfulness, no enterprise gray-on-gray.
+
+For the full design system with color tokens, typography, component specs, and Named Rules see `PRODUCT.md` and `DESIGN.md` at the project root.

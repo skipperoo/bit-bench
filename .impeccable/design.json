@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-04T23:00:00.000Z",
+  "title": "Design System: BitBench",
+  "extensions": {
+    "colorMeta": {
+      "background": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(100% 0 0)" },
+      "foreground": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(12% 0.03 260)" },
+      "card": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(100% 0 0)" },
+      "primary": { "role": "primary", "displayName": "Ink", "canonical": "oklch(15% 0.04 260)" },
+      "secondary": { "role": "secondary", "displayName": "Private Watermark", "canonical": "oklch(95% 0.01 260)" },
+      "muted-foreground": { "role": "neutral", "displayName": "Dim Ink", "canonical": "oklch(53% 0.02 260)" },
+      "destructive": { "role": "error", "displayName": "Alert", "canonical": "oklch(55% 0.2 20)" },
+      "border": { "role": "neutral", "displayName": "Edge", "canonical": "oklch(88% 0.01 260)" }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "Body", "purpose": "All running text, table cells, form labels." },
+      "label": { "displayName": "Label", "purpose": "Form labels, button text, table headers." },
+      "mono": { "displayName": "Mono", "purpose": "Compressor names, benchmark values." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "none", "value": "none", "purpose": "No motion in the system. Only instant state transitions." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single call-to-action button for submitting benchmarks and confirming actions.",
+      "html": "<button class=\"ds-btn-primary\">Run Benchmark</button>",
+      "css": ".ds-btn-primary { background: oklch(15% 0.04 260); color: oklch(96% 0.01 260); padding: 8px 16px; border: none; border-radius: 8px; font-size: 0.875rem; font-weight: 500; line-height: 1; cursor: pointer; transition: background 0.15s ease; } .ds-btn-primary:hover { background: oklch(25% 0.04 260); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(12% 0.03 260); outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action button for cancelling, comparing, and load-more actions.",
+      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
+      "css": ".ds-btn-outline { background: transparent; color: oklch(12% 0.03 260); padding: 8px 16px; border: 1px solid oklch(88% 0.01 260); border-radius: 8px; font-size: 0.875rem; font-weight: 500; line-height: 1; cursor: pointer; transition: background 0.15s ease; } .ds-btn-outline:hover { background: oklch(95% 0.01 260); } .ds-btn-outline:focus-visible { outline: 2px solid oklch(12% 0.03 260); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Standard text entry for benchmark name, search, and form fields.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"My benchmark\">",
+      "css": ".ds-input { background: transparent; color: oklch(12% 0.03 260); padding: 8px 12px; border: 1px solid oklch(88% 0.01 260); border-radius: 8px; font-size: 0.875rem; line-height: 1.4; outline: none; transition: border-color 0.15s ease; } .ds-input:focus { outline: 2px solid oklch(12% 0.03 260); outline-offset: 0; } .ds-input::placeholder { color: oklch(53% 0.02 260); }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-status",
+      "description": "Benchmark status indicator combining colored dot + text label.",
+      "html": "<span class=\"ds-badge-status ds-badge-ready\"><span class=\"ds-badge-dot\"></span>ready</span>",
+      "css": ".ds-badge-status { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500; line-height: 1.4; border: 1px solid currentColor; background: oklch(96% 0.01 260); } .ds-badge-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-badge-ready { color: oklch(50% 0.15 140); } .ds-badge-in_progress { color: oklch(60% 0.15 80); } .ds-badge-queued { color: oklch(50% 0.15 240); } .ds-badge-failed { color: oklch(55% 0.2 20); }"
+    },
+    {
+      "name": "Benchmark Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Grid card for the results list page — title, status, metadata, compressor tags.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">My Benchmark</h3><span class=\"ds-badge-status ds-badge-ready\"><span class=\"ds-badge-dot\"></span>ready</span><p class=\"ds-card-meta\">12.5 KB · bin</p></div>",
+      "css": ".ds-card { background: oklch(100% 0 0); border: 1px solid oklch(88% 0.01 260); border-radius: 8px; padding: 24px; display: flex; flex-direction: column; gap: 8px; } .ds-card-title { font-size: 1rem; font-weight: 500; line-height: 1.2; margin: 0; color: oklch(12% 0.03 260); } .ds-card-meta { font-size: 0.75rem; color: oklch(53% 0.02 260); margin: 0; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Header nav link in the app layout top bar.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-active\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M3 9h18\"/></svg>Results</a><a class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg>Upload</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 4px; align-items: center; } .ds-nav-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 0.875rem; font-weight: 400; color: oklch(53% 0.02 260); text-decoration: none; transition: background 0.15s ease; background: transparent; border: none; cursor: pointer; } .ds-nav-item svg { width: 16px; height: 16px; flex-shrink: 0; } .ds-nav-item:hover { background: oklch(95% 0.01 260); } .ds-nav-active { font-weight: 600; color: oklch(12% 0.03 260); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Lab Bench",
+    "overview": "BitBench is a research instrument. Like a precision oscilloscope or a calibrated spectrometer, every control and display is purposeful. The interface recedes; the data commands attention.\n\nThe design is restrained and analytical — white surfaces, dark gray ink, exact borders. Color is reserved for measurement (chart series, status indicators, Pareto-optimal badges). There is no decoration, no illustration, no gradient. The density of information increases as the user moves from upload (sparse, guided) to results (dense, explorable).",
+    "keyCharacteristics": [
+      "High data density on results pages; clean whitespace on task pages",
+      "Chromatic restraint — color encodes data, never decoration",
+      "Tonal depth via layered surfaces, not shadows",
+      "Exact borders as the primary structural device"
+    ],
+    "rules": [
+      { "name": "The Ink Rule", "body": "The foreground color is never lightened for 'visual hierarchy.' Hierarchy is produced through spacing, weight, and size — never through fading Ink toward Dim Ink for body text.", "section": "colors" },
+      { "name": "The Flat Rule", "body": "No box-shadows anywhere in the system. Depth is expressed through tonal layering and borders. A shadow on any surface is an error.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Ink for body text at all sizes.",
+      "Do reserve color for data encoding: chart series, status badges, Pareto-optimal flags.",
+      "Do use tonal layering for depth — Private Watermark on hover, Edge borders on containers.",
+      "Do show exact values in ranked tables with unit annotations.",
+      "Do use mono type for compressor names and numeric benchmark values."
+    ],
+    "donts": [
+      "Don't use box-shadows anywhere. The Flat Rule.",
+      "Don't use gradient text, gradient backgrounds, or glassmorphism.",
+      "Don't use side-stripe borders as a colored accent.",
+      "Don't display hero metrics.",
+      "Don't fade body text for 'visual hierarchy.'",
+      "Don't decorate with illustrations or icons that don't carry function.",
+      "Don't gate content visibility on CSS transitions.",
+      "Don't use z-index values above 100."
+    ]
+  }
+}
