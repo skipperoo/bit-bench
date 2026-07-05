@@ -44,12 +44,13 @@ WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates cmake && rm -rf /var/lib/apt/lists/* 
 COPY compression/ ./compression/ 
 
-RUN cd compression && cmake -B build -DCMAKE_BUILD_TYPE=Release -DNEATS_WITH_SQUASH=OFF 
-RUN cd compression && make -j$(nproc) -C build LosslessBenchmarkFull 
+RUN cd compression && cmake -B build -DCMAKE_BUILD_TYPE=Release -DNEATS_WITH_SQUASH=ON
+RUN cd compression && make -j$(nproc) -C build LosslessBenchmarkFull MemoryHarness
 
 RUN mkdir -p /artifacts/bin && \
     cp compression/build/LosslessBenchmarkFull /artifacts/bin/ && \
-    echo "Binary built"
+    cp compression/build/MemoryHarness /artifacts/bin/ && \
+    echo "Binaries built"
 
 # Stage 2: Build Go backend
 FROM golang:1.26-alpine AS go-build
@@ -67,6 +68,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-0 \
         libsnappy1v5 \
         libbrotli1 \
+        valgrind \
+        time \
         && rm -rf /var/lib/apt/lists/*
 COPY --from=cpp-build /usr/local/lib/ /usr/local/lib/
 RUN ldconfig

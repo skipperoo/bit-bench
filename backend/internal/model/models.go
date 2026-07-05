@@ -61,6 +61,10 @@ type BenchmarkResult struct {
 	NumValues                   *int64     `json:"num_values,omitempty"`
 	OriginalSize                *int64     `json:"original_size,omitempty"`
 	MemoryUsage                 *int64     `json:"memory_usage,omitempty"`
+	InputBuffer                 *int64     `json:"input_buffer,omitempty"`
+	CompressorInternal          *int64     `json:"compressor_internal,omitempty"`
+	InternalMemoryRatio         *float64   `json:"internal_memory_ratio,omitempty"`
+	RelativeMemoryUsage         *float64   `json:"relative_memory_usage,omitempty"`
 	UncompressedBits            *int64     `json:"uncompressed_bits,omitempty"`
 	CompressedBits              *int64     `json:"compressed_bits,omitempty"`
 	CompressionRatio            *float64   `json:"compression_ratio,omitempty"`

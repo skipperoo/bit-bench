@@ -268,6 +268,9 @@ export default function DetailPage() {
   const hasThroughput = results.some((r) => r.compression_throughput_mbs != null)
   const hasDecompression = results.some((r) => r.decompression_throughput_mbs != null)
   const hasMemory = results.some((r) => r.memory_usage != null)
+  const hasCompressorInternal = results.some((r) => r.compressor_internal != null)
+  const hasInternalMemoryRatio = results.some((r) => r.internal_memory_ratio != null)
+  const hasRelativeMemoryUsage = results.some((r) => r.relative_memory_usage != null)
   const hasRandomNS = results.some((r) => r.random_access_ns != null)
   const hasRandomMBS = results.some((r) => r.random_access_mbs != null)
 
@@ -276,6 +279,9 @@ export default function DetailPage() {
     { key: 'compression_throughput_mbs', label: 'Compression Throughput', chart: 'scatter' as const, show: hasThroughput },
     { key: 'decompression_throughput_mbs', label: 'Decompression Throughput', chart: 'scatter' as const, show: hasDecompression },
     { key: 'memory_usage', label: 'Memory Usage', chart: 'bar' as const, show: hasMemory },
+    { key: 'compressor_internal', label: 'Internal Memory', chart: 'bar' as const, show: hasCompressorInternal },
+    { key: 'relative_memory_usage', label: 'Relative Memory Usage', chart: 'bar' as const, show: hasRelativeMemoryUsage },
+    { key: 'internal_memory_ratio', label: 'Internal Memory Ratio', chart: 'bar' as const, show: hasInternalMemoryRatio },
     { key: 'random_access_ns', label: 'Random Access (ns)', chart: 'bar' as const, show: hasRandomNS },
     { key: 'random_access_mbs', label: 'Random Access (MB/s)', chart: 'scatter' as const, show: hasRandomMBS },
   ]

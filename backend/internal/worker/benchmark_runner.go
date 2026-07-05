@@ -237,6 +237,15 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	// Average rows per compressor
 	averaged := AverageRows(allRows)
 
+	// Build the list of compressors used (for memory measurement)
+	compressorNames := make([]string, 0, len(averaged))
+	for _, row := range averaged {
+		compressorNames = append(compressorNames, row.Compressor)
+	}
+
+	// Run memory measurements (Valgrind Massif-based)
+	memoryResults := r.runMemoryMeasurements(ctx, id, binaryPath, compressorNames, binPaths, workDir)
+
 	// Insert results
 	var lastInsertErr error
 	dataset := strings.TrimSuffix(benchmark.OriginalFilename, "."+benchmark.FileExt)
@@ -258,6 +267,15 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 			RandomAccessNs:            float64Ptr(row.RandomAccessNs),
 			RandomAccessMbs:           float64Ptr(row.RandomAccessMbs),
 			RangeQueries:              rangeJSON,
+		}
+
+		// Override memory_usage with Massif measurement if available
+		if memRes, ok := memoryResults[row.Compressor]; ok {
+			res.InputBuffer = int64Ptr(memRes.InputBufferBytes)
+			res.CompressorInternal = int64Ptr(memRes.CompressorInternal)
+			res.MemoryUsage = int64Ptr(memRes.PeakMemoryBytes)
+			res.InternalMemoryRatio = computeInternalMemoryRatio(memRes.CompressorInternal, memRes.InputBufferBytes)
+			res.RelativeMemoryUsage = computeRelativeMemoryUsage(memRes.PeakMemoryBytes, memRes.InputBufferBytes)
 		}
 
 		if err := r.resultRepo.Insert(ctx, res); err != nil {
@@ -301,6 +319,32 @@ func (r *BenchmarkRunner) cleanup(workDir string, srcPath string) {
 		os.Remove(srcPath)
 	}
 	os.RemoveAll(workDir)
+}
+
+// runMemoryMeasurements runs the MemoryHarness under Valgrind Massif for each
+// compressor, returning a map of compressor name to memory result.
+func (r *BenchmarkRunner) runMemoryMeasurements(ctx context.Context, id uuid.UUID, binaryPath string, compressorNames []string, binPaths []string, workDir string) map[string]*MemoryResult {
+	// Find the MemoryHarness binary
+	memBinaryPath := r.cfg.BenchBinaryPath
+	memBinaryPath = strings.Replace(memBinaryPath, "LosslessBenchmarkFull", "MemoryHarness", 1)
+	memBinaryPath = strings.Replace(memBinaryPath, "LosslessBenchmark", "MemoryHarness", 1)
+
+	if _, err := os.Stat(memBinaryPath); os.IsNotExist(err) {
+		logger.Warn("MemoryHarness binary not found, skipping memory measurements", "path", memBinaryPath)
+		return nil
+	}
+
+	massifDir := filepath.Join(workDir, "massif")
+	timeout := r.cfg.BenchTimeout
+
+	results, err := RunAllMemoryMeasurements(memBinaryPath, compressorNames, binPaths, massifDir, timeout)
+	if err != nil {
+		logger.Warn("memory measurements failed", "id", id, "error", err)
+		return nil
+	}
+
+	logger.Info("memory measurements completed", "id", id, "count", len(results))
+	return results
 }
 
 func strPtr(s string) *string {

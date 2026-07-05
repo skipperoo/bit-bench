@@ -47,6 +47,10 @@ export interface BenchmarkResult {
   num_values?: number
   original_size?: number
   memory_usage?: number
+  input_buffer?: number
+  compressor_internal?: number
+  internal_memory_ratio?: number
+  relative_memory_usage?: number
   uncompressed_bits?: number
   compressed_bits?: number
   compression_ratio?: number
