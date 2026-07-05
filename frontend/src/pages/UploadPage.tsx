@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -6,16 +6,49 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
-import { X } from 'lucide-react'
+import { X, Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
 import type { CompressorRegistry, CompressorOption } from '@/types'
 
+interface CompressorFamily {
+  name: string
+  compressors: string[]
+}
+
+const FAMILIES: CompressorFamily[] = [
+  {
+    name: 'Time Series',
+    compressors: ['gorilla', 'chimp', 'chimp128', 'tsxor', 'elf', 'alp', 'neats', 'camel', 'falcon'],
+  },
+  {
+    name: 'GEF',
+    compressors: [
+      'rle_gef', 'u_gef_approximate', 'u_gef_optimal',
+      'b_gef_approximate', 'b_gef_optimal',
+      'b_star_gef_approximate', 'b_star_gef_optimal',
+    ],
+  },
+  {
+    name: 'Block-sorting',
+    compressors: ['bzip2', 'bzip3'],
+  },
+  {
+    name: 'Dictionary-based',
+    compressors: ['brotli', 'gzip_1', 'gzip_6', 'gzip_9', 'lz4', 'snappy', 'xz', 'zstd'],
+  },
+  {
+    name: 'Others',
+    compressors: ['dac', 'pfordelta'],
+  },
+]
+
 export default function UploadPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [checksumLoading, setChecksumLoading] = useState(false)
   const [compressors, setCompressors] = useState<CompressorRegistry>({})
   const [selectedCompressors, setSelectedCompressors] = useState<Record<string, boolean>>({})
   const [compressorOptions, setCompressorOptions] = useState<Record<string, Record<string, unknown>>>({})
@@ -51,6 +84,7 @@ export default function UploadPage() {
     setFile(f)
     setDuplicate(false)
     if (!f) return
+    setChecksumLoading(true)
     try {
       const md5 = await computeMD5(f)
       const checksums = await apiFetch<{ checksum: string }[]>('/benchmarks/checksums')
@@ -60,6 +94,8 @@ export default function UploadPage() {
       else setError('')
     } catch {
       // proceed without duplicate check
+    } finally {
+      setChecksumLoading(false)
     }
   }, [])
 
@@ -99,17 +135,39 @@ export default function UploadPage() {
     }
   }
 
-  const canSubmit = name && file && Object.values(selectedCompressors).some(Boolean) && !duplicate
+  const selectedCount = useMemo(
+    () => Object.values(selectedCompressors).filter(Boolean).length,
+    [selectedCompressors]
+  )
+  const canSubmit = name && file && selectedCount > 0 && !duplicate
 
-  function renderOptionField(name: string, key: string, opt: CompressorOption) {
-    const value = compressorOptions[name]?.[key]
+  function toggleFamily(family: string, on: boolean) {
+    const familyDef = FAMILIES.find(f => f.name === family)
+    if (!familyDef) return
+    setSelectedCompressors((prev) => {
+      const next = { ...prev }
+      for (const c of familyDef.compressors) {
+        if (c in next) next[c] = on
+      }
+      return next
+    })
+  }
+
+  function allFamilySelected(family: string): boolean {
+    const familyDef = FAMILIES.find(f => f.name === family)
+    if (!familyDef) return false
+    return familyDef.compressors.every(c => selectedCompressors[c])
+  }
+
+  function renderOptionField(cName: string, key: string, opt: CompressorOption) {
+    const value = compressorOptions[cName]?.[key]
 
     if (opt.type === 'boolean') {
       return (
         <Switch
           checked={(value as boolean) || false}
           onCheckedChange={(v) =>
-            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: v } }))
+            setCompressorOptions((prev) => ({ ...prev, [cName]: { ...prev[cName], [key]: v } }))
           }
         />
       )
@@ -121,7 +179,7 @@ export default function UploadPage() {
           className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
           value={(value as string) || ''}
           onChange={(e) =>
-            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: e.target.value } }))
+            setCompressorOptions((prev) => ({ ...prev, [cName]: { ...prev[cName], [key]: e.target.value } }))
           }
         >
           {opt.options?.map((o) => (
@@ -141,7 +199,7 @@ export default function UploadPage() {
               step={opt.step ?? 1}
               value={(value as number) ?? (opt.default as number)}
               onChange={(v) =>
-                setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: v } }))
+                setCompressorOptions((prev) => ({ ...prev, [cName]: { ...prev[cName], [key]: v } }))
               }
             />
             <span className="text-xs text-muted-foreground w-6 text-right">{value as number}</span>
@@ -157,7 +215,7 @@ export default function UploadPage() {
           step={opt.step ?? 1}
           value={(value as number) ?? 0}
           onChange={(e) =>
-            setCompressorOptions((prev) => ({ ...prev, [name]: { ...prev[name], [key]: Number(e.target.value) } }))
+            setCompressorOptions((prev) => ({ ...prev, [cName]: { ...prev[cName], [key]: Number(e.target.value) } }))
           }
         />
       )
@@ -166,126 +224,232 @@ export default function UploadPage() {
     return null
   }
 
-  return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">New Benchmark</h1>
-        <p className="text-muted-foreground mt-1">
-          Upload an integer sequence file (.bin, .csv, .zip, .tar) and select compressors to test.
-        </p>
-      </div>
+  function renderCompressorAccordion(cName: string) {
+    const options = compressors[cName] || {}
+    return (
+      <AccordionItem key={cName} value={cName} className="border rounded-lg">
+        <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-secondary/30 rounded-t-lg data-[state=open]:rounded-t-lg data-[state=open]:rounded-b-none">
+          <div className="flex items-center gap-2 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+            <Switch
+              checked={selectedCompressors[cName] || false}
+              onCheckedChange={(v) =>
+                setSelectedCompressors((prev) => ({ ...prev, [cName]: v }))
+              }
+            />
+            <span className={`font-mono text-sm truncate ${selectedCompressors[cName] ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+              {cName}
+            </span>
+          </div>
+        </AccordionTrigger>
+        {Object.keys(options).length > 0 ? (
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-2 pt-2">
+              {Object.entries(options).map(([key, opt]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Label className="text-xs w-20 shrink-0 text-muted-foreground">{key}</Label>
+                  {renderOptionField(cName, key, opt)}
+                </div>
+              ))}
+            </div>
+          </AccordionContent>
+        ) : (
+          <AccordionContent className="px-3 pb-2">
+            <p className="text-xs text-muted-foreground italic">No configuration options</p>
+          </AccordionContent>
+        )}
+      </AccordionItem>
+    )
+  }
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="name">Benchmark Name</Label>
-          <Input
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My benchmark"
-            required
-          />
+  // Group compressors by family for rendering
+  const familyGrids = useMemo(() => {
+    return FAMILIES.map(family => ({
+      ...family,
+      compressors: family.compressors.filter(c => c in compressors),
+    })).filter(f => f.compressors.length > 0)
+  }, [compressors])
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <form onSubmit={handleSubmit}>
+        {/* Zone 1: Title + Benchmark Name */}
+        <div className="mb-10">
+          <h1 className="text-2xl font-semibold tracking-tight mb-1">New Benchmark</h1>
+          <p className="text-sm text-muted-foreground mb-6">
+            Upload an integer sequence file and select compressors to test.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Benchmark Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My benchmark"
+              required
+              className="max-w-md"
+            />
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <Label>File</Label>
+        {/* Zone 2: File Upload */}
+        <div className="mb-10">
+          <h2 className="text-sm font-medium text-foreground mb-3">Data File</h2>
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-              dragOver ? 'border-primary bg-primary/5' : duplicate ? 'border-destructive bg-destructive/5' : 'border-border'
-            }`}
+            className={[
+              'relative rounded-lg border-2 border-dashed transition-colors',
+              dragOver ? 'border-foreground bg-secondary/30' : '',
+              duplicate && !dragOver ? 'border-destructive bg-destructive/5' : '',
+              !dragOver && !duplicate ? 'border-border hover:border-muted-foreground/40' : '',
+            ].filter(Boolean).join(' ')}
           >
             {file ? (
-              <div className="space-y-1 relative">
-                <p className="text-sm">{file.name} ({(file.size / 1024).toFixed(1)} KB)</p>
-                <button
-                  type="button"
-                  onClick={() => { setFile(null); setDuplicate(false); setError('') }}
-                  className="absolute -top-1 -right-1 p-1 rounded-full bg-muted hover:bg-muted-foreground/20 transition-colors"
-                  title="Remove file"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              <div className="p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{file.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(file.size / 1024).toFixed(1)} KB
+                        {checksumLoading && ' · Checking checksum…'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {duplicate ? (
+                      <span className="flex items-center gap-1 text-xs text-destructive">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Duplicate
+                      </span>
+                    ) : !checksumLoading ? (
+                      <span className="flex items-center gap-1 text-xs text-emerald-600">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Valid
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => { setFile(null); setDuplicate(false); setError('') }}
+                      className="p-1 rounded hover:bg-secondary transition-colors"
+                      title="Remove file"
+                    >
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                </div>
                 {duplicate && (
-                  <p className="text-xs text-destructive">Duplicate file — already benchmarked</p>
+                  <p className="text-xs text-destructive mt-2 ml-8">
+                    This file has already been benchmarked — upload a different file.
+                  </p>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Drag & drop a file here, or{' '}
-                <label className="text-primary cursor-pointer underline">
-                  browse
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept=".bin,.csv,.zip,.tar"
-                    onChange={handleFileInput}
-                  />
-                </label>
-              </p>
+              <label className="flex flex-col items-center justify-center p-8 cursor-pointer">
+                <FileUp className="w-8 h-8 text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground mb-0.5">
+                  Drag & drop your file here
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  .bin, .csv, .zip, or .tar — max {500} MB
+                </p>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".bin,.csv,.zip,.tar"
+                  onChange={handleFileInput}
+                />
+              </label>
             )}
           </div>
         </div>
 
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold">Compressors</h2>
-          {Object.keys(compressors).length === 0 && (
-            <p className="text-sm text-muted-foreground">Loading compressors...</p>
-          )}
-          <Accordion
-            type="multiple"
-            value={compressorsOpen}
-            onValueChange={setCompressorsOpen}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-          >
-            {Object.entries(compressors).map(([name, options]) => (
-              <AccordionItem key={name} value={name} className="border rounded-lg">
-                <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-secondary/30 rounded-t-lg data-[state=open]:rounded-t-lg data-[state=open]:rounded-b-none">
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <Switch
-                      checked={selectedCompressors[name] || false}
-                      onCheckedChange={(v) =>
-                        setSelectedCompressors((prev) => ({ ...prev, [name]: v }))
-                      }
-                    />
-                  </div>
-                  <span className={`font-mono text-sm ml-2 ${selectedCompressors[name] ? 'font-semibold' : 'text-muted-foreground'}`}>
-                    {name}
-                  </span>
-                </AccordionTrigger>
-                {Object.keys(options).length > 0 && (
-                  <AccordionContent className="px-3 pb-3">
-                    <div className="space-y-2 pt-2">
-                      {Object.entries(options).map(([key, opt]) => (
-                        <div key={key} className="flex items-center gap-2">
-                          <Label className="text-xs w-20 shrink-0">{key}</Label>
-                          {renderOptionField(name, key, opt)}
-                        </div>
-                      ))}
+        {/* Zone 3: Compressors */}
+        <div className="mb-10">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-foreground">Compressors</h2>
+            {selectedCount > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {selectedCount} selected
+              </span>
+            )}
+          </div>
+
+          {Object.keys(compressors).length === 0 ? (
+            <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading compressors…
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {familyGrids.map((family) => {
+                const allOn = allFamilySelected(family.name)
+                const someOn = family.compressors.some(c => selectedCompressors[c])
+                return (
+                  <section key={family.name}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        {family.name}
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => toggleFamily(family.name, !allOn)}
+                        className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                      >
+                        {allOn ? 'Deselect all' : 'Select all'}
+                      </button>
+                      {someOn && (
+                        <span className="text-xs text-muted-foreground">
+                          {family.compressors.filter(c => selectedCompressors[c]).length}
+                        </span>
+                      )}
                     </div>
-                  </AccordionContent>
-                )}
-                {Object.keys(options).length === 0 && (
-                  <AccordionContent className="px-3 pb-2">
-                    <p className="text-xs text-muted-foreground">No configuration options</p>
-                  </AccordionContent>
-                )}
-              </AccordionItem>
-            ))}
-          </Accordion>
+                    <Accordion
+                      type="multiple"
+                      value={compressorsOpen}
+                      onValueChange={setCompressorsOpen}
+                      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
+                    >
+                      {family.compressors.map(renderCompressorAccordion)}
+                    </Accordion>
+                  </section>
+                )
+              })}
+            </div>
+          )}
         </div>
 
+        {/* Error */}
         {error && (
-          <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3">
+          <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
+            <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
 
-        <Button type="submit" disabled={!canSubmit || loading} className="w-full">
-          {loading ? 'Running Benchmark...' : 'Run Benchmark'}
-        </Button>
+        {/* Submit */}
+        <div className="flex items-center gap-3">
+          <Button type="submit" disabled={!canSubmit || loading} className="min-w-[180px]">
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Submitting…
+              </span>
+            ) : (
+              'Run Benchmark'
+            )}
+          </Button>
+          {!canSubmit && !loading && (
+            <p className="text-xs text-muted-foreground">
+              {!name && 'Enter a name'}
+              {name && !file && ' · Select a file'}
+              {name && file && selectedCount === 0 && ' · Select at least one compressor'}
+              {name && file && selectedCount > 0 && duplicate && ' · File is a duplicate'}
+            </p>
+          )}
+        </div>
       </form>
     </div>
   )
