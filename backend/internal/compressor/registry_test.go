@@ -10,7 +10,7 @@ func TestRegistryHasAllExpectedCompressors(t *testing.T) {
 		"gorilla", "chimp", "chimp128", "tsxor", "elf", "alp",
 		"neats", "camel", "falcon",
 		"pfordelta",
-		"gzip_1", "gzip_6", "gzip_9",
+		"gzip",
 		"dac", "rle_gef",
 		"u_gef_approximate", "u_gef_optimal",
 		"b_gef_approximate", "b_gef_optimal",
@@ -77,12 +77,22 @@ func TestPForDeltaOptions(t *testing.T) {
 	}
 }
 
-func TestGZipHasNoOptions(t *testing.T) {
-	for _, name := range []string{"gzip_1", "gzip_6", "gzip_9"} {
-		if len(Registry[name]) != 0 {
-			t.Errorf("%s should have no options (level is encoded in name)", name)
-		}
+func TestGZipHasLevelOption(t *testing.T) {
+	opts := Registry["gzip"]
+	opt, ok := opts["level"]
+	if !ok {
+		t.Fatal("gzip missing level option")
 	}
+	assertOption(t, "gzip.level", opt, "number", 1, 9, 6, 1)
+}
+
+func TestBzip3HasLevelOption(t *testing.T) {
+	opts := Registry["bzip3"]
+	opt, ok := opts["level"]
+	if !ok {
+		t.Fatal("bzip3 missing level option")
+	}
+	assertOption(t, "bzip3.level", opt, "number", 1, 9, 6, 1)
 }
 
 func TestEmptyCompressorsHaveNoOptions(t *testing.T) {
@@ -92,7 +102,6 @@ func TestEmptyCompressorsHaveNoOptions(t *testing.T) {
 		"u_gef_approximate", "u_gef_optimal",
 		"b_gef_approximate", "b_gef_optimal",
 		"b_star_gef_approximate", "b_star_gef_optimal",
-		"bzip3",
 		"bzip2", "lz4", "zstd", "brotli", "xz", "snappy",
 	}
 	for _, name := range emptyOnes {

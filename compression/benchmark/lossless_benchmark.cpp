@@ -1296,7 +1296,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
 }
 
 // ============================================================================
-// GZip Compressor Benchmark (gzip_1, gzip_6, gzip_9)
+// GZip Compressor Benchmark
 // ============================================================================
 
 #ifdef HAS_GZIP
@@ -1304,6 +1304,7 @@ template<typename T = int64_t>
 BenchmarkResult benchmark_gzip(const std::string &compressor_name,
                                 const BenchmarkData &bench_data,
                                 const std::vector<size_t> &range_sizes,
+                                int level,
                                 size_t block_size = 1000) {
     BenchmarkResult result;
     result.compressor = compressor_name;
@@ -1317,10 +1318,6 @@ BenchmarkResult benchmark_gzip(const std::string &compressor_name,
 
     result.num_values = n;
     result.uncompressed_bits = bench_data.uncompressed_bits;
-
-    int level = Z_DEFAULT_COMPRESSION;
-    if (compressor_name.find("gzip_") == 0)
-        level = std::stoi(compressor_name.substr(5));
 
     size_t total_compressed_bits = 0;
     std::vector<std::string> compressed_blocks(num_blocks);
@@ -1471,6 +1468,7 @@ template<typename T = int64_t>
 BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
                                 const BenchmarkData &bench_data,
                                 const std::vector<size_t> &range_sizes,
+                                int level,
                                 size_t block_size = 1000) {
     BenchmarkResult result;
     result.compressor = compressor_name;
@@ -1485,7 +1483,9 @@ BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
     result.num_values = n;
     result.uncompressed_bits = bench_data.uncompressed_bits;
 
-    const uint32_t bz3_block_size = std::max<uint32_t>(65536, block_size * sizeof(T));
+    // Map level 1-9 to block size in bytes
+    // level 1 = 64KB, level 9 = 576KB; library clamps to minimum 65536 internally
+    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, level))) * 65536u;
 
     size_t total_compressed_bits = 0;
     std::vector<std::vector<uint8_t>> compressed_blocks(num_blocks);
@@ -1865,6 +1865,20 @@ BenchmarkResult benchmark_squash(const std::string &compressor_name,
 #endif // HAS_SQUASH
 
 // ============================================================================
+// Compressor name parsing: supports "name" or "name=LEVEL" syntax
+// ============================================================================
+
+std::pair<std::string, int> parse_compressor_name(const std::string &input, int default_level) {
+    auto eq_pos = input.find('=');
+    if (eq_pos == std::string::npos) {
+        return {input, default_level};
+    }
+    std::string name = input.substr(0, eq_pos);
+    int level = std::stoi(input.substr(eq_pos + 1));
+    return {name, level};
+}
+
+// ============================================================================
 // Main benchmark runner
 // ============================================================================
 
@@ -1874,14 +1888,16 @@ void print_usage(const char *prog_name) {
     std::cerr << "Options:" << std::endl;
     std::cerr << "  -o <file>      Output CSV file (default: stdout)" << std::endl;
     std::cerr << "  -c <list>      Comma-separated list of compressors (default: all)" << std::endl;
+    std::cerr << "                 Each entry may include an optional =LEVEL suffix (e.g., gzip=6)" << std::endl;
+    std::cerr << "                 LEVEL applies to dictionary-based compressors: gzip, bzip3, lz4, zstd, brotli, xz, bzip2" << std::endl;
 #if HAS_SQUASH
-    std::cerr << "                 Available: neats,dac,rle_gef,u_gef_approximate,u_gef_optimal,b_gef_approximate,b_gef_optimal,b_star_gef_approximate,b_star_gef_optimal,gorilla,chimp,chimp128,tsxor,elf,camel,falcon,alp,pfordelta,gzip_1,gzip_6,gzip_9";
+    std::cerr << "                 Available: neats,dac,rle_gef,u_gef_approximate,u_gef_optimal,b_gef_approximate,b_gef_optimal,b_star_gef_approximate,b_star_gef_optimal,gorilla,chimp,chimp128,tsxor,elf,camel,falcon,alp,pfordelta,gzip";
 #if defined(NEATS_ENABLE_LECO)
     std::cerr << ",leco";
 #endif
     std::cerr << ",lz4,zstd,brotli,xz,snappy,bzip2,bzip3" << std::endl;
 #else
-    std::cerr << "                 Available: neats,dac,rle_gef,u_gef_approximate,u_gef_optimal,b_gef_approximate,b_gef_optimal,b_star_gef_approximate,b_star_gef_optimal,gorilla,chimp,chimp128,tsxor,elf,camel,falcon,alp,pfordelta,gzip_1,gzip_6,gzip_9,bzip3" << std::endl;
+    std::cerr << "                 Available: neats,dac,rle_gef,u_gef_approximate,u_gef_optimal,b_gef_approximate,b_gef_optimal,b_star_gef_approximate,b_star_gef_optimal,gorilla,chimp,chimp128,tsxor,elf,camel,falcon,alp,pfordelta,gzip,bzip3" << std::endl;
     std::cerr << "                 (Compile with -DUSE_SQUASH for lz4,zstd,brotli,xz,snappy,bzip2";
 #if defined(NEATS_ENABLE_LECO)
     std::cerr << ",leco";
@@ -1912,8 +1928,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::string> compressors = {"neats", "dac", "rle_gef", "u_gef_approximate", "u_gef_optimal", 
                                             "b_gef_approximate", "b_gef_optimal", "b_star_gef_approximate", "b_star_gef_optimal",
                                             "gorilla", "chimp", "chimp128", "tsxor",
-                                            "elf", "camel", "falcon", "alp", "pfordelta",
-                                            "gzip_1", "gzip_6", "gzip_9",
+                                            "elf", "camel", "falcon", "alp", "pfordelta", "gzip",
 #if defined(NEATS_ENABLE_LECO)
                                             "leco",
 #endif
@@ -1922,13 +1937,14 @@ int main(int argc, char *argv[]) {
     std::vector<std::string> compressors = {"neats", "dac", "rle_gef", "u_gef_approximate", "u_gef_optimal", 
                                             "b_gef_approximate", "b_gef_optimal", "b_star_gef_approximate", "b_star_gef_optimal",
                                             "gorilla", "chimp", "chimp128", "tsxor",
-                                            "elf", "camel", "falcon", "alp", "pfordelta",
-                                            "gzip_1", "gzip_6", "gzip_9", "bzip3"};
+                                            "elf", "camel", "falcon", "alp", "pfordelta", "gzip", "bzip3"};
 #endif
     std::vector<size_t> range_sizes = {10, 100, 1000, 10000, 100000};
     size_t block_size = 1000;
     uint8_t max_bpc = 32;
     std::string input_path;
+    // Default level for dictionary-based compressors
+    int default_level = 6;
     
     // Parse command line arguments
     for (int64_t i = 1; i < argc; ++i) {
@@ -2023,55 +2039,73 @@ int main(int argc, char *argv[]) {
         }
         
         // Separate compressors by data type needed
-        std::vector<std::string> raw_data_compressors;     // SQUASH: lz4, zstd, brotli, xz, snappy
+        // Each compressor entry may have =LEVEL suffix (e.g., "gzip=6")
+        std::vector<std::string> raw_data_compressors;     // gzip, bzip3, SQUASH: lz4, zstd, brotli, xz, snappy
         std::vector<std::string> shifted_data_compressors; // neats, dac, *_gef, leco
         std::vector<std::string> double_data_compressors;  // gorilla, chimp, etc.
         
         for (const auto &comp : compressors) {
+            // Extract base name (strip any =LEVEL suffix)
+            std::string comp_name = comp;
+            {
+                auto eq_pos = comp.find('=');
+                if (eq_pos != std::string::npos)
+                    comp_name = comp.substr(0, eq_pos);
+            }
 #if HAS_SQUASH
-            if (comp == "lz4" || comp == "zstd" || comp == "brotli" || 
-                comp == "xz" || comp == "snappy" || comp == "bzip2" || comp == "bzip3" || comp.find("gzip_") == 0) {
+            if (comp_name == "lz4" || comp_name == "zstd" || comp_name == "brotli" || 
+                comp_name == "xz" || comp_name == "snappy" || comp_name == "bzip2" || comp_name == "bzip3" || comp_name == "gzip") {
                 raw_data_compressors.push_back(comp);
             } else
 #else
-            if (comp == "bzip3" || comp.find("gzip_") == 0) {
+            if (comp_name == "bzip3" || comp_name == "gzip") {
                 raw_data_compressors.push_back(comp);
             } else
 #endif
-            if (comp == "neats" || comp == "dac" || comp == "rle_gef" || comp == "pfordelta"
+            if (comp_name == "neats" || comp_name == "dac" || comp_name == "rle_gef" || comp_name == "pfordelta"
 #if defined(NEATS_ENABLE_LECO)
-                || comp == "leco"
+                || comp_name == "leco"
 #endif
-                || comp.find("pfordelta_") == 0
+                || comp_name.find("pfordelta_") == 0
                 ||
-                comp.find("_gef") != std::string::npos) {
+                comp_name.find("_gef") != std::string::npos) {
                 shifted_data_compressors.push_back(comp);
-            } else if (comp == "alp") {
+            } else if (comp_name == "alp") {
                 double_data_compressors.push_back(comp);
             } else {
                 double_data_compressors.push_back(comp);
             }
         }
         
-        // Phase 0: Run compressors that need raw_data (gzip + SQUASH)
+        // Helper: parse level from compressor entry (returns default_level if no =LEVEL)
+        auto parse_level = [&](const std::string &entry) -> int {
+            auto eq_pos = entry.find('=');
+            if (eq_pos != std::string::npos)
+                return std::stoi(entry.substr(eq_pos + 1));
+            return default_level;
+        };
+        
+        // Phase 0: Run compressors that need raw_data (gzip, bzip3, SQUASH)
         for (const auto &comp : raw_data_compressors) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
+            int comp_level = parse_level(comp);
+            std::string comp_name = comp.substr(0, comp.find('='));
             
             try {
-                if (comp.find("gzip_") == 0) {
+                if (comp_name == "gzip") {
 #ifdef HAS_GZIP
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
-                        return benchmark_gzip<int64_t>(comp, bench_data, range_sizes, block_size);
+                        return benchmark_gzip<int64_t>("gzip", bench_data, range_sizes, comp_level, block_size);
                     });
 #else
                     throw std::runtime_error("gzip not available (HAS_GZIP=0)");
 #endif
-                } else if (comp == "bzip3") {
+                } else if (comp_name == "bzip3") {
 #ifdef HAS_BZIP3
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
-                        return benchmark_bzip3<int64_t>(comp, bench_data, range_sizes, block_size);
+                        return benchmark_bzip3<int64_t>("bzip3", bench_data, range_sizes, comp_level, block_size);
                     });
 #else
                     throw std::runtime_error("bzip3 not available (HAS_BZIP3=0)");
@@ -2080,7 +2114,7 @@ int main(int argc, char *argv[]) {
 #if HAS_SQUASH
                 else {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
-                        return benchmark_squash<int64_t>(comp, bench_data, range_sizes, block_size);
+                        return benchmark_squash<int64_t>(comp_name, bench_data, range_sizes, block_size, comp_level);
                     });
                 }
 #endif
@@ -2118,64 +2152,65 @@ int main(int argc, char *argv[]) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
+            std::string comp_name = comp.substr(0, comp.find('='));
             
             try {
-                if (comp == "neats") {
+                if (comp_name == "neats") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_neats<int64_t>(bench_data, range_sizes, max_bpc);
                     });
-                } else if (comp == "dac") {
+                } else if (comp_name == "dac") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_dac<int64_t>(bench_data, range_sizes);
                     });
                 }
 #if defined(NEATS_ENABLE_LECO)
-                else if (comp == "leco") {
+                else if (comp_name == "leco") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_leco(bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "rle_gef") {
+                } else if (comp_name == "rle_gef") {
 #else
-                else if (comp == "rle_gef") {
+                else if (comp_name == "rle_gef") {
 #endif
                     using UP_RLE = gef::RLE_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_RLE, int64_t>("rle_gef", bench_data, range_sizes);
                     });
-                } else if (comp == "u_gef_approximate") {
+                } else if (comp_name == "u_gef_approximate") {
                     using UP_U = gef::U_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_U, int64_t>("u_gef_approximate", bench_data, range_sizes);
                     });
-                } else if (comp == "u_gef_optimal") {
+                } else if (comp_name == "u_gef_optimal") {
                     using UP_U = gef::U_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_U, int64_t>("u_gef_optimal", bench_data, range_sizes);
                     });
-                } else if (comp == "b_gef_approximate") {
+                } else if (comp_name == "b_gef_approximate") {
                     using UP_B = gef::B_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_B, int64_t>("b_gef_approximate", bench_data, range_sizes);
                     });
-                } else if (comp == "b_gef_optimal") {
+                } else if (comp_name == "b_gef_optimal") {
                     using UP_B = gef::B_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_B, int64_t>("b_gef_optimal", bench_data, range_sizes);
                     });
-                } else if (comp == "b_star_gef_approximate") {
+                } else if (comp_name == "b_star_gef_approximate") {
                     using UP_B_STAR = gef::B_STAR_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_B_STAR, int64_t>("b_star_gef_approximate", bench_data, range_sizes);
                     });
-                } else if (comp == "b_star_gef_optimal") {
+                } else if (comp_name == "b_star_gef_optimal") {
                     using UP_B_STAR = gef::B_STAR_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>;
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_gef<UP_B_STAR, int64_t>("b_star_gef_optimal", bench_data, range_sizes);
                     });
-                } else if (comp == "pfordelta" || comp.find("pfordelta_") == 0) {
+                } else if (comp_name == "pfordelta" || comp_name.find("pfordelta_") == 0) {
                     std::string codec_name = "simdnewpfor";
-                    if (comp.find("pfordelta_") == 0)
-                        codec_name = comp.substr(10);
+                    if (comp_name.find("pfordelta_") == 0)
+                        codec_name = comp_name.substr(10);
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_pfordelta<int64_t>(codec_name, bench_data, range_sizes, block_size);
                     });
@@ -2209,42 +2244,43 @@ int main(int argc, char *argv[]) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
+            std::string comp_name = comp.substr(0, comp.find('='));
             
             try {
-                if (comp == "gorilla") {
+                if (comp_name == "gorilla") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorGorilla<double>, DecompressorGorilla<double>, double>(
                             "Gorilla", bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "chimp") {
+                } else if (comp_name == "chimp") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorChimp<double>, DecompressorChimp<double>, double>(
                             "Chimp", bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "chimp128") {
+                } else if (comp_name == "chimp128") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorChimp128<double>, DecompressorChimp128<double>, double>(
                             "Chimp128", bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "tsxor") {
+                } else if (comp_name == "tsxor") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_tsxor<double>(bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "elf") {
+                } else if (comp_name == "elf") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorElf<double>, DecompressorElf<double>, double>(
                             "Elf", bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "camel") {
+                } else if (comp_name == "camel") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorCamel<double>, DecompressorCamel<double>, double>(
                             "Camel", bench_data, range_sizes, block_size);
                     });
-                } else if (comp == "falcon") {
+                } else if (comp_name == "falcon") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_falcon<double>(bench_data, range_sizes);
                     });
-                } else if (comp == "alp") {
+                } else if (comp_name == "alp") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_alp(bench_data, range_sizes);
                     });

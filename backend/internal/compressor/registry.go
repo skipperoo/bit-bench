@@ -50,11 +50,10 @@ var Registry = map[string]map[string]Option{
 		},
 	},
 
-	// === GZip: level encoded in name (gzip_1 → level 1) ===
-	// No tunable options — each variant is a fixed level
-	"gzip_1": {},
-	"gzip_6": {},
-	"gzip_9": {},
+	// === GZip: level option instead of separate gzip_1/gzip_6/gzip_9 ===
+	"gzip": {
+		"level": {Type: "number", Min: intPtr(1), Max: intPtr(9), Default: 6, Step: intPtr(1)},
+	},
 
 	// === Generic Elias-Fano (GEF) family ===
 	// All params are compile-time templates; no runtime options
@@ -67,12 +66,14 @@ var Registry = map[string]map[string]Option{
 	"b_star_gef_approximate": {},
 	"b_star_gef_optimal":     {},
 
-	// === bzip3: block size derived from benchmark block_size ===
-	// No user-level tunable params
-	"bzip3": {},
+	// === bzip3: level maps to block size (1-9, default 6) ===
+	"bzip3": {
+		"level": {Type: "number", Min: intPtr(1), Max: intPtr(9), Default: 6, Step: intPtr(1)},
+	},
 
 	// === Squash-based (LosslessBenchmarkFull only) ===
-	// Level not passable through the current binary CLI; defaults used
+	// Level is passed via SquashOptions for supported codecs (lz4, zstd, brotli, xz, bzip2)
+	// snappy has no level parameter
 	"bzip2":  {},
 	"lz4":    {},
 	"zstd":   {},

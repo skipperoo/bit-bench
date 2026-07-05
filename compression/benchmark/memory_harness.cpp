@@ -258,14 +258,10 @@ void run_pfordelta(const std::string &codec_name, const std::vector<T> &data, si
 
 #ifdef HAS_GZIP
 template<typename T = int64_t>
-void run_gzip(const std::string &compressor_name, const std::vector<T> &data, size_t block_size) {
+void run_gzip(const std::vector<T> &data, size_t block_size, int level) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = (n + block_size - 1) / block_size;
-
-    int level = Z_DEFAULT_COMPRESSION;
-    if (compressor_name.find("gzip_") == 0)
-        level = std::stoi(compressor_name.substr(5));
 
     for (size_t ib = 0; ib < num_blocks; ++ib) {
         size_t start = ib * block_size;
@@ -288,11 +284,12 @@ void run_gzip(const std::string &compressor_name, const std::vector<T> &data, si
 
 #ifdef HAS_BZIP3
 template<typename T = int64_t>
-void run_bzip3(const std::vector<T> &data, size_t block_size) {
+void run_bzip3(const std::vector<T> &data, size_t block_size, int level) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = (n + block_size - 1) / block_size;
-    const uint32_t bz3_block_size = std::max<uint32_t>(65536, block_size * sizeof(T));
+    // Map level 1-9 to block size in bytes
+    const uint32_t bz3_block_size = static_cast<uint32_t>(std::max(1, std::min(9, level))) * 65536u;
 
     for (size_t ib = 0; ib < num_blocks; ++ib) {
         size_t start = ib * block_size;
@@ -317,9 +314,18 @@ void run_bzip3(const std::vector<T> &data, size_t block_size) {
 
 #if HAS_SQUASH
 template<typename T = int64_t>
-void run_squash(const std::string &compressor_name, const std::vector<T> &data, size_t block_size) {
+void run_squash(const std::string &compressor_name, const std::vector<T> &data, size_t block_size, int level = -1) {
     SquashCodec *codec = squash_get_codec(compressor_name.c_str());
     if (codec == nullptr) return;
+    
+    SquashOptions *opts = nullptr;
+    if (level != -1) {
+        char level_s[4];
+        opts = squash_options_new(codec, NULL);
+        squash_object_ref_sink(opts);
+        snprintf(level_s, 4, "%d", level);
+        squash_options_parse_option(opts, "level", level_s);
+    }
     
     const size_t n = data.size();
     const size_t num_blocks = n / block_size + (n % block_size != 0);
@@ -333,9 +339,13 @@ void run_squash(const std::string &compressor_name, const std::vector<T> &data, 
         size_t current_block_size = (end - start) * sizeof(T);
         
         size_t compressed_size = max_compressed_size;
-        squash_codec_compress(codec, &compressed_size, compressed_buffer.data(), 
-                              current_block_size, reinterpret_cast<const uint8_t*>(data.data() + start), NULL);
+        squash_codec_compress_with_options(codec, &compressed_size, compressed_buffer.data(), 
+                              current_block_size, reinterpret_cast<const uint8_t*>(data.data() + start), opts);
         do_not_optimize(compressed_buffer);
+    }
+    
+    if (opts != nullptr) {
+        squash_object_unref(opts);
     }
 }
 #endif
@@ -386,6 +396,17 @@ int main(int argc, char** argv) {
     bench_data.decimals = loaded.decimals;
     bench_data.uncompressed_bits = n * sizeof(int64_t) * 8;
     
+    // Parse =LEVEL suffix from compressor name
+    std::string base_name = compressor_name;
+    int level = 6;  // default level for dictionary-based compressors
+    {
+        auto eq_pos = compressor_name.find('=');
+        if (eq_pos != std::string::npos) {
+            base_name = compressor_name.substr(0, eq_pos);
+            level = std::stoi(compressor_name.substr(eq_pos + 1));
+        }
+    }
+    
     // Identify needed data format
     bool needs_shifted = false;
     bool needs_double = false;
@@ -393,21 +414,21 @@ int main(int argc, char** argv) {
 
     // Baseline modes: build the same input representation but do not run any compressor.
     // Used by Massif measurement scripts to subtract fixed runtime/preprocessing overhead.
-    if (compressor_name == "baseline_shifted") {
+    if (base_name == "baseline_shifted") {
         needs_shifted = true;
-    } else if (compressor_name == "baseline_double") {
+    } else if (base_name == "baseline_double") {
         needs_double = true;
-    } else if (compressor_name == "baseline_raw") {
+    } else if (base_name == "baseline_raw") {
         needs_raw = true;
-    } else if (compressor_name == "neats" || compressor_name == "dac" ||
-               compressor_name.find("_gef") != std::string::npos ||
-               compressor_name == "leco" || compressor_name == "pfordelta" ||
-               compressor_name.find("pfordelta_") == 0) {
+    } else if (base_name == "neats" || base_name == "dac" ||
+               base_name.find("_gef") != std::string::npos ||
+               base_name == "leco" || base_name == "pfordelta" ||
+               base_name.find("pfordelta_") == 0) {
         needs_shifted = true;
-    } else if (compressor_name == "alp" || compressor_name == "gorilla" ||
-               compressor_name == "chimp" || compressor_name == "chimp128" ||
-               compressor_name == "tsxor" || compressor_name == "elf" ||
-               compressor_name == "camel" || compressor_name == "falcon") {
+    } else if (base_name == "alp" || base_name == "gorilla" ||
+               base_name == "chimp" || base_name == "chimp128" ||
+               base_name == "tsxor" || base_name == "elf" ||
+               base_name == "camel" || base_name == "falcon") {
         needs_double = true;
     } else {
         needs_raw = true;
@@ -442,81 +463,81 @@ int main(int argc, char** argv) {
     MassifPhaseMarkerGuard massif_guard;
 
     // Run compression
-    if (compressor_name == "baseline_shifted") {
+    if (base_name == "baseline_shifted") {
         do_not_optimize(bench_data.shifted_data);
-    } else if (compressor_name == "baseline_double") {
+    } else if (base_name == "baseline_double") {
         do_not_optimize(bench_data.double_data);
-    } else if (compressor_name == "baseline_raw") {
+    } else if (base_name == "baseline_raw") {
         do_not_optimize(bench_data.raw_data);
-    } else if (compressor_name == "neats") {
+    } else if (base_name == "neats") {
         int64_t max_val = *std::max_element(bench_data.shifted_data.begin(), bench_data.shifted_data.end());
         if (max_val > 1000000) {
             run_neats<int64_t, double>(bench_data.shifted_data, max_bpc);
         } else {
             run_neats<int64_t, float>(bench_data.shifted_data, max_bpc);
         }
-    } else if (compressor_name == "dac") {
+    } else if (base_name == "dac") {
         run_dac<int64_t>(bench_data.shifted_data);
-    } else if (compressor_name == "rle_gef") {
+    } else if (base_name == "rle_gef") {
         run_gef<gef::RLE_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "u_gef_approximate") {
+    } else if (base_name == "u_gef_approximate") {
         run_gef<gef::U_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "u_gef_optimal") {
+    } else if (base_name == "u_gef_optimal") {
         run_gef<gef::U_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "b_gef_approximate") {
+    } else if (base_name == "b_gef_approximate") {
         run_gef<gef::B_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "b_gef_optimal") {
+    } else if (base_name == "b_gef_optimal") {
         run_gef<gef::B_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "b_star_gef_approximate") {
+    } else if (base_name == "b_star_gef_approximate") {
         run_gef<gef::B_STAR_GEF_APPROXIMATE<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "b_star_gef_optimal") {
+    } else if (base_name == "b_star_gef_optimal") {
         run_gef<gef::B_STAR_GEF<int64_t, GEF_UNIFORM_PARTITION_SIZE>>(bench_data.shifted_data);
-    } else if (compressor_name == "gorilla") {
+    } else if (base_name == "gorilla") {
         run_bitstream_compressor<CompressorGorilla<double>, double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "chimp") {
+    } else if (base_name == "chimp") {
         run_bitstream_compressor<CompressorChimp<double>, double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "chimp128") {
+    } else if (base_name == "chimp128") {
         run_bitstream_compressor<CompressorChimp128<double>, double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "tsxor") {
+    } else if (base_name == "tsxor") {
         run_tsxor<double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "elf") {
+    } else if (base_name == "elf") {
         run_bitstream_compressor<CompressorElf<double>, double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "camel") {
+    } else if (base_name == "camel") {
         run_bitstream_compressor<CompressorCamel<double>, double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "falcon") {
+    } else if (base_name == "falcon") {
         run_falcon<double>(bench_data.double_data, block_size);
-    } else if (compressor_name == "alp") {
+    } else if (base_name == "alp") {
         benchmark_alp(bench_data, {});
-    } else if (compressor_name == "pfordelta" || compressor_name.find("pfordelta_") == 0) {
+    } else if (base_name == "pfordelta" || base_name.find("pfordelta_") == 0) {
         std::string codec_name = "simdnewpfor";
-        if (compressor_name.find("pfordelta_") == 0)
-            codec_name = compressor_name.substr(10);
+        if (base_name.find("pfordelta_") == 0)
+            codec_name = base_name.substr(10);
         run_pfordelta(codec_name, bench_data.shifted_data, block_size);
-    } else if (compressor_name.find("gzip_") == 0) {
+    } else if (base_name == "gzip") {
 #ifdef HAS_GZIP
-        run_gzip(compressor_name, bench_data.raw_data, block_size);
+        run_gzip(bench_data.raw_data, block_size, level);
 #else
         std::cerr << "Error: gzip not available (HAS_GZIP=0)" << std::endl;
         return 1;
 #endif
     } 
 #if defined(NEATS_ENABLE_LECO)
-    else if (compressor_name == "leco") {
+    else if (base_name == "leco") {
         benchmark_leco(bench_data, {}, block_size);
     }
 #endif
 #if HAS_SQUASH
-    else if (compressor_name == "bzip3") {
+    else if (base_name == "bzip3") {
 #ifdef HAS_BZIP3
-        run_bzip3(bench_data.raw_data, block_size);
+        run_bzip3(bench_data.raw_data, block_size, level);
 #else
         std::cerr << "Error: bzip3 not available (HAS_BZIP3=0)" << std::endl;
         return 1;
 #endif
-    } else if (compressor_name == "lz4" || compressor_name == "zstd" || 
-             compressor_name == "brotli" || compressor_name == "xz" || 
-             compressor_name == "snappy" || compressor_name == "bzip2") {
-        run_squash(compressor_name, bench_data.raw_data, block_size);
+    } else if (base_name == "lz4" || base_name == "zstd" || 
+             base_name == "brotli" || base_name == "xz" || 
+             base_name == "snappy" || base_name == "bzip2") {
+        run_squash(base_name, bench_data.raw_data, block_size, level);
     }
 #endif
     else {

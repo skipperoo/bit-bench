@@ -19,12 +19,11 @@
 
 # Bugs
 
-## UI/UX fixes
+## Compression benchmark
 
-- [x] Fix histogram plots:
-  - [x] Must be +50% taller (OverviewBarChart: h-72→h-[432px], MetricBarChart: h-64→h-[384px])
-  - [x] The left label was hidden behind y-ticks (changed YAxis label position from 'insideLeft' to 'outside' + increased left margin to 80)
-- [x] Fix scatter plots:
-  - [x] The legend overwrites the x label (increased bottom margin to 80 + Legend verticalAlign='bottom' with height=36 + XAxis label offset=30)
-  - [x] Must be +150% taller (ScatterChart: h-64→h-[480px])
-- [x] All points shared same x coordinate — merged into single Scatter component with Cell coloring. Previously each point was a separate Scatter series with one data point, preventing proper x-axis domain computation.
+- [x] Merge gzip_* into one gzip benchmark with `=LEVEL` syntax via `-c`.
+- [x] Use `=LEVEL` syntax to set the level of all dictionary based compressors.
+- [x] Add tunable level (1-9, maps to block_size) to bzip3.
+- [x] Update backend registry: gzip has `level` option, bzip3 has `level` option.
+- [x] Implemented on both lossless_benchmark.cpp AND memory_harness.cpp.
+- [x] fix_report.md created at `compression/fix_report.md`.

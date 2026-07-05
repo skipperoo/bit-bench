@@ -171,7 +171,7 @@ Reproduces `final_results.html` for the single benchmark. See §3.4 for the exac
   "bzip2": {
     "block_size": { "type": "number", "min": 1, "max": 9, "default": 6, "step": 1 }
   },
-  "gzip_6": {
+  "gzip": {
     "level": { "type": "number", "min": 1, "max": 9, "default": 6, "step": 1 }
   },
   "falcon": {
@@ -592,7 +592,7 @@ On first startup the backend idempotently creates the default admin `admin@bitbe
 
 Source: `compression/`. Build artifacts: `LosslessBenchmark` (minimal) and `LosslessBenchmarkFull` (with Squash). The Dockerfile builds both at image-build time (D9); the backend prefers `LosslessBenchmarkFull` when present, else `LosslessBenchmark`.
 
-Available compressors (from `-h`): `neats, dac, rle_gef, u_gef_approximate, u_gef_optimal, b_gef_approximate, b_gef_optimal, b_star_gef_approximate, b_star_gef_optimal, gorilla, chimp, chimp128, tsxor, elf, camel, falcon, alp, pfordelta, gzip_1, gzip_6, gzip_9, bzip3` (and `bzip2` in Full mode).
+Available compressors (from `-h`): `neats, dac, rle_gef, u_gef_approximate, u_gef_optimal, b_gef_approximate, b_gef_optimal, b_star_gef_approximate, b_star_gef_optimal, gorilla, chimp, chimp128, tsxor, elf, camel, falcon, alp, pfordelta, gzip, bzip3` (and `bzip2`, `lz4`, `zstd`, `brotli`, `xz`, `snappy` in Full mode).
 
 Invocation (the ONLY flags the backend uses):
 ```
@@ -634,7 +634,7 @@ random_access_ns,random_access_mbs[,range_query_<N>...]
 | PForDelta | PForDelta | star |
 | DAC | DAC | pentagon |
 
-`rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip_6`→`gzip (6)`, etc. (full map in `scripts/generate_full_html_report.py`).
+`rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip`→`gzip`, etc. (full map in `scripts/generate_full_html_report.py`).
 
 ### 6.5 Metric ranking rules (parity with `is_min_best`)
 

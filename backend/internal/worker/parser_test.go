@@ -7,7 +7,7 @@ import (
 
 func TestParseCSV(t *testing.T) {
 	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs,range_query_1M,range_query_10M
-gzip_6,test,1000,8000,100,64000,32000,0.5,500,600,100,200,1500,1200
+gzip,test,1000,8000,100,64000,32000,0.5,500,600,100,200,1500,1200
 neats,test,1000,8000,200,64000,16000,0.25,800,900,50,300,2000,1800
 `
 
@@ -20,10 +20,10 @@ neats,test,1000,8000,200,64000,16000,0.25,800,900,50,300,2000,1800
 		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
 
-	// Check first row (gzip_6)
+	// Check first row (gzip)
 	r := rows[0]
-	if r.Compressor != "gzip_6" {
-		t.Errorf("compressor = %q, want gzip_6", r.Compressor)
+	if r.Compressor != "gzip" {
+		t.Errorf("compressor = %q, want gzip", r.Compressor)
 	}
 	if r.NumValues != 1000 {
 		t.Errorf("num_values = %d, want 1000", r.NumValues)
@@ -53,7 +53,7 @@ neats,test,1000,8000,200,64000,16000,0.25,800,900,50,300,2000,1800
 
 func TestParseCSVMissingColumn(t *testing.T) {
 	csv := `compressor,dataset,num_values
-gzip_6,test,1000
+gzip,test,1000
 `
 	_, err := ParseCSV(strings.NewReader(csv))
 	if err == nil {
@@ -63,8 +63,8 @@ gzip_6,test,1000
 
 func TestAverageRows(t *testing.T) {
 	rows := []BenchmarkRow{
-		{Compressor: "gzip_6", NumValues: 1000, CompressionRatio: 0.5, CompressionThroughputMbs: 500, RangeQueries: map[string]float64{"1M": 1500}},
-		{Compressor: "gzip_6", NumValues: 2000, CompressionRatio: 0.6, CompressionThroughputMbs: 600, RangeQueries: map[string]float64{"1M": 1600}},
+		{Compressor: "gzip", NumValues: 1000, CompressionRatio: 0.5, CompressionThroughputMbs: 500, RangeQueries: map[string]float64{"1M": 1500}},
+		{Compressor: "gzip", NumValues: 2000, CompressionRatio: 0.6, CompressionThroughputMbs: 600, RangeQueries: map[string]float64{"1M": 1600}},
 		{Compressor: "neats", NumValues: 1000, CompressionRatio: 0.25, CompressionThroughputMbs: 800, RangeQueries: map[string]float64{"1M": 2000}},
 	}
 
@@ -75,15 +75,15 @@ func TestAverageRows(t *testing.T) {
 
 	for _, r := range averaged {
 		switch r.Compressor {
-		case "gzip_6":
+		case "gzip":
 			if r.NumValues != 1500 {
-				t.Errorf("gzip_6 avg num_values = %d, want 1500", r.NumValues)
+				t.Errorf("gzip avg num_values = %d, want 1500", r.NumValues)
 			}
 			if r.CompressionRatio != 0.55 {
-				t.Errorf("gzip_6 avg compression_ratio = %f, want 0.55", r.CompressionRatio)
+				t.Errorf("gzip avg compression_ratio = %f, want 0.55", r.CompressionRatio)
 			}
 			if r.RangeQueries["1M"] != 1550 {
-				t.Errorf("gzip_6 avg range_1M = %f, want 1550", r.RangeQueries["1M"])
+				t.Errorf("gzip avg range_1M = %f, want 1550", r.RangeQueries["1M"])
 			}
 		case "neats":
 			if r.NumValues != 1000 {
@@ -95,12 +95,22 @@ func TestAverageRows(t *testing.T) {
 
 func TestBuildCompressorList(t *testing.T) {
 	compressors := map[string]interface{}{
-		"gzip_6": map[string]interface{}{},
+		"gzip":   map[string]interface{}{"level": float64(6)},
 		"neats":  map[string]interface{}{"max_bpc": float64(32), "lossy": false},
 	}
 	list := BuildCompressorList(compressors)
-	if !strings.Contains(list, "gzip_6") || !strings.Contains(list, "neats") {
-		t.Errorf("compressor list = %q, should contain gzip_6 and neats", list)
+	if !strings.Contains(list, "gzip") || !strings.Contains(list, "neats") {
+		t.Errorf("compressor list = %q, should contain gzip and neats", list)
+	}
+}
+
+func TestBuildCompressorListLevel(t *testing.T) {
+	compressors := map[string]interface{}{
+		"gzip":   map[string]interface{}{"level": float64(3)},
+	}
+	list := BuildCompressorList(compressors)
+	if list != "gzip=3" {
+		t.Errorf("gzip with level=3 should map to gzip=3, got %q", list)
 	}
 }
 

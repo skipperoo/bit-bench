@@ -19,16 +19,24 @@ type ExecResult struct {
 }
 
 // mapCompressorName transforms compressor + options into the binary-compatible name.
+// If the compressor has a "level" option and a non-default value, appends =LEVEL.
 func mapCompressorName(name string, options map[string]interface{}) string {
+	base := name
 	if name == "pfordelta" {
 		if codec, ok := options["codec"]; ok {
 			codecStr, ok := codec.(string)
 			if ok && codecStr != "" && codecStr != "simdnewpfor" {
-				return "pfordelta_" + codecStr
+				base = "pfordelta_" + codecStr
 			}
 		}
 	}
-	return name
+	// Append =LEVEL for compressors with a level option
+	if levelVal, ok := options["level"]; ok {
+		if level, ok := levelVal.(float64); ok && level != 6 {
+			return fmt.Sprintf("%s=%d", base, int(level))
+		}
+	}
+	return base
 }
 
 // BuildCompressorList converts the compressors map into a comma-separated list
