@@ -30,7 +30,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D10 | **Groups drive scheduling via an integer `priority`; strict higher-priority-first, FIFO within the same priority.** | Simple, predictable. |
 | D11 | **Detail page = full parity with `final_results.html`**: overview bar + per-metric accordions (chart + ranked table) + Pareto scatter. | Faithful to the reference report. |
 | D12 | **Top-5 summary = composite Pareto score** over (minimize `compression_ratio`, maximize `compression_throughput_mbs`). Formula in §3.5. | Balances size and speed. |
-| D13 | **Reverse proxy = nginx** (`nginx:alpine`), config at `angie/nginx.conf`. Single entry point routing `/api/*` → backend, `/*` → frontend, port 81 → admin-frontend. | Standard nginx, well-known, simple configuration. |
+| D13 | **Reverse proxy = nginx** (`nginx:alpine`), config at `nginx/nginx.conf`. Single entry point routing `/api/*` → backend, `/*` → frontend, port 81 → admin-frontend. | Standard nginx, well-known, simple configuration. |
 | D14 | **Redis image = `redis:latest`** (not 7-alpine). | Simpler maintenance; pinning to `latest` is acceptable for this project's deployment scope. |
 | D15 | **routy subroute prefix conflict resolution.** Protected routes mounted under `/api/v1/` (handler paths without `/v1/` prefix); admin routes mounted under `/api/v1/admin/` (handler paths without `/v1/admin/` prefix). Go's `ServeMux` panics if two subrouters share the same prefix. | Avoids `panic: pattern conflicts` at router finalization. |
 | D16 | **Postgres 18 volume layout.** `pg_data` volume mounted at `/var/lib/postgresql` (not `/var/lib/postgresql/data`). Postgres 18+ uses major-version-specific subdirectory layout compatible with `pg_upgrade --link`. | Required by postgres:18-alpine entrypoint; old mount point causes startup failure. |
@@ -655,7 +655,7 @@ services:
       - "80:80"
       - "81:81"
     volumes:
-      - ./angie/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - admin-frontend
