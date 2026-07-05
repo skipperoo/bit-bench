@@ -175,6 +175,17 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 
 	r.updateProgress(ctx, id, 15)
 
+	// Count total compressor runs for progress tracking (compressors × bin files)
+	totalCompRuns := len(benchmark.Compressors) * len(binPaths)
+	compCompleted := 0
+	compProgressFn := func(compressorName string) {
+		compCompleted++
+		if totalCompRuns > 0 {
+			pct := 15 + compCompleted*25/totalCompRuns
+			r.updateProgress(ctx, id, pct)
+		}
+	}
+
 	for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
 		if attempt > 0 {
 			logger.Info("retrying benchmark", "id", id, "attempt", attempt)
@@ -185,7 +196,7 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 		var hadError bool
 
 		for _, binPath := range binPaths {
-			result, err := RunBenchmark(binaryPath, compressorList, binPath, workDir, r.cfg.BenchTimeout)
+			result, err := RunBenchmark(binaryPath, compressorList, binPath, workDir, r.cfg.BenchTimeout, compProgressFn)
 			if err != nil {
 				lastErr = fmt.Sprintf("exec error: %v", err)
 				hadError = true

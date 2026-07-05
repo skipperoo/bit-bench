@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -50,8 +51,12 @@ func BuildCompressorList(compressors map[string]interface{}) string {
 	return strings.Join(names, ",")
 }
 
+// ProgressCallback is called for each compressor as it starts running.
+type ProgressCallback func(compressorName string)
+
 // RunBenchmark executes the benchmark binary against a single .bin file.
-func RunBenchmark(binaryPath, compressorList, binPath, outDir string, timeout time.Duration) (*ExecResult, error) {
+// onCompressorStart is called for each compressor as it begins (from stderr output).
+func RunBenchmark(binaryPath, compressorList, binPath, outDir string, timeout time.Duration, onCompressorStart ProgressCallback) (*ExecResult, error) {
 	outPath := filepath.Join(outDir, "out.csv")
 
 	cmd := exec.Command("timeout",
@@ -64,12 +69,36 @@ func RunBenchmark(binaryPath, compressorList, binPath, outDir string, timeout ti
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+
+	if onCompressorStart != nil {
+		stderrPipe, err := cmd.StderrPipe()
+		if err == nil {
+			go func() {
+				scanner := bufio.NewScanner(stderrPipe)
+				for scanner.Scan() {
+					line := scanner.Text()
+					stderr.WriteString(line + "\n")
+					if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Running ") {
+						comp := strings.TrimSuffix(strings.TrimPrefix(trimmed, "Running "), "...")
+						comp = strings.TrimSpace(strings.SplitN(comp, " ", 2)[0])
+						onCompressorStart(comp)
+					}
+				}
+			}()
+		} else {
+			cmd.Stderr = &stderr
+		}
+	} else {
+		cmd.Stderr = &stderr
+	}
 	cmd.Env = append(os.Environ(),
 		"LD_LIBRARY_PATH="+filepath.Dir(binaryPath)+"/lib",
 	)
 
 	err := cmd.Run()
+	// Ensure stderr from the goroutine is fully written
+	time.Sleep(50 * time.Millisecond)
+
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
