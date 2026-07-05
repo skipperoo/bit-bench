@@ -65,9 +65,6 @@ func (r *BenchmarkRunner) Running() int {
 }
 
 func (r *BenchmarkRunner) processNext(ctx context.Context) {
-	r.running.Add(1)
-	defer r.running.Add(-1)
-
 	benchID, err := r.claimJob(ctx)
 	if err != nil {
 		logger.Error("claim job", "error", err)
@@ -78,6 +75,8 @@ func (r *BenchmarkRunner) processNext(ctx context.Context) {
 		return
 	}
 
+	r.running.Add(1)
+	defer r.running.Add(-1)
 	r.executeJob(ctx, *benchID)
 }
 
