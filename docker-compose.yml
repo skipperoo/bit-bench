@@ -68,7 +68,7 @@ services:
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
-      - BENCH_BINARY_PATH=/app/bin/LosslessBenchmark
+      - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
