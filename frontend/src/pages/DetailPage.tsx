@@ -102,11 +102,11 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   return (
     <div className="h-[432px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 80, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 110, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 45 }}
+            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 60 }}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb" />
@@ -132,11 +132,11 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   return (
     <div className="h-[384px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 80, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 110, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: label, angle: -90, position: 'outside', offset: 45 }}
+            label={{ value: label, angle: -90, position: 'outside', offset: 60 }}
           />
           <Tooltip />
           <Bar dataKey={metric} fill="#16a34a" />
@@ -162,7 +162,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
     <div>
       <div className="h-[480px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 120 }}>
+          <ScatterChart margin={{ left: 110, right: 20, top: 20, bottom: 120 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="x"
@@ -172,7 +172,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             <YAxis
               dataKey="y"
               name={metricLabel(metric)}
-              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 45 }}
+              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 60 }}
             />
             <Tooltip
               formatter={(v: any, name: any) => {
