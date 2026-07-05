@@ -22,13 +22,18 @@ import (
 var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 type BenchmarkService struct {
-	benchRepo *repository.BenchmarkRepository
-	resultRepo *repository.BenchmarkResultRepository
-	cfg        *config.Config
+	benchRepo   *repository.BenchmarkRepository
+	resultRepo  *repository.BenchmarkResultRepository
+	cfg         *config.Config
+	runningFunc func() int
 }
 
 func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, cfg *config.Config) *BenchmarkService {
 	return &BenchmarkService{benchRepo: br, resultRepo: rr, cfg: cfg}
+}
+
+func (s *BenchmarkService) SetRunningFunc(fn func() int) {
+	s.runningFunc = fn
 }
 
 // fileChecksum computes MD5 hex of reader content.
@@ -211,11 +216,16 @@ func (s *BenchmarkService) GetStatus(ctx context.Context) (*model.StatusResponse
 		return nil, err
 	}
 
+	running := 0
+	if s.runningFunc != nil {
+		running = s.runningFunc()
+	}
+
 	return &model.StatusResponse{
 		QueueDepth: stats.Queued,
 		Runner: model.RunnerStatus{
-			Running:         0, // updated by worker
-			MaxParallelism:  s.cfg.MaxParallelism,
+			Running:        running,
+			MaxParallelism: s.cfg.MaxParallelism,
 		},
 		Stats: *stats,
 	}, nil

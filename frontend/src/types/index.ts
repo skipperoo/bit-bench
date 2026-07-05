@@ -34,6 +34,7 @@ export interface Benchmark {
   status: 'queued' | 'in_progress' | 'ready' | 'failed' | 'timed_out' | 'cancelled'
   compressors: Record<string, Record<string, unknown>>
   error?: string
+  progress?: number
   created_at: string
   started_at?: string
   finished_at?: string

@@ -187,6 +187,7 @@ func GetBenchmarkStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":      benchmark.Status,
+		"progress":    benchmark.Progress,
 		"started_at":  benchmark.StartedAt,
 		"finished_at": benchmark.FinishedAt,
 		"error":       benchmark.Error,

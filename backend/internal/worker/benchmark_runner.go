@@ -243,6 +243,9 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 		compressorNames = append(compressorNames, row.Compressor)
 	}
 
+	// Mark progress: performance benchmark done
+	r.benchRepo.UpdateProgress(ctx, id, 50)
+
 	// Run memory measurements (Valgrind Massif-based)
 	memoryResults := r.runMemoryMeasurements(ctx, id, binaryPath, compressorNames, binPaths, workDir)
 
@@ -337,9 +340,42 @@ func (r *BenchmarkRunner) runMemoryMeasurements(ctx context.Context, id uuid.UUI
 	massifDir := filepath.Join(workDir, "massif")
 	timeout := r.cfg.BenchTimeout
 
-	results, err := RunAllMemoryMeasurements(memBinaryPath, compressorNames, binPaths, massifDir, timeout)
-	if err != nil {
-		logger.Warn("memory measurements failed", "id", id, "error", err)
+	// Memory measurement progress: 50 → 100% across all compressors
+	numComps := len(compressorNames)
+	results := make(map[string]*MemoryResult)
+	baselineCache := make(map[string]int64)
+
+	if err := os.MkdirAll(massifDir, 0755); err != nil {
+		logger.Warn("memory measurements: mkdir", "error", err)
+		return nil
+	}
+
+	if len(binPaths) == 0 {
+		return nil
+	}
+	binPath := binPaths[0]
+
+	for i, comp := range compressorNames {
+		result, err := RunMemoryHarnessWithBaseline(memBinaryPath, comp, binPath, massifDir, timeout, baselineCache)
+		if err != nil {
+			logger.Warn("memory measurement failed", "compressor", comp, "error", err)
+			continue
+		}
+		baseName := comp
+		if eqIdx := strings.IndexByte(comp, '='); eqIdx >= 0 {
+			baseName = comp[:eqIdx]
+		}
+		result.Compressor = baseName
+		results[baseName] = result
+
+		// Update progress: memory portion is the second 50%
+		pct := 50 + (i+1)*50/numComps
+		r.benchRepo.UpdateProgress(ctx, id, pct)
+	}
+
+	os.RemoveAll(massifDir)
+
+	if len(results) == 0 {
 		return nil
 	}
 

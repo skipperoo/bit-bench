@@ -43,11 +43,12 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	var compressorsJSON []byte
 	err := r.db.QueryRow(ctx, `
 		SELECT id, user_id, name, original_filename, file_size, file_checksum, file_ext, status, compressors, error,
-		       created_at, started_at, finished_at, updated_at
+		       progress, created_at, started_at, finished_at, updated_at
 		FROM benchmarks WHERE id = $1
-	`, id).Scan(
+	`, id	).Scan(
 		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileChecksum,
 		&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
+		&b.Progress,
 		&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -93,7 +94,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 	}
 
 	query := `SELECT id, user_id, name, original_filename, file_size, file_checksum, file_ext, status, compressors, error,
-	                  created_at, started_at, finished_at, updated_at
+	                  progress, created_at, started_at, finished_at, updated_at
 	           FROM benchmarks WHERE 1=1`
 	args := []any{}
 	argIdx := 1
@@ -140,6 +141,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		err := rows.Scan(
 			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileChecksum,
 			&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
+			&b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 		)
 		if err != nil {
@@ -168,6 +170,9 @@ func (r *BenchmarkRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 	if status == "ready" || status == "failed" || status == "timed_out" || status == "cancelled" {
 		query += `, finished_at = NOW()`
 	}
+	if status == "ready" {
+		query += `, progress = 100`
+	}
 	if errMsg != nil {
 		query += fmt.Sprintf(`, error = $%d`, argIdx)
 		args = append(args, *errMsg)
@@ -176,6 +181,11 @@ func (r *BenchmarkRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 
 	query += ` WHERE id = $2`
 	_, err := r.db.Exec(ctx, query, args...)
+	return err
+}
+
+func (r *BenchmarkRepository) UpdateProgress(ctx context.Context, id uuid.UUID, progress int) error {
+	_, err := r.db.Exec(ctx, "UPDATE benchmarks SET progress = $1, updated_at = NOW() WHERE id = $2", progress, id)
 	return err
 }
 

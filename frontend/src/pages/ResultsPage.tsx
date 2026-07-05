@@ -79,9 +79,19 @@ export default function ResultsPage() {
                         {b.status === 'in_progress' && (
                           <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse mr-1" />
                         )}
-                        {b.status}
+                        {b.status === 'in_progress' && b.progress != null
+                          ? `${b.status} (${b.progress}%)`
+                          : b.status}
                       </Badge>
                     </div>
+                    {b.status === 'in_progress' && b.progress != null && (
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                        <div
+                          className="bg-yellow-500 h-1.5 rounded-full transition-all"
+                          style={{ width: `${b.progress}%` }}
+                        />
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {(b.file_size / 1024).toFixed(1)} KB &middot; {b.file_ext}
                     </p>

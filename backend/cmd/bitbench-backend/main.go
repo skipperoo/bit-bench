@@ -99,7 +99,10 @@ func main() {
 	router.AddSubroute("/api/v1/admin/", admin.Finalize())
 	final := router.Finalize()
 
-	go worker.NewBenchmarkRunner(cfg, db, rdb).Run(ctx)
+	runner := worker.NewBenchmarkRunner(cfg, db, rdb)
+	service.App.Benchmark.SetRunningFunc(runner.Running)
+
+	go runner.Run(ctx)
 	go worker.NewEmailDispatcher(cfg, db).Run(ctx)
 
 	server := &http.Server{

@@ -47,6 +47,7 @@ type Benchmark struct {
 	Status           string                 `json:"status"`
 	Compressors      map[string]interface{} `json:"compressors"`
 	Error            *string                `json:"error,omitempty"`
+	Progress         *int                   `json:"progress,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
 	FinishedAt       *time.Time             `json:"finished_at,omitempty"`

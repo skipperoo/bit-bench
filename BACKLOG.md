@@ -33,13 +33,22 @@
 
 ## Status
 
-- [ ] The status page reports the 0/n running workers even when some workers are busy
-- [ ] Show the actual status of the benchmark -> if you have 5 compressors to test count the lines generated minus the header line in the output file and you have a percentage of completion. Account for performance and memory benchmark (so double the lines).
+- [x] Wire runner.Running() atomic counter into GET /api/v1/status so the StatusPage shows actual running workers.
+- [x] Add `progress` column to benchmarks table (INTEGER, 0–100).
+- [x] Benchmark runner updates progress: 50% after perf benchmark, incremental 50→100% during memory harness runs.
+- [x] GET /api/v1/benchmarks/{id}/status returns `progress` field.
+- [x] Frontend ResultsPage shows progress bar + percentage for `in_progress` benchmarks.
 
 ## Upload
 
+- [ ] Add a biref information on which file formats are accepted and the structure they must have.
 - [ ] Remove the single hash constraint. Keep the hashing to later reference benchmarks over the same file and group them in the comparison page, but let the use run multiple benchmarks on the same file.
 - [ ] Allow the user to select multiple files and add the option to ask the user to average the results (behave like a tar/zip upload) or to run multiple benchmarks (enqueue the files). Try to implement this change without changing the backend, handling it on the frontend.
 - [ ] xz, zstd, lz4, brotli and bzip2 are missing level options. Please understand what levels they offer and add them to the registry.
 - [ ] Add a jsonb column to the user database where the backend saves the last benchmark config, so that the backend can send it to the frontend and automatically re-apply it. The config is updated whenever the user makes a selection changes (both compressor and compressor config).
 - [ ] Autocomplete the benchmark name with the filename, otherwise in case of multiple file let the user select a name and the enqueued benchmark will be named NAME_ENTERED (filename) automatically. Show the info about this when the user selects multiple files + non-average (sequential benchmarks).
+
+## Admin
+
+- [ ] Paginate the benchmark table
+- [ ] Allow multiselect on the benchmark table to delete multiple entries
