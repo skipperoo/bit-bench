@@ -21,10 +21,10 @@
 
 ## UI/UX fixes
 
-- [ ] Fix histogram plots:
-  - [ ] Must be +50% taller
-  - [ ] The left label is is hidden and goes behind the y-ticks and is cut
-- [ ] Fix scatter plots:
-  - [ ] The legend overwrites the x label, move it a bit down
-  - [ ] Must be +150% taller
-- [ ] When hovering over the points, the results are correct but they all share the same x coordinate so all the points are vertically aligned over the same x coordinate, thus they are also reported to be pareto optimal. Plot the points properly.
+- [x] Fix histogram plots:
+  - [x] Must be +50% taller (OverviewBarChart: h-72→h-[432px], MetricBarChart: h-64→h-[384px])
+  - [x] The left label was hidden behind y-ticks (changed YAxis label position from 'insideLeft' to 'outside' + increased left margin to 80)
+- [x] Fix scatter plots:
+  - [x] The legend overwrites the x label (increased bottom margin to 80 + Legend verticalAlign='bottom' with height=36 + XAxis label offset=30)
+  - [x] Must be +150% taller (ScatterChart: h-64→h-[480px])
+- [x] All points shared same x coordinate — merged into single Scatter component with Cell coloring. Previously each point was a separate Scatter series with one data point, preventing proper x-axis domain computation.

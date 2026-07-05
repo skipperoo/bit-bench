@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ScatterChart, Scatter, ResponsiveContainer,
+  ScatterChart, Scatter, ResponsiveContainer, Cell,
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -78,11 +78,11 @@ function computePareto(results: BenchmarkResult[]): Map<string, number> {
     let count = 0
     for (const b of valid) {
       if (a === b) continue
-      const aDominates = a.compression_ratio! <= b.compression_ratio! &&
-        a.compression_throughput_mbs! >= b.compression_throughput_mbs!
-      const strictlyBetter = a.compression_ratio! < b.compression_ratio! ||
-        a.compression_throughput_mbs! > b.compression_throughput_mbs!
-      if (aDominates && strictlyBetter) {
+      const bDominatesA = b.compression_ratio! <= a.compression_ratio! &&
+        b.compression_throughput_mbs! >= a.compression_throughput_mbs!
+      const strictlyBetter = b.compression_ratio! < a.compression_ratio! ||
+        b.compression_throughput_mbs! > a.compression_throughput_mbs!
+      if (bDominatesA && strictlyBetter) {
         count++
       }
     }
@@ -103,12 +103,14 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   if (data.length === 0) return <p className="text-sm text-muted-foreground">No data</p>
 
   return (
-    <div className="h-72">
+    <div className="h-[432px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 80, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
-          <YAxis label={{ value: 'Ratio (%)', angle: -90, position: 'insideLeft' }} />
+          <YAxis
+            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 20 }}
+          />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb" />
         </BarChart>
@@ -131,12 +133,14 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   const label = metric === 'compression_ratio' ? 'Ratio (%)' : metricLabel(metric)
 
   return (
-    <div className="h-64">
+    <div className="h-[384px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 80, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
-          <YAxis label={{ value: label, angle: -90, position: 'insideLeft' }} />
+          <YAxis
+            label={{ value: label, angle: -90, position: 'outside', offset: 20 }}
+          />
           <Tooltip />
           <Bar dataKey={metric} fill="#16a34a" />
         </BarChart>
@@ -157,19 +161,19 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
   if (data.length === 0) return null
 
   return (
-    <div className="h-64">
+    <div className="h-[480px]">
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ bottom: 60 }}>
+        <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 80 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             dataKey="x"
             name="Compression Ratio (%)"
-            label={{ value: 'Compression Ratio (%)', position: 'bottom' }}
+            label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 30 }}
           />
           <YAxis
             dataKey="y"
             name={metricLabel(metric)}
-            label={{ value: metricLabel(metric), angle: -90, position: 'insideLeft' }}
+            label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 20 }}
           />
           <Tooltip
             formatter={(v: any, name: any) => {
@@ -178,16 +182,18 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               return [`${val}%`, 'Compression Ratio']
             }}
           />
-          <Legend />
-          {data.map((d, i) => (
-            <Scatter
-              key={d.name}
-              data={[d]}
-              fill={COLORS[i % COLORS.length]}
-              name={d.name}
-              legendType="circle"
-            />
-          ))}
+          <Legend verticalAlign="bottom" height={36} />
+          {/* Single Scatter with all data points for proper axis domain computation */}
+          <Scatter
+            data={data}
+            fill="#2563eb"
+            name="Compressors"
+            legendType="circle"
+          >
+            {data.map((d, i) => (
+              <Cell key={d.name} fill={COLORS[i % COLORS.length]} />
+            ))}
+          </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
     </div>
