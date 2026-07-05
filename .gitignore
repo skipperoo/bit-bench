@@ -10,3 +10,6 @@ secrets/
 compression/build/
 compression/datasets
 compression/benchmark_results
+compression/lib/sdsl-lite/
+compression/lib/sux/
+compression/1
