@@ -209,11 +209,14 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
 
   if (data.length === 0) return null
 
-  // Pre-compute domain for axes so multiple <Scatter> compute correctly
   const xs = data.map((d) => d.x)
   const ys = data.map((d) => d.y)
-  const xDomain: [number, number] = [Math.min(...xs), Math.max(...xs)]
-  const yDomain: [number, number] = [Math.min(...ys), Math.max(...ys)]
+  const xDomain: [number, number] = xs.length > 1
+    ? [Math.min(...xs) * 0.95, Math.max(...xs) * 1.05]
+    : [xs[0] * 0.9, xs[0] * 1.1]
+  const yDomain: [number, number] = ys.length > 1
+    ? [Math.min(...ys) * 0.95, Math.max(...ys) * 1.05]
+    : [ys[0] * 0.9, ys[0] * 1.1]
 
   return (
     <div>
@@ -225,12 +228,14 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               dataKey="x"
               name="Compression Ratio (%)"
               domain={xDomain}
+              type="number"
               label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 50 }}
             />
             <YAxis
               dataKey="y"
               name={metricLabel(metric)}
               domain={yDomain}
+              type="number"
               label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 60 }}
             />
             <Tooltip
@@ -241,21 +246,22 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
                 return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
               }}
             />
-            {/* Render separate Scatter per point to get per-point shape + color */}
-            {data.map((d) => (
-              <Scatter
-                key={d.name}
-                data={[d]}
-                fill={getCompressorColor(d.name)}
-                shape={<CompressorShape name={d.name} />}
-                line={false}
-                legendType="none"
-              />
-            ))}
+            {/* Single Scatter with custom shape per point for proper axis domain */}
+            <Scatter
+              data={data}
+              shape={(scatterProps: any) => (
+                <CompressorShape cx={scatterProps.cx} cy={scatterProps.cy} name={scatterProps.payload?.name} />
+              )}
+              isAnimationActive={false}
+            >
+              {data.map((d) => (
+                <Cell key={d.name} fill={getCompressorColor(d.name)} />
+              ))}
+            </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
       </div>
-      {/* Custom legend showing each compressor name with its color + shape */}
+      {/* Custom legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
         {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
