@@ -24,20 +24,11 @@
 
 # Bugs
 
+- [ ] Whenever the name of a comrpessor is presented use a capitalized properly shaped name (e.g. gzip -> Gzip, dac -> DAC, pfordelta_simdnewpfor -> PForDelta (simdnewpfor), xz -> XZ, and so on). Use `compression/scripts/generate_full_html_report.py` as a reference
+
 ## Results
 
-- [x] Scatter plots: sorted by compression ratio ascending (x-axis).
-- [x] Y-axis label offset increased from 35 to 45 for all bar and scatter charts.
-- [x] Removed `relative_memory_usage`, `internal_memory_ratio` metric sections and labels.
-- [x] Renamed `compressor_internal` to "Compressor Memory (MB)". Now shows "Memory Usage (MB)" (total peak) and "Compressor Memory (MB)" (peak − baseline).
-
-## Status
-
-- [x] Wire runner.Running() atomic counter into GET /api/v1/status so the StatusPage shows actual running workers.
-- [x] Add `progress` column to benchmarks table (INTEGER, 0–100).
-- [x] Benchmark runner updates progress: 50% after perf benchmark, incremental 50→100% during memory harness runs.
-- [x] GET /api/v1/benchmarks/{id}/status returns `progress` field.
-- [x] Frontend ResultsPage shows progress bar + percentage for `in_progress` benchmarks.
+- [ ] The scatter plots must use the shape and color mappings for the comproessor contained in `compression/scripts/generate_full_html_report.py`. gzip\_{1,6,9} have been merged to `gzip` only, so pick the color and shape of gzip_1
 
 ## Upload
 
@@ -52,8 +43,3 @@
 
 - [ ] Paginate the benchmark table
 - [ ] Allow multiselect on the benchmark table to delete multiple entries
-
-## Benchmark runner
-
-- [ ] implement a test suite to run a full benchmark to test it
-- [ ] fix core dump
