@@ -20,15 +20,23 @@ const LOWER_IS_BETTER = new Set([
   'original_size', 'memory_usage', 'compressor_internal', 'random_access_ns',
 ])
 
+const MEMORY_METRICS = new Set(['memory_usage', 'compressor_internal'])
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
 function metricLabel(key: string): string {
   const labels: Record<string, string> = {
-    compression_ratio: 'Compression Ratio (%)',
-    compression_throughput_mbs: 'Compression Throughput (MB/s)',
-    decompression_throughput_mbs: 'Decompression Throughput (MB/s)',
-    memory_usage: 'Memory Usage (MB)',
-    compressor_internal: 'Compressor Memory (MB)',
-    random_access_ns: 'Random Access (ns)',
-    random_access_mbs: 'Random Access (MB/s)',
+    compression_ratio: 'Compression Ratio',
+    compression_throughput_mbs: 'Compression Throughput',
+    decompression_throughput_mbs: 'Decompression Throughput',
+    memory_usage: 'Memory Usage',
+    compressor_internal: 'Compressor Memory',
+    random_access_ns: 'Random Access',
+    random_access_mbs: 'Random Access',
   }
   return labels[key] || key
 }
@@ -127,7 +135,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
     }))
 
   if (data.length === 0) return null
-  const label = metric === 'compression_ratio' ? 'Ratio (%)' : metricLabel(metric)
+  const label = metricLabel(metric)
 
   return (
     <div className="h-[384px]">
@@ -138,7 +146,7 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
           <YAxis
             label={{ value: label, angle: -90, position: 'outside', offset: 60 }}
           />
-          <Tooltip />
+          <Tooltip formatter={(v: any) => MEMORY_METRICS.has(metric) ? formatBytes(v) : Number(v).toFixed(2)} />
           <Bar dataKey={metric} fill="#16a34a" />
         </BarChart>
       </ResponsiveContainer>
@@ -176,9 +184,11 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
             />
             <Tooltip
               formatter={(v: any, name: any) => {
-                const val = v != null ? Number(v).toFixed(2) : '-'
-                if (name === 'y') return [val, metricLabel(metric)]
-                return [`${val}%`, 'Compression Ratio']
+                if (name === 'y') {
+                  const formatted = MEMORY_METRICS.has(metric) ? formatBytes(v) : Number(v).toFixed(2)
+                  return [formatted, metricLabel(metric)]
+                }
+                return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
               }}
             />
             <Scatter data={data} fill="#2563eb" name="Compressors">
@@ -228,7 +238,9 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
               }`}>
                 {r.compressor}
               </td>
-              <td className="text-right py-1">{r.value.toFixed(2)}</td>
+              <td className="text-right py-1">
+                {MEMORY_METRICS.has(metric) ? formatBytes(r.value) : r.value.toFixed(2)}
+              </td>
             </tr>
           ))}
         </tbody>
