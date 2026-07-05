@@ -36,7 +36,7 @@ const FAMILIES: CompressorFamily[] = [
   },
   {
     name: 'Dictionary-based',
-    compressors: ['brotli', 'gzip_1', 'gzip_6', 'gzip_9', 'lz4', 'snappy', 'xz', 'zstd'],
+    compressors: ['brotli', 'gzip', 'lz4', 'snappy', 'xz', 'zstd'],
   },
   {
     name: 'Others',

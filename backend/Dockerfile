@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     doxygen \
     valac \
     libglib2.0-dev \
-    libglib2.0-dev \
     && rm -rf /var/lib/apt/lists/* 
 
 WORKDIR /usr/src 
@@ -41,7 +40,13 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN ldconfig
 
 WORKDIR /src 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates cmake && rm -rf /var/lib/apt/lists/* 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      cmake \
+      pkg-config \
+      liblz4-dev \
+      libsnappy-dev \
+      && rm -rf /var/lib/apt/lists/* 
 COPY compression/ ./compression/ 
 
 RUN cd compression && cmake -B build -DCMAKE_BUILD_TYPE=Release -DNEATS_WITH_SQUASH=ON

@@ -24,11 +24,22 @@
 
 # Bugs
 
-## Compression benchmark
+## Results
 
-- [x] Merge gzip_* into one gzip benchmark with `=LEVEL` syntax via `-c`.
-- [x] Use `=LEVEL` syntax to set the level of all dictionary based compressors.
-- [x] Add tunable level (1-9, maps to block_size) to bzip3.
-- [x] Update backend registry: gzip has `level` option, bzip3 has `level` option.
-- [x] Implemented on both lossless_benchmark.cpp AND memory_harness.cpp.
-- [x] fix_report.md created at `compression/fix_report.md`.
+- [ ] Scatter plots have the x axis not sorted.
+- [ ] The y label needs some more margine from the y axis
+- [ ] Remove Interal Memory and Relative memory usage Internal memory ratio.
+- [ ] Keep Memory Usage (total = input + compressor) and Compressor memory usage (compressor = total - input measure from the ported script -> dry run to measure baseline)
+
+## Status
+
+- [ ] The status page reports the 0/n running workers even when some workers are busy
+- [ ] Show the actual status of the benchmark -> if you have 5 compressors to test count the lines generated minus the header line in the output file and you have a percentage of completion. Account for performance and memory benchmark (so double the lines).
+
+## Upload
+
+- [ ] Remove the single hash constraint. Keep the hashing to later reference benchmarks over the same file and group them in the comparison page, but let the use run multiple benchmarks on the same file.
+- [ ] Allow the user to select multiple files and add the option to ask the user to average the results (behave like a tar/zip upload) or to run multiple benchmarks (enqueue the files). Try to implement this change without changing the backend, handling it on the frontend.
+- [ ] xz, zstd, lz4, brotli and bzip2 are missing level options. Please understand what levels they offer and add them to the registry.
+- [ ] Add a jsonb column to the user database where the backend saves the last benchmark config, so that the backend can send it to the frontend and automatically re-apply it. The config is updated whenever the user makes a selection changes (both compressor and compressor config).
+- [ ] Autocomplete the benchmark name with the filename, otherwise in case of multiple file let the user select a name and the enqueued benchmark will be named NAME_ENTERED (filename) automatically. Show the info about this when the user selects multiple files + non-average (sequential benchmarks).
