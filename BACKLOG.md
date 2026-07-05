@@ -52,3 +52,8 @@
 
 - [ ] Paginate the benchmark table
 - [ ] Allow multiselect on the benchmark table to delete multiple entries
+
+## Benchmark runner
+
+- [ ] implement a test suite to run a full benchmark to test it
+- [ ] fix core dump
