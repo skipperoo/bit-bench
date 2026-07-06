@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"bitbench/internal/config"
+	"bitbench/internal/logger"
 	"bitbench/internal/middleware"
 	"bitbench/internal/model"
 	"bitbench/internal/service"
@@ -31,6 +32,9 @@ var testRDB *goredis.Client
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
+
+	logger.InitLogger()
+	defer logger.CloseLogger()
 
 	pgC, err := postgres.Run(ctx,
 		"postgres:18-alpine",

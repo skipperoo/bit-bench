@@ -16,23 +16,30 @@ func InitLogger() {
 
 func CloseLogger() {}
 
+func l() *slog.Logger {
+	if log == nil {
+		return slog.Default()
+	}
+	return log
+}
+
 func Info(msg string, args ...any) {
-	log.Info(msg, args...)
+	l().Info(msg, args...)
 }
 
 func Error(msg string, args ...any) {
-	log.Error(msg, args...)
+	l().Error(msg, args...)
 }
 
 func Warn(msg string, args ...any) {
-	log.Warn(msg, args...)
+	l().Warn(msg, args...)
 }
 
 func Debug(msg string, args ...any) {
-	log.Debug(msg, args...)
+	l().Debug(msg, args...)
 }
 
 func Fatal(msg string, args ...any) {
-	log.Error(msg, args...)
+	l().Error(msg, args...)
 	os.Exit(1)
 }
