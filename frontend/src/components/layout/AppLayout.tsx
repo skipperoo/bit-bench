@@ -6,7 +6,6 @@ import {
   BarChart3,
   Upload,
   Activity,
-  GitCompare,
   LogOut,
   Menu,
   X,
@@ -16,7 +15,6 @@ import { useState } from 'react'
 const navItems = [
   { path: '/upload', label: 'Upload', icon: Upload },
   { path: '/results', label: 'Results', icon: BarChart3 },
-  { path: '/compare', label: 'Compare', icon: GitCompare },
   { path: '/status', label: 'Status', icon: Activity },
 ]
 

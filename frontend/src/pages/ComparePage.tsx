@@ -7,8 +7,8 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import { renameCompressor, getCompressorColor } from '@/lib/compressors'
-import { formatMetricValue } from '@/lib/format'
+import { renameCompressor } from '@/lib/compressors'
+import { formatMetricValue, metricLabel } from '@/lib/format'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, CompareResponse, BenchmarkResult } from '@/types'
@@ -16,7 +16,13 @@ import type { Benchmark, CompareResponse, BenchmarkResult } from '@/types'
 const EXCLUDED_METRICS = new Set([
   'num_values', 'original_size', 'dataset_size', 'dataset_base',
   'dataset_type', 'source_results_csv', 'input_buffer',
+  'relative_memory_usage', 'internal_memory_ratio',
 ])
+
+const BENCHMARK_COLORS = [
+  '#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#8b5cf6',
+  '#ec4899', '#14b8a6', '#f97316',
+]
 
 interface MetricDef {
   key: string
@@ -69,21 +75,24 @@ function getMetricDefs(results: BenchmarkResult[]): MetricDef[] {
       const bi = order.indexOf(b)
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
     })
-    .map((key) => ({ key, label: key.replace(/_/g, ' ').replace(/\\b(.)/g, (c) => c.toUpperCase()) }))
+    .map((key) => ({ key, label: metricLabel(key) }))
 }
 
 function ComparisonBarChart({ benchmarks, results }: { benchmarks: Benchmark[]; results: Map<string, BenchmarkResult[]> }) {
+  // Collect all compressors and unique benchmark names
   const compressors = new Set<string>()
   const allResults = [...results.values()].flat()
   for (const r of allResults) compressors.add(r.compressor)
   const compList = [...compressors]
 
-  const data = benchmarks.map((b) => {
-    const point: Record<string, any> = { name: b.name }
-    const benchResults = results.get(b.id) || []
-    for (const r of benchResults) {
-      if (r.compression_ratio != null) {
-        point[r.compressor] = +(r.compression_ratio * 100).toFixed(2)
+  // Group by compressor: x-axis = compressor, bars = benchmarks
+  const data = compList.map((c) => {
+    const point: Record<string, any> = { name: renameCompressor(c) }
+    for (const b of benchmarks) {
+      const benchResults = results.get(b.id) || []
+      const r = benchResults.find((br) => br.compressor === c)
+      if (r?.compression_ratio != null) {
+        point[b.name] = +(r.compression_ratio * 100).toFixed(2)
       }
     }
     return point
@@ -100,8 +109,8 @@ function ComparisonBarChart({ benchmarks, results }: { benchmarks: Benchmark[]; 
           <YAxis tickFormatter={(v: number) => v.toFixed(2)} />
           <Tooltip formatter={(v: any) => `${Number(v).toFixed(2)}%`} />
           <Legend verticalAlign="bottom" height={36} />
-          {compList.map((c) => (
-            <Bar key={c} dataKey={c} fill={getCompressorColor(c)} name={renameCompressor(c)} />
+          {benchmarks.map((b, i) => (
+            <Bar key={b.id} dataKey={b.name} fill={BENCHMARK_COLORS[i % BENCHMARK_COLORS.length]} name={b.name} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -151,7 +160,7 @@ function MetricComparisonTable({
 
   const allRows = [...benchRows, avgRow]
   const colNames = compList.map((c) => renameCompressor(c))
-  const caption = `${metric.charAt(0).toUpperCase() + metric.slice(1).replace(/_/g, ' ')}`
+  const caption = metricLabel(metric)
 
   return (
     <div className="overflow-x-auto">
@@ -233,7 +242,7 @@ export default function ComparePage() {
         </CardHeader>
         <CardContent>
           <ComparisonBarChart benchmarks={benchmarks} results={results} />
-          <div className="flex justify-end mt-2">
+      <div className="flex justify-end mt-2 mb-4">
             <Button variant="outline" size="sm">Copy LaTeX</Button>
           </div>
         </CardContent>
