@@ -271,11 +271,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               label={getYLabel(metric)}
             />
             <Tooltip
-              labelFormatter={(_: any, payload: any) => payload?.[0]?.payload?.name || ''}
-              formatter={(v: any, name: any) => {
-                if (name === 'y') return [formatMetricValue(v, metric), metricLabel(metric)]
-                return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
-              }}
+              content={<CustomScatterTooltip metric={metric}/>}   
             />
             <Scatter
               data={data}
@@ -473,3 +469,27 @@ export default function DetailPage() {
     </div>
   )
 }
+const CustomScatterTooltip = ({ active, payload, metric }: any) => {
+  if (active && payload && payload.length) {
+    // Recharts stores the original data row inside payload[0].payload
+    const dataPoint = payload[0].payload; 
+    
+    return (
+      <div className="bg-background border border-border p-3 rounded-lg shadow-md text-sm">
+        {/* Point Name */}
+        <p className="font-bold text-foreground mb-1">{dataPoint.name}</p>
+        <hr className="border-border my-1" />
+        {/* X Data */}
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">Compression Ratio:</span> {dataPoint.x.toFixed(2)}%
+        </p>
+        {/* Y Data */}
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">{metricLabel(metric)}:</span> {formatMetricValue(dataPoint.y, metric)}
+        </p>
+      </div>
+    );
+  }
+
+  return null;
+};
