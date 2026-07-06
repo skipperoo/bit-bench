@@ -169,7 +169,7 @@ export default function UploadPage() {
         formData.append('file', files[0])
         formData.append('compressors', JSON.stringify(compressorsPayload))
         const res = await apiUpload<{ id: string }>('/benchmarks', formData)
-        navigate(`/results/${res.id}`)
+        navigate(`/results`)
       } else {
         // Sequential mode: enqueue each file as a separate benchmark
         for (let i = 0; i < files.length; i++) {
