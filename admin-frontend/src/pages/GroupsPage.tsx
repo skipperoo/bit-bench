@@ -3,26 +3,36 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { apiFetch } from '@/lib/api'
-import type { Group } from '@/types'
+import type { Group, User } from '@/types'
 
 export default function GroupsPage() {
   const [groups, setGroups] = useState<Group[]>([])
+  const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [priority, setPriority] = useState(0)
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editPriority, setEditPriority] = useState(0)
 
-  const loadGroups = () => {
+  const loadData = () => {
     setLoading(true)
-    apiFetch<Group[]>('/groups')
-      .then((data) => setGroups(data ?? []))
+    Promise.all([
+      apiFetch<Group[]>('/groups'),
+      apiFetch<User[]>('/users'),
+    ])
+      .then(([g, u]) => {
+        setGroups(g ?? [])
+        setUsers(u ?? [])
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadGroups() }, [])
+  useEffect(() => { loadData() }, [])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,19 +45,30 @@ export default function GroupsPage() {
       setShowForm(false)
       setName('')
       setPriority(0)
-      loadGroups()
+      loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create group')
     }
   }
 
-  const handleUpdatePriority = async (id: string, newPriority: number) => {
+  const startEdit = (g: Group) => {
+    setEditingId(g.id)
+    setEditPriority(g.priority)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditPriority(0)
+  }
+
+  const saveEdit = async (id: string) => {
     try {
       await apiFetch(`/groups/${id}`, {
         method: 'PUT',
-        body: JSON.stringify({ priority: newPriority }),
+        body: JSON.stringify({ priority: editPriority }),
       })
-      loadGroups()
+      cancelEdit()
+      loadData()
     } catch {}
   }
 
@@ -55,9 +76,12 @@ export default function GroupsPage() {
     if (!confirm('Delete this group? Users will lose their group assignment.')) return
     try {
       await apiFetch(`/groups/${id}`, { method: 'DELETE' })
-      loadGroups()
+      loadData()
     } catch {}
   }
+
+  const usersInGroup = (groupId: string): User[] =>
+    users.filter((u) => u.group_id === groupId)
 
   return (
     <div className="space-y-6">
@@ -97,28 +121,58 @@ export default function GroupsPage() {
               <tr className="border-b bg-neutral-50">
                 <th className="text-left p-3">Name</th>
                 <th className="text-left p-3">Priority</th>
+                <th className="text-left p-3">Users in Group</th>
                 <th className="text-right p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {groups.map((g) => (
-                <tr key={g.id} className="border-b last:border-0 hover:bg-neutral-50">
-                  <td className="p-3 font-medium">{g.name}</td>
-                  <td className="p-3">
-                    <input
-                      type="number"
-                      className="w-20 h-8 rounded border border-neutral-300 px-2 text-sm"
-                      value={g.priority}
-                      onChange={(e) => handleUpdatePriority(g.id, Number(e.target.value))}
-                    />
-                  </td>
-                  <td className="p-3 text-right">
-                    <Button variant="destructive" size="sm" onClick={() => handleDelete(g.id)}>
-                      Delete
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {groups.map((g) => {
+                const members = usersInGroup(g.id)
+                return (
+                  <tr key={g.id} className="border-b last:border-0 hover:bg-neutral-50">
+                    <td className="p-3 font-medium">{g.name}</td>
+                    <td className="p-3">
+                      {editingId === g.id ? (
+                        <Input
+                          type="number"
+                          className="w-20 h-8"
+                          value={editPriority}
+                          onChange={(e) => setEditPriority(Number(e.target.value))}
+                        />
+                      ) : (
+                        <span>{g.priority}</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {members.length === 0 ? (
+                        <span className="text-neutral-400 text-xs">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {members.slice(0, 10).map((u) => (
+                            <Badge key={u.id} variant="outline" className="text-xs">{u.email}</Badge>
+                          ))}
+                          {members.length > 10 && (
+                            <span className="text-xs text-neutral-400">+{members.length - 10} more</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-right space-x-2">
+                      {editingId === g.id ? (
+                        <>
+                          <Button variant="default" size="sm" onClick={() => saveEdit(g.id)}>Save</Button>
+                          <Button variant="outline" size="sm" onClick={cancelEdit}>Cancel</Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => startEdit(g)}>Edit</Button>
+                          <Button variant="destructive" size="sm" onClick={() => handleDelete(g.id)}>Delete</Button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

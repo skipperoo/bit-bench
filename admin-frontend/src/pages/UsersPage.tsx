@@ -90,7 +90,15 @@ export default function UsersPage() {
 
   const handleResetPassword = async (id: string) => {
     const newPassword = prompt('New password:')
-    if (!newPassword) return
+    if (!newPassword || newPassword.length < 6) {
+      alert('Password must be at least 6 characters.')
+      return
+    }
+    const confirmPassword = prompt('Confirm new password:')
+    if (confirmPassword !== newPassword) {
+      alert('Passwords do not match.')
+      return
+    }
     try {
       await apiFetch(`/users/${id}`, {
         method: 'PUT',
