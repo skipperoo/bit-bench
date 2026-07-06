@@ -220,12 +220,14 @@ func (s *BenchmarkService) GetUserStatus(ctx context.Context, userID *uuid.UUID)
 	}
 
 	// Default: user stats = global stats (for admin or anonymous)
-	userStats := *globalStats
+	var userStats model.StatusStats
 	if userID != nil {
-		userQueued, err := s.benchRepo.CountQueuedByUser(ctx, *userID)
+		stats, err := s.benchRepo.GetUserStatusStats(ctx, *userID)
 		if err == nil {
-			userStats.Queued = userQueued
+			userStats = *stats
 		}
+	} else {
+		userStats = *globalStats
 	}
 
 	return &model.StatusResponse{

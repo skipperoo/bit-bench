@@ -239,13 +239,36 @@ func (r *BenchmarkRepository) GetStatusStats(ctx context.Context) (*model.Status
 	return stats, nil
 }
 
-func (r *BenchmarkRepository) CountQueuedByUser(ctx context.Context, userID uuid.UUID) (int, error) {
-	var count int
-	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM benchmarks WHERE status = 'queued' AND user_id = $1", userID).Scan(&count)
+func (r *BenchmarkRepository) GetUserStatusStats(ctx context.Context, userID uuid.UUID) (*model.StatusStats, error) {
+	stats := &model.StatusStats{}
+	rows, err := r.db.Query(ctx, "SELECT status, COUNT(*) FROM benchmarks WHERE user_id = $1 GROUP BY status", userID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return count, nil
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		switch status {
+		case "queued":
+			stats.Queued = count
+		case "in_progress":
+			stats.InProgress = count
+		case "ready":
+			stats.Ready = count
+		case "failed":
+			stats.Failed = count
+		case "timed_out":
+			stats.TimedOut = count
+		case "cancelled":
+			stats.Cancelled = count
+		}
+	}
+	return stats, nil
 }
 
 func (r *BenchmarkRepository) Delete(ctx context.Context, id uuid.UUID) error {

@@ -42,6 +42,7 @@ export default function StatusPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-green-600">{status.stats.ready}</p>
+              <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
             </CardContent>
           </Card>
           <Card>
@@ -59,6 +60,7 @@ export default function StatusPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-yellow-600">{status.stats.in_progress}</p>
+              <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
             </CardContent>
           </Card>
           <Card>
@@ -67,6 +69,7 @@ export default function StatusPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-red-600">{status.stats.failed}</p>
+              <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
             </CardContent>
           </Card>
         </div>
