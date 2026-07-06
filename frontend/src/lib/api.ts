@@ -28,6 +28,11 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     throw new Error(err.error || res.statusText)
   }
   if (res.status === 204) return undefined as T
+  if (res.status === 200 || res.status === 201) {
+    const text = await res.text()
+    if (!text) return undefined as T
+    return JSON.parse(text)
+  }
   return res.json()
 }
 
@@ -50,6 +55,11 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || res.statusText)
+  }
+  if (res.status === 200 || res.status === 201) {
+    const text = await res.text()
+    if (!text) return undefined as T
+    return JSON.parse(text)
   }
   return res.json()
 }

@@ -81,12 +81,6 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, userID uuid.UUID
 	}
 	file.Seek(0, 0)
 
-	// Check duplicate
-	existing, _ := s.benchRepo.FindByChecksum(ctx, checksum)
-	if existing != nil {
-		return nil, fmt.Errorf("file already processed (checksum: %s)", checksum)
-	}
-
 	// Check size
 	fileSize := int64(0)
 	if f, ok := file.(*os.File); ok {
