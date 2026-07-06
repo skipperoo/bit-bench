@@ -35,8 +35,8 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*model.
 	u := &model.User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       last_bench_config, created_at, updated_at, deleted_at
-		FROM users WHERE email = $1 AND deleted_at IS NULL
+		       COALESCE(last_bench_config, '{}'::jsonb), created_at, updated_at, deleted_at
+		FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL
 	`, email).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
 		&u.MustChangePassword, &u.LastBenchConfig, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
@@ -54,7 +54,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Use
 	u := &model.User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       last_bench_config, created_at, updated_at, deleted_at
+		       COALESCE(last_bench_config, '{}'::jsonb), created_at, updated_at, deleted_at
 		FROM users WHERE id = $1 AND deleted_at IS NULL
 	`, id).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
@@ -72,7 +72,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Use
 func (r *UserRepository) List(ctx context.Context) ([]*model.User, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, email, password_hash, role, group_id, must_change_password,
-		       last_bench_config, created_at, updated_at, deleted_at
+		       COALESCE(last_bench_config, '{}'::jsonb), created_at, updated_at, deleted_at
 		FROM users WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
 	`)

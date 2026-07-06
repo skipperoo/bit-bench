@@ -5,16 +5,20 @@ import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch } from '@/lib/api'
-import type { User } from '@/types'
+import type { User, Group } from '@/types'
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<'user' | 'admin'>('user')
   const [error, setError] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editRole, setEditRole] = useState<string>('')
+  const [editGroupId, setEditGroupId] = useState<string>('')
 
   const loadUsers = () => {
     setLoading(true)
@@ -24,7 +28,13 @@ export default function UsersPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadUsers() }, [])
+  const loadGroups = () => {
+    apiFetch<Group[]>('/groups')
+      .then((data) => setGroups(data ?? []))
+      .catch(() => {})
+  }
+
+  useEffect(() => { loadUsers(); loadGroups() }, [])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,6 +52,32 @@ export default function UsersPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create user')
     }
+  }
+
+  const startEdit = (u: User) => {
+    setEditingId(u.id)
+    setEditRole(u.role)
+    setEditGroupId(u.group_id || '')
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditRole('')
+    setEditGroupId('')
+  }
+
+  const saveEdit = async (id: string) => {
+    try {
+      const body: Record<string, unknown> = { role: editRole }
+      if (editGroupId) body.group_id = editGroupId
+      else body.group_id = null
+      await apiFetch(`/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      })
+      cancelEdit()
+      loadUsers()
+    } catch {}
   }
 
   const handleDelete = async (id: string) => {
@@ -122,16 +158,50 @@ export default function UsersPage() {
                 <tr key={u.id} className="border-b last:border-0 hover:bg-neutral-50">
                   <td className="p-3">{u.email}</td>
                   <td className="p-3">
-                    <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>{u.role}</Badge>
+                    {editingId === u.id ? (
+                      <select
+                        className="h-8 rounded border border-neutral-300 px-2 text-sm"
+                        value={editRole}
+                        onChange={(e) => setEditRole(e.target.value)}
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>{u.role}</Badge>
+                    )}
                   </td>
-                  <td className="p-3 text-neutral-500">{u.group_id || '-'}</td>
+                  <td className="p-3">
+                    {editingId === u.id ? (
+                      <select
+                        className="h-8 rounded border border-neutral-300 px-2 text-sm"
+                        value={editGroupId}
+                        onChange={(e) => setEditGroupId(e.target.value)}
+                      >
+                        <option value="">— None —</option>
+                        {groups.map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-neutral-500">
+                        {u.group_id ? groups.find(g => g.id === u.group_id)?.name || u.group_id : '—'}
+                      </span>
+                    )}
+                  </td>
                   <td className="p-3 text-right space-x-2">
-                    <Button variant="outline" size="sm" onClick={() => handleResetPassword(u.id)}>
-                      Reset Password
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={() => handleDelete(u.id)}>
-                      Delete
-                    </Button>
+                    {editingId === u.id ? (
+                      <>
+                        <Button variant="default" size="sm" onClick={() => saveEdit(u.id)}>Save</Button>
+                        <Button variant="outline" size="sm" onClick={cancelEdit}>Cancel</Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => startEdit(u)}>Edit</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleResetPassword(u.id)}>Password</Button>
+                        <Button variant="destructive" size="sm" onClick={() => handleDelete(u.id)}>Delete</Button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
