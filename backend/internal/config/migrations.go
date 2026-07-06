@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"bitbench/internal/logger"
@@ -16,6 +17,17 @@ import (
 var migrationFiles embed.FS
 
 func RunMigrations(ctx context.Context, db *pgxpool.Pool) error {
+	// Wait for DB to be ready (up to 30s)
+	for i := 0; i < 30; i++ {
+		if err := db.Ping(ctx); err == nil {
+			break
+		}
+		if i == 29 {
+			return fmt.Errorf("database not reachable after 30 attempts")
+		}
+		time.Sleep(1 * time.Second)
+	}
+
 	_, err := db.Exec(ctx, `CREATE TABLE IF NOT EXISTS _migrations (
 		filename VARCHAR(255) PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
