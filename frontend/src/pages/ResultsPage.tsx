@@ -112,8 +112,12 @@ export default function ResultsPage() {
                           <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse mr-1" />
                         )}
                         {b.status === 'in_progress' && b.progress != null
-                          ? `${b.status} (${b.progress}%)`
-                          : b.status}
+                          ? `${b.status.split('_')
+                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join(' ')} (${b.progress}%)`
+                          : b.status.split('_')
+                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join(' ')}
                       </Badge>
                     </div>
                     {b.status === 'in_progress' && b.progress != null && (

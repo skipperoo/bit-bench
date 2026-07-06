@@ -2,13 +2,26 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ScatterChart, Scatter, ResponsiveContainer, Cell,
+  ScatterChart, Scatter, ResponsiveContainer, Cell, type LabelProps
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
+
+
+function getYLabel(metric: string): LabelProps {
+  return { 
+    value: metricLabel(metric), 
+    angle: -90, 
+    position: 'insideLeft', 
+    offset: 5,
+    style: { textAnchor: 'middle' }
+  }
+}
+
+const chartMargins = { left: 20, right: 20, top: 20, bottom: 120 }
 
 // Render a compressor marker as raw SVG element (used inside Recharts SVG context)
 function CompressorShapeSVG({ cx, cy, name }: { cx: number; cy: number; name: string }) {
@@ -79,13 +92,13 @@ function formatMetricValue(value: number, metric: string): string {
 
 function metricLabel(key: string): string {
   const labels: Record<string, string> = {
-    compression_ratio: 'Compression Ratio',
-    compression_throughput_mbs: 'Compression Throughput',
-    decompression_throughput_mbs: 'Decompression Throughput',
+    compression_ratio: 'Compression Ratio (%)',
+    compression_throughput_mbs: 'Compression Throughput (MB/s)',
+    decompression_throughput_mbs: 'Decompression Throughput (MB/s)',
     memory_usage: 'Memory Usage',
     compressor_internal: 'Compressor Memory',
-    random_access_ns: 'Random Access',
-    random_access_mbs: 'Random Access',
+    random_access_ns: 'Random Access (ns)',
+    random_access_mbs: 'Random Access (MB/s)',
   }
   return labels[key] || key
 }
@@ -160,12 +173,13 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   return (
     <div className="h-[432px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 90, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
             tickFormatter={(v: number) => v.toFixed(2)}
-            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 70 }}
+            width={80}
+            label={getYLabel('Ratio (%)')}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb">
@@ -194,12 +208,13 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   return (
     <div className="h-[384px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 90, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={chartMargins}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            tickFormatter={(v: number) => v.toFixed(2)}
-            label={{ value: label, angle: -90, position: 'outside', offset: 70 }}
+            tickFormatter={(v: number) => formatMetricValue(v, metric)}
+            width={100}
+            label={getYLabel(label)}
           />
           <Tooltip formatter={(v: any) => formatMetricValue(v, metric)} />
           <Bar dataKey={metric} fill="#16a34a">
@@ -229,14 +244,14 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
   const ys = data.map((d) => d.y)
   const xPad = xs.length > 1 ? (xs[xs.length - 1] - xs[0]) * 0.05 || 1 : 1
   const yPad = ys.length > 1 ? (Math.max(...ys) - Math.min(...ys)) * 0.05 || 1 : 1
-  const xDomain: [number, number] = [xs[0] - xPad, xs[xs.length - 1] + xPad]
-  const yDomain: [number, number] = [Math.min(...ys) - yPad, Math.max(...ys) + yPad]
+  const xDomain: [number, number] = [0, xs[xs.length - 1] + xPad]
+  const yDomain: [number, number] = [0, Math.max(...ys) + yPad]
 
   return (
     <div>
       <div className="h-[480px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 120 }}>
+          <ScatterChart margin={chartMargins}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="x"
@@ -244,15 +259,16 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               domain={xDomain}
               type="number"
               tickFormatter={(v: number) => v.toFixed(2)}
-              label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 50 }}
+              label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 30 }}
             />
             <YAxis
               dataKey="y"
               name={metricLabel(metric)}
               domain={yDomain}
               type="number"
-              tickFormatter={(v: number) => v.toFixed(2)}
-              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 70 }}
+              width={80}
+              tickFormatter={(v: number) => formatMetricValue(v, metric)}
+              label={getYLabel(metric)}
             />
             <Tooltip
               labelFormatter={(_: any, payload: any) => payload?.[0]?.payload?.name || ''}
