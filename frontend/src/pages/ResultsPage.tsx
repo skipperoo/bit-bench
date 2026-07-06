@@ -157,9 +157,9 @@ export default function ResultsPage() {
                               +{Object.keys(b.compressors).length - 5}
                             </Badge>
                             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
-                              <div className="bg-popover border border-border text-popover-foreground rounded-lg shadow-lg p-2 whitespace-nowrap text-xs space-y-0.5">
+                              <div className="bg-popover border border-border text-popover-foreground rounded-lg shadow-lg p-2 text-xs overflow-y-auto" style={{ maxHeight: '200px', minWidth: '120px' }}>
                                 {Object.keys(b.compressors).map((c) => (
-                                  <div key={c}>{c}</div>
+                                  <div key={c} className="py-0.5">{c}</div>
                                 ))}
                               </div>
                               <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-popover-foreground/20" />
