@@ -227,7 +227,15 @@ func CompareBenchmarks(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := service.App.Benchmark.GetStatus(r.Context())
+	claims := middleware.ClaimsFromContext(r.Context())
+	var status *model.StatusResponse
+	var err error
+	if claims != nil {
+		uid, _ := uuid.Parse(claims.Sub)
+		status, err = service.App.Benchmark.GetUserStatus(r.Context(), &uid)
+	} else {
+		status, err = service.App.Benchmark.GetStatus(r.Context())
+	}
 	if err != nil {
 		writeError(w, "failed to get status", http.StatusInternalServerError)
 		return

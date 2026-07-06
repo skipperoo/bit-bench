@@ -23,6 +23,7 @@ export default function StatusPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold">{status.queue_depth}</p>
+              <p className="text-xs text-muted-foreground mt-1">All users</p>
             </CardContent>
           </Card>
           <Card>
@@ -49,6 +50,7 @@ export default function StatusPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-blue-600">{status.stats.queued}</p>
+              <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
             </CardContent>
           </Card>
           <Card>

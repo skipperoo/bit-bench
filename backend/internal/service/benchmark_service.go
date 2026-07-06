@@ -205,7 +205,11 @@ func (s *BenchmarkService) ListChecksums(ctx context.Context) ([]string, error) 
 }
 
 func (s *BenchmarkService) GetStatus(ctx context.Context) (*model.StatusResponse, error) {
-	stats, err := s.benchRepo.GetStatusStats(ctx)
+	return s.GetUserStatus(ctx, nil)
+}
+
+func (s *BenchmarkService) GetUserStatus(ctx context.Context, userID *uuid.UUID) (*model.StatusResponse, error) {
+	globalStats, err := s.benchRepo.GetStatusStats(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -215,12 +219,21 @@ func (s *BenchmarkService) GetStatus(ctx context.Context) (*model.StatusResponse
 		running = s.runningFunc()
 	}
 
+	// Default: user stats = global stats (for admin or anonymous)
+	userStats := *globalStats
+	if userID != nil {
+		userQueued, err := s.benchRepo.CountQueuedByUser(ctx, *userID)
+		if err == nil {
+			userStats.Queued = userQueued
+		}
+	}
+
 	return &model.StatusResponse{
-		QueueDepth: stats.Queued,
+		QueueDepth: globalStats.Queued,
 		Runner: model.RunnerStatus{
 			Running:        running,
 			MaxParallelism: s.cfg.MaxParallelism,
 		},
-		Stats: *stats,
+		Stats: userStats,
 	}, nil
 }

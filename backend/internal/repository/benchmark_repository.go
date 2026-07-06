@@ -239,6 +239,15 @@ func (r *BenchmarkRepository) GetStatusStats(ctx context.Context) (*model.Status
 	return stats, nil
 }
 
+func (r *BenchmarkRepository) CountQueuedByUser(ctx context.Context, userID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM benchmarks WHERE status = 'queued' AND user_id = $1", userID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *BenchmarkRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, "DELETE FROM benchmarks WHERE id = $1", id)
 	return err
