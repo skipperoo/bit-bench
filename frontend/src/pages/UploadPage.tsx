@@ -168,7 +168,8 @@ export default function UploadPage() {
           ? `${name} (avg ${files.length})` : name)
         formData.append('file', files[0])
         formData.append('compressors', JSON.stringify(compressorsPayload))
-        navigate(`/results`)
+        const avgRes = await apiUpload<{ id: string }>('/benchmarks', formData)
+        navigate(`/results/${avgRes.id}`)
       } else {
         // Sequential mode: enqueue each file as a separate benchmark
         for (let i = 0; i < files.length; i++) {
@@ -178,9 +179,9 @@ export default function UploadPage() {
           formData.append('name', `${name} (${fname})`)
           formData.append('file', f)
           formData.append('compressors', JSON.stringify(compressorsPayload))
-          const res = await apiUpload<{ id: string }>('/benchmarks', formData)
+          const _res = await apiUpload<{ id: string }>('/benchmarks', formData)
           if (i === files.length - 1) {
-            navigate(`/results/${res.id}`)
+            navigate(`/results/${_res.id}`)
           }
         }
       }
