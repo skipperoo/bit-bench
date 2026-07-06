@@ -65,7 +65,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - JWT_EXPIRY=24h
-      - MAX_PARALLELISM=2
+      - MAX_PARALLELISM=8
       - MAX_FILE_SIZE_MB=500
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
