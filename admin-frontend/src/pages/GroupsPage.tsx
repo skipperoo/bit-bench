@@ -18,18 +18,17 @@ export default function GroupsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editPriority, setEditPriority] = useState(0)
 
-  const loadData = () => {
+  const loadData = async () => {
     setLoading(true)
-    Promise.all([
-      apiFetch<Group[]>('/groups'),
-      apiFetch<User[]>('/users'),
-    ])
-      .then(([g, u]) => {
-        setGroups(g ?? [])
-        setUsers(u ?? [])
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    try {
+      const [g, u] = await Promise.all([
+        apiFetch<Group[]>('/groups'),
+        apiFetch<User[]>('/users'),
+      ])
+      setGroups(g ?? [])
+      setUsers(u ?? [])
+    } catch {}
+    setLoading(false)
   }
 
   useEffect(() => { loadData() }, [])
@@ -67,8 +66,8 @@ export default function GroupsPage() {
         method: 'PUT',
         body: JSON.stringify({ priority: editPriority }),
       })
-      cancelEdit()
-      loadData()
+      setEditingId(null)
+      await loadData()
     } catch {}
   }
 

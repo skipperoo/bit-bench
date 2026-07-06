@@ -20,12 +20,13 @@ export default function UsersPage() {
   const [editRole, setEditRole] = useState<string>('')
   const [editGroupId, setEditGroupId] = useState<string>('')
 
-  const loadUsers = () => {
+  const loadUsers = async () => {
     setLoading(true)
-    apiFetch<User[]>('/users')
-      .then((data) => setUsers(data ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    try {
+      const data = await apiFetch<User[]>('/users')
+      setUsers(data ?? [])
+    } catch {}
+    setLoading(false)
   }
 
   const loadGroups = () => {
@@ -75,8 +76,8 @@ export default function UsersPage() {
         method: 'PUT',
         body: JSON.stringify(body),
       })
-      cancelEdit()
-      loadUsers()
+      setEditingId(null)
+      await loadUsers()
     } catch {}
   }
 

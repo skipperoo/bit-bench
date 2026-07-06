@@ -8,7 +8,6 @@ import { Slider } from '@/components/ui/slider'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
 import { Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
-import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor} from '@/lib/compressors'
 import type { CompressorRegistry, CompressorOption } from '@/types'
@@ -50,14 +49,12 @@ export default function UploadPage() {
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
-  const [checksumLoading, setChecksumLoading] = useState(false)
   const [compressors, setCompressors] = useState<CompressorRegistry>({})
   const [selectedCompressors, setSelectedCompressors] = useState<Record<string, boolean>>({})
   const [compressorOptions, setCompressorOptions] = useState<Record<string, Record<string, unknown>>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
-  const [duplicate, setDuplicate] = useState(false)
   const [compressorsOpen, setCompressorsOpen] = useState<string[]>([])
 
   const loadCompressors = useCallback(async () => {
@@ -108,26 +105,13 @@ export default function UploadPage() {
 
   const handleFileChange = useCallback(async (newFiles: File[]) => {
     setFiles(newFiles)
-    setDuplicate(false)
     if (newFiles.length === 0) return
     // Autocomplete benchmark name from first filename (without extension)
     if (!name) {
       const base = newFiles[0].name.replace(/\.[^.]+$/, '')
       setName(base)
     }
-    setChecksumLoading(true)
-    try {
-      const md5 = await computeMD5(newFiles[0])
-      const checksums = await apiFetch<{ checksum: string }[]>('/benchmarks/checksums')
-      const found = checksums.some((c) => c.checksum === md5)
-      setDuplicate(found)
-      if (found) setError('This file has already been benchmarked (duplicate checksum)')
-      else setError('')
-    } catch {
-      // proceed without duplicate check
-    } finally {
-      setChecksumLoading(false)
-    }
+    setError('')
   }, [name])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -144,7 +128,7 @@ export default function UploadPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name || files.length === 0 || duplicate) return
+    if (!name || files.length === 0) return
     setLoading(true)
     setError('')
     try {
@@ -197,7 +181,7 @@ export default function UploadPage() {
     () => Object.values(selectedCompressors).filter(Boolean).length,
     [selectedCompressors]
   )
-  const canSubmit = name && files.length > 0 && selectedCount > 0 && !duplicate
+  const canSubmit = name && files.length > 0 && selectedCount > 0
 
   function toggleFamily(family: string, on: boolean) {
     const familyDef = FAMILIES.find(f => f.name === family)
@@ -367,8 +351,7 @@ export default function UploadPage() {
             className={[
               'relative rounded-lg border-2 border-dashed transition-colors',
               dragOver ? 'border-foreground bg-secondary/30' : '',
-              duplicate && !dragOver ? 'border-destructive bg-destructive/5' : '',
-              !dragOver && !duplicate ? 'border-border hover:border-muted-foreground/40' : '',
+              'border-border hover:border-muted-foreground/40',
             ].filter(Boolean).join(' ')}
           >
             {files.length > 0 ? (
@@ -381,28 +364,23 @@ export default function UploadPage() {
                         <p className="text-sm font-medium truncate">{f.name}</p>
                         <p className="text-xs text-muted-foreground">
                           {(f.size / 1024).toFixed(1)} KB
-                          {idx === 0 && checksumLoading && ' · Checking checksum…'}
+                          {idx === 0 && ' · Ready'}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {idx === 0 && duplicate ? (
-                        <span className="flex items-center gap-1 text-xs text-destructive">
-                          <AlertCircle className="w-3.5 h-3.5" />
-                          Duplicate
-                        </span>
-                      ) : idx === 0 && !checksumLoading && !duplicate ? (
+                      {idx === 0 && (
                         <span className="flex items-center gap-1 text-xs text-emerald-600">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Valid
+                          Ready
                         </span>
-                      ) : null}
+                      )}
                     </div>
                   </div>
                 ))}
                 <button
                   type="button"
-                  onClick={() => { setFiles([]); setDuplicate(false); setError('') }}
+                  onClick={() => { setFiles([]); setError('') }}
                   className="mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Remove all files
@@ -537,7 +515,6 @@ export default function UploadPage() {
               {!name && 'Enter a name'}
               {name && files.length === 0 && ' · Select a file'}
               {name && files.length > 0 && selectedCount === 0 && ' · Select at least one compressor'}
-              {name && files.length > 0 && selectedCount > 0 && duplicate && ' · File is a duplicate'}
             </p>
           )}
         </div>
