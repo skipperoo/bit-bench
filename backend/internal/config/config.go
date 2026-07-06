@@ -27,6 +27,7 @@ type Config struct {
 
 	MaxParallelism    int
 	MaxFileSizeMB     int64
+	MaxCompare        int
 	BenchTimeout      time.Duration
 	BenchMaxRetries   int
 	DataDir           string
@@ -56,6 +57,7 @@ func LoadConfig() *Config {
 
 		MaxParallelism:  getInt("MAX_PARALLELISM", 2),
 		MaxFileSizeMB:   int64(getInt("MAX_FILE_SIZE_MB", 500)),
+		MaxCompare:      getInt("MAX_COMPARE_BENCHMARKS", 5),
 		BenchTimeout:    getDuration("BENCH_TIMEOUT_SECONDS", 3600*time.Second),
 		BenchMaxRetries: getInt("BENCH_MAX_RETRIES", 2),
 		DataDir:         getEnv("DATA_DIR", "/data/benchmarks"),

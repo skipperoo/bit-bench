@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import type { Benchmark, BenchmarkListResponse } from '@/types'
+import type { Benchmark, BenchmarkListResponse, Config } from '@/types'
 import { renameCompressor } from '@/lib/compressors'
 
 const statusColors: Record<string, string> = {
@@ -23,6 +23,15 @@ export default function ResultsPage() {
   const [nextCursor, setNextCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [maxCompare, setMaxCompare] = useState(5)
+  const navigate = useNavigate()
+
+  // Load config for maxCompare
+  useEffect(() => {
+    apiFetch<Config>('/config').then((c) => setMaxCompare(c.maxCompare)).catch(() => {})
+  }, [])
 
   const loadBenchmarks = useCallback(async (cursor?: string, append = false) => {
     if (!append) setLoading(true)
@@ -93,6 +102,30 @@ export default function ResultsPage() {
         onChange={(e) => setSearch(e.target.value)}
         className="max-w-md"
       />
+      <div className="flex items-center gap-3">
+        {selectMode ? (
+          <>
+            <Button variant="default" size="sm" onClick={() => {
+              if (selectedIds.size >= 2) {
+                navigate(`/compare?ids=${[...selectedIds].join(',')}`)
+              }
+            }} disabled={selectedIds.size < 2}>
+              Compare ({selectedIds.size})
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }}>
+              Cancel
+            </Button>
+            {selectedIds.size < 2 && (
+              <span className="text-xs text-muted-foreground">Select at least 2 benchmarks</span>
+            )}
+            <span className="text-xs text-muted-foreground">Max {maxCompare}</span>
+          </>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
+            Compare
+          </Button>
+        )}
+      </div>
       {loading ? (
         <p className="text-muted-foreground">Loading...</p>
       ) : benchmarks.length === 0 ? (
@@ -100,11 +133,29 @@ export default function ResultsPage() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {benchmarks.map((b) => (
-              <Link key={b.id} to={`/results/${b.id}`}>
-                <Card className="h-full hover:shadow-md transition-shadow cursor-pointer">
+            {benchmarks.map((b) => {
+              const isSelected = selectedIds.has(b.id)
+              return (
+                <Card className={`h-full transition-shadow ${selectMode ? (isSelected ? 'ring-2 ring-primary cursor-pointer' : 'opacity-70 cursor-pointer') : 'hover:shadow-md cursor-pointer'}`}
+                  onClick={() => {
+                    if (!selectMode) {
+                      navigate(`/results/${b.id}`)
+                      return
+                    }
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(b.id)) next.delete(b.id)
+                      else if (next.size < maxCompare) next.add(b.id)
+                      return next
+                    })
+                  }}>
                   <CardHeader>
-                    <CardTitle className="text-base truncate">{b.name}</CardTitle>
+                    <CardTitle className="text-base truncate flex items-center gap-2">
+                      {selectMode && (
+                        <input type="checkbox" className="shrink-0" checked={isSelected} readOnly />
+                      )}
+                      {b.name}
+                    </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2">
@@ -171,8 +222,7 @@ export default function ResultsPage() {
                     )}
                   </CardContent>
                 </Card>
-              </Link>
-            ))}
+            )})}
           </div>
           {nextCursor && (
             <div className="flex justify-center pt-4">

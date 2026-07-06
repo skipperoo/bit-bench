@@ -6,8 +6,12 @@ import {
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
+import { formatMetricValue } from '@/lib/format'
+import { buildLatexTable, copyToClipboard } from '@/lib/latex'
+import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
 
 
@@ -75,20 +79,6 @@ const LOWER_IS_BETTER = new Set([
   'compression_ratio', 'compressed_bits', 'uncompressed_bits',
   'original_size', 'memory_usage', 'compressor_internal', 'random_access_ns',
 ])
-
-const MEMORY_METRICS = new Set(['memory_usage', 'compressor_internal'])
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${Math.round(bytes)} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-}
-
-function formatMetricValue(value: number, metric: string): string {
-  if (MEMORY_METRICS.has(metric)) return formatBytes(value)
-  if (metric === 'compression_ratio' || metric === 'ratio') return `${(value * 100).toFixed(2)}%`
-  return value.toFixed(2)
-}
 
 function metricLabel(key: string): string {
   const labels: Record<string, string> = {
@@ -301,32 +291,54 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
   const ranked = rankResults(results, metric)
   if (ranked.length === 0) return null
 
+  // Build latex table data
+  const latexRows: LatexTableRow[] = ranked.map((r) => ({
+    label: renameCompressor(r.compressor),
+    values: [r.value],
+  }))
+  const lowerIsBetter = isLowerBetter(metric)
+  const rankLabel = lowerIsBetter ? 'Lower is better' : 'Higher is better'
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b">
-            <th className="text-left py-2">Rank</th>
-            <th className="text-left py-2">Compressor</th>
-            <th className="text-right py-2">{metricLabel(metric)}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ranked.map((r) => (
-            <tr key={r.compressor} className="border-b last:border-0">
-              <td className="py-1 text-muted-foreground w-8">{r.rank}</td>
-              <td className={`py-1 font-mono ${
-                r.rank === 1 ? 'font-bold' : r.rank === 2 ? 'underline' : r.rank === 3 ? 'italic' : ''
-              }`}>
-                {renameCompressor(r.compressor)}
-              </td>
-              <td className="text-right py-1">
-                {formatMetricValue(r.value, metric)}
-              </td>
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-2">Rank</th>
+              <th className="text-left py-2">Compressor</th>
+              <th className="text-right py-2">{metricLabel(metric)}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {ranked.map((r) => (
+              <tr key={r.compressor} className="border-b last:border-0">
+                <td className="py-1 text-muted-foreground w-8">{r.rank}</td>
+                <td className={`py-1 font-mono ${
+                  r.rank === 1 ? 'font-bold' : r.rank === 2 ? 'underline' : r.rank === 3 ? 'italic' : ''
+                }`}>
+                  {renameCompressor(r.compressor)}
+                </td>
+                <td className="text-right py-1">
+                  {formatMetricValue(r.value, metric)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex justify-end mt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const latex = buildLatexTable(latexRows, [metricLabel(metric)], `${metricLabel(metric)} — ${rankLabel}`, lowerIsBetter)
+            await copyToClipboard(latex)
+          }}
+        >
+          Copy LaTeX
+        </Button>
+      </div>
     </div>
   )
 }

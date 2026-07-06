@@ -1,5 +1,6 @@
 export interface Config {
   maxFileSizeMb: number
+  maxCompare: number
   smtpEnabled: boolean
 }
 

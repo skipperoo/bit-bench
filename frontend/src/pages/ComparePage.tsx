@@ -1,209 +1,260 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ScatterChart, Scatter, ResponsiveContainer,
+  ResponsiveContainer,
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
-import type { Benchmark, CompareResponse, BenchmarkListResponse } from '@/types'
+import { renameCompressor, getCompressorColor } from '@/lib/compressors'
+import { formatMetricValue } from '@/lib/format'
+import { buildLatexTable, copyToClipboard } from '@/lib/latex'
+import type { LatexTableRow } from '@/lib/latex'
+import type { Benchmark, CompareResponse, BenchmarkResult } from '@/types'
 
-const COLORS = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#8b5cf6']
+const EXCLUDED_METRICS = new Set([
+  'num_values', 'original_size', 'dataset_size', 'dataset_base',
+  'dataset_type', 'source_results_csv', 'input_buffer',
+])
 
-export default function ComparePage() {
-  const [search, setSearch] = useState('')
-  const [allBenchmarks, setAllBenchmarks] = useState<Benchmark[]>([])
-  const [selected, setSelected] = useState<Benchmark[]>([])
-  const [compareData, setCompareData] = useState<CompareResponse | null>(null)
-  const [loading, setLoading] = useState(false)
+interface MetricDef {
+  key: string
+  label: string
+}
+
+function useCompareData(searchParams: URLSearchParams) {
+  const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
+  const [results, setResults] = useState<Map<string, BenchmarkResult[]>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    const params = new URLSearchParams()
-    if (search) params.set('q', search)
-    params.set('limit', '50')
-    apiFetch<BenchmarkListResponse>(`/benchmarks?${params}`)
-      .then((data) => setAllBenchmarks(data.benchmarks.filter((b) => b.status === 'ready')))
-      .catch(() => {})
-  }, [search])
-
-  const handleCompare = async () => {
-    if (selected.length < 2) return
-    setLoading(true)
-    try {
-      const ids = selected.map((b) => b.id).join(',')
-      const data = await apiFetch<CompareResponse>(`/benchmarks/compare?ids=${ids}`)
-      setCompareData(data)
-    } catch {
-      // ignore
-    } finally {
+    const ids = searchParams.get('ids')
+    if (!ids) {
+      setError('No benchmarks selected for comparison.')
       setLoading(false)
+      return
+    }
+    apiFetch<CompareResponse>(`/benchmarks/compare?ids=${ids}`)
+      .then((data) => {
+        setBenchmarks(data.benchmarks || [])
+        const map = new Map<string, BenchmarkResult[]>()
+        for (const [id, res] of Object.entries(data.results || {})) {
+          map.set(id, res)
+        }
+        setResults(map)
+      })
+      .catch(() => setError('Failed to load comparison data.'))
+      .finally(() => setLoading(false))
+  }, [searchParams])
+
+  return { benchmarks, results, loading, error }
+}
+
+function getMetricDefs(results: BenchmarkResult[]): MetricDef[] {
+  const keys = new Set<string>()
+  for (const r of results) {
+    for (const [k, v] of Object.entries(r as any)) {
+      if (typeof v === 'number' && !EXCLUDED_METRICS.has(k)) keys.add(k)
     }
   }
-
-  function toggleBenchmark(b: Benchmark) {
-    setSelected((prev) => {
-      const exists = prev.find((sb) => sb.id === b.id)
-      if (exists) return prev.filter((sb) => sb.id !== b.id)
-      if (prev.length >= 5) return prev
-      return [...prev, b]
+  const order = [
+    'compression_ratio', 'compression_throughput_mbs', 'decompression_throughput_mbs',
+    'memory_usage', 'compressor_internal', 'random_access_ns', 'random_access_mbs',
+  ]
+  return [...keys]
+    .sort((a, b) => {
+      const ai = order.indexOf(a)
+      const bi = order.indexOf(b)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
     })
-    setCompareData(null)
-  }
+    .map((key) => ({ key, label: key.replace(/_/g, ' ').replace(/\\b(.)/g, (c) => c.toUpperCase()) }))
+}
 
-  const allResults = compareData
-    ? Object.entries(compareData.results).flatMap(([benchId, results]) =>
-        results.map((r) => {
-          const b = compareData.benchmarks.find((b) => b.id === benchId)
-          return { ...r, benchmarkName: b?.name || benchId }
-        })
-      )
-    : []
+function ComparisonBarChart({ benchmarks, results }: { benchmarks: Benchmark[]; results: Map<string, BenchmarkResult[]> }) {
+  const compressors = new Set<string>()
+  const allResults = [...results.values()].flat()
+  for (const r of allResults) compressors.add(r.compressor)
+  const compList = [...compressors]
 
-  function ComparisonBarChart({ metric }: { metric: string }) {
-    const data = compareData?.benchmarks.map((b) => {
-      const results = (compareData?.results[b.id] || []).filter((r) => (r as any)[metric] != null)
-      if (results.length === 0) return null
-      const point: Record<string, any> = { name: b.name }
-      results.forEach((r) => {
-        const val = (r as any)[metric]
-        point[r.compressor] = metric === 'compression_ratio' ? +(val * 100).toFixed(2) : +val.toFixed(2)
-      })
-      return point
-    }).filter(Boolean) as Record<string, any>[]
+  const data = benchmarks.map((b) => {
+    const point: Record<string, any> = { name: b.name }
+    const benchResults = results.get(b.id) || []
+    for (const r of benchResults) {
+      if (r.compression_ratio != null) {
+        point[r.compressor] = +(r.compression_ratio * 100).toFixed(2)
+      }
+    }
+    return point
+  })
 
-    if (!data || data.length === 0) return null
-
-    const compressors = [...new Set(allResults.map((r) => r.compressor))]
-    if (compressors.length === 0) return null
-
-    return (
-      <div className="h-72">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            {compressors.map((c, i) => (
-              <Bar key={c} dataKey={c} fill={COLORS[i % COLORS.length]} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    )
-  }
-
-  function ComparisonScatterChart({ metric }: { metric: string }) {
-    const data = allResults
-      .filter((r) => (r as any)[metric] != null && r.compression_ratio != null)
-
-    if (data.length === 0) return null
-
-    return (
-      <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="compression_ratio"
-              name="Ratio (%)"
-              tickFormatter={(v: number) => (v * 100).toFixed(0)}
-              label={{ value: 'Compression Ratio (%)', position: 'bottom' }}
-            />
-            <YAxis dataKey={metric} label={{ value: metric, angle: -90, position: 'insideLeft' }} />
-            <Tooltip
-              formatter={(v: any, name: any) => [v != null ? Number(v).toFixed(2) : '-', name === metric ? metric : 'Ratio']}
-            />
-            <Legend />
-            {data.map((r, i) => (
-              <Scatter
-                key={`${r.benchmarkName}-${r.compressor}`}
-                data={[{
-                  compression_ratio: +(r.compression_ratio! * 100).toFixed(2),
-                  [metric]: +((r as any)[metric]).toFixed(2),
-                }]}
-                fill={COLORS[i % COLORS.length]}
-                name={`${r.benchmarkName} / ${r.compressor}`}
-                legendType="circle"
-              />
-            ))}
-          </ScatterChart>
-        </ResponsiveContainer>
-      </div>
-    )
-  }
+  if (data.length === 0) return null
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Compare Benchmarks</h1>
-      <p className="text-muted-foreground">Select 2–5 completed benchmarks to compare.</p>
-
-      <Input
-        placeholder="Search benchmarks..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="max-w-md"
-      />
-
-      <div className="flex flex-wrap gap-2">
-        {allBenchmarks.map((b) => {
-          const isSelected = selected.some((sb) => sb.id === b.id)
-          const isDisabled = selected.length >= 5 && !isSelected
-          return (
-            <Badge
-              key={b.id}
-              variant={isSelected ? 'default' : 'outline'}
-              className={`cursor-pointer transition-colors ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              onClick={() => !isDisabled && toggleBenchmark(b)}
-            >
-              {b.name}
-            </Badge>
-          )
-        })}
-      </div>
-
-      {selected.length > 0 && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Selected ({selected.length}/5):</span>
-          {selected.map((b) => (
-            <Badge key={b.id} variant="secondary" className="cursor-pointer" onClick={() => toggleBenchmark(b)}>
-              {b.name} ×
-            </Badge>
+    <div className="h-80">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ left: 60, right: 20, top: 20, bottom: 80 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
+          <YAxis tickFormatter={(v: number) => v.toFixed(2)} />
+          <Tooltip formatter={(v: any) => `${Number(v).toFixed(2)}%`} />
+          <Legend verticalAlign="bottom" height={36} />
+          {compList.map((c) => (
+            <Bar key={c} dataKey={c} fill={getCompressorColor(c)} name={renameCompressor(c)} />
           ))}
-        </div>
-      )}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
-      <Button
-        onClick={handleCompare}
-        disabled={selected.length < 2 || loading}
-      >
-        {loading ? 'Comparing...' : 'Compare'}
-      </Button>
+function MetricComparisonTable({
+  metric,
+  benchmarks,
+  results,
+  lowerIsBetter,
+}: {
+  metric: string
+  benchmarks: Benchmark[]
+  results: Map<string, BenchmarkResult[]>
+  lowerIsBetter: boolean
+}) {
+  const compressors = new Set<string>()
+  for (const r of [...results.values()].flat()) compressors.add(r.compressor)
+  const compList = [...compressors]
 
-      {compareData && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Compression Ratio Comparison</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ComparisonBarChart metric="compression_ratio" />
-            </CardContent>
-          </Card>
+  const benchRows: LatexTableRow[] = benchmarks.map((b) => {
+    const benchResults = results.get(b.id) || []
+    return {
+      label: b.name,
+      values: compList.map((c) => {
+        const r = benchResults.find((br) => br.compressor === c)
+        if (!r) return null
+        const val = (r as any)[metric]
+        if (val == null) return null
+        if (metric === 'compression_ratio') return +(val * 100).toFixed(2)
+        return val
+      }),
+    }
+  })
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Compression Throughput Comparison</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ComparisonScatterChart metric="compression_throughput_mbs" />
-            </CardContent>
-          </Card>
-        </div>
-      )}
+  // Average row
+  const avgRow: LatexTableRow = {
+    label: 'Average',
+    values: compList.map((_, ci) => {
+      const vals = benchRows.map((r) => r.values[ci]).filter((v): v is number => v != null)
+      if (vals.length === 0) return null
+      return vals.reduce((a, b) => a + b, 0) / vals.length
+    }),
+  }
+
+  const allRows = [...benchRows, avgRow]
+  const colNames = compList.map((c) => renameCompressor(c))
+  const caption = `${metric.charAt(0).toUpperCase() + metric.slice(1).replace(/_/g, ' ')}`
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b bg-muted/50">
+            <th className="text-left p-2">Benchmark</th>
+            {compList.map((c) => (
+              <th key={c} className="text-right p-2 font-mono text-xs">{renameCompressor(c)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {allRows.map((row, ri) => {
+            const allVals = row.values.filter((v): v is number => v != null)
+            const sorted = [...allVals].sort((a, b) => lowerIsBetter ? a - b : b - a)
+            return (
+              <tr key={ri} className={`border-b ${ri === allRows.length - 1 ? 'font-semibold border-t-2' : ''}`}>
+                <td className="p-2 text-xs">{row.label}</td>
+                {row.values.map((v, ci) => {
+                  if (v == null) return <td key={ci} className="text-right p-2 text-muted-foreground">-</td>
+                  const rank = sorted.indexOf(v)
+                  let cls = ''
+                  if (rank === 0) cls = 'font-bold'
+                  else if (rank === 1) cls = 'underline'
+                  else if (rank === 2) cls = 'italic'
+                  return <td key={ci} className={`text-right p-2 ${cls}`}>{formatMetricValue(v, metric)}</td>
+                })}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <div className="flex justify-end mt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const latex = buildLatexTable(allRows, colNames, caption, lowerIsBetter)
+            await copyToClipboard(latex)
+          }}
+        >
+          Copy LaTeX
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+export default function ComparePage() {
+  const [searchParams] = useSearchParams()
+  const { benchmarks, results, loading, error } = useCompareData(searchParams)
+
+  if (loading) return <p className="text-muted-foreground p-6">Loading comparison...</p>
+  if (error) return <p className="text-destructive p-6">{error}</p>
+  if (benchmarks.length === 0) return <p className="text-muted-foreground p-6">No data to compare.</p>
+
+  const allResults = [...results.values()].flat()
+
+  const LOWER_IS_BETTER = new Set([
+    'compression_ratio', 'compressed_bits', 'uncompressed_bits',
+    'original_size', 'memory_usage', 'compressor_internal',
+    'random_access_ns', 'internal_memory_ratio', 'relative_memory_usage',
+  ])
+
+  const metrics = getMetricDefs(allResults)
+
+  return (
+    <div className="space-y-6 p-6">
+      <h1 className="text-2xl font-bold">Compare Benchmarks</h1>
+      <p className="text-sm text-muted-foreground">
+        Comparing {benchmarks.length} benchmarks: {benchmarks.map((b) => b.name).join(', ')}
+      </p>
+
+      {/* Grouped compression ratio bar chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Compression Ratio</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ComparisonBarChart benchmarks={benchmarks} results={results} />
+          <div className="flex justify-end mt-2">
+            <Button variant="outline" size="sm">Copy LaTeX</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Per-metric tables */}
+      {metrics.filter((m) => m.key !== 'compression_ratio').map((metric) => (
+        <Card key={metric.key}>
+          <CardHeader>
+            <CardTitle className="text-base">{metric.label}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MetricComparisonTable
+              metric={metric.key}
+              benchmarks={benchmarks}
+              results={results}
+              lowerIsBetter={LOWER_IS_BETTER.has(metric.key)}
+            />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   )
 }

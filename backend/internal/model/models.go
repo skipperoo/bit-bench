@@ -102,8 +102,9 @@ type ErrorResponse struct {
 }
 
 type ConfigResponse struct {
-	MaxFileSizeMB int64 `json:"maxFileSizeMb"`
-	SMTPEnabled   bool  `json:"smtpEnabled"`
+	MaxFileSizeMB      int64 `json:"maxFileSizeMb"`
+	MaxCompare         int   `json:"maxCompare"`
+	SMTPEnabled        bool  `json:"smtpEnabled"`
 }
 
 type StatusStats struct {
