@@ -10,6 +10,7 @@ import { Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { computeMD5 } from '@/lib/md5'
 import { shouldUseSlider } from '@/lib/options'
+import { renameCompressor} from '@/lib/compressors'
 import type { CompressorRegistry, CompressorOption } from '@/types'
 
 interface CompressorFamily {
@@ -168,8 +169,8 @@ export default function UploadPage() {
           ? `${name} (avg ${files.length})` : name)
         formData.append('file', files[0])
         formData.append('compressors', JSON.stringify(compressorsPayload))
-        const avgRes = await apiUpload<{ id: string }>('/benchmarks', formData)
-        navigate(`/results/${avgRes.id}`)
+        await apiUpload<{ id: string }>('/benchmarks', formData)
+        navigate(`/results`)
       } else {
         // Sequential mode: enqueue each file as a separate benchmark
         for (let i = 0; i < files.length; i++) {
@@ -179,9 +180,9 @@ export default function UploadPage() {
           formData.append('name', `${name} (${fname})`)
           formData.append('file', f)
           formData.append('compressors', JSON.stringify(compressorsPayload))
-          const _res = await apiUpload<{ id: string }>('/benchmarks', formData)
+          await apiUpload<{ id: string }>('/benchmarks', formData)
           if (i === files.length - 1) {
-            navigate(`/results/${_res.id}`)
+            navigate(`/results`)
           }
         }
       }
@@ -294,7 +295,7 @@ export default function UploadPage() {
               }
             />
             <span className={`font-mono text-sm truncate ${selectedCompressors[cName] ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
-              {cName}
+              {renameCompressor(cName)}
             </span>
           </div>
         </AccordionTrigger>
