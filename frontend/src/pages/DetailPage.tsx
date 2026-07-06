@@ -160,11 +160,12 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   return (
     <div className="h-[432px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 140, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 90, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 60 }}
+            tickFormatter={(v: number) => v.toFixed(2)}
+            label={{ value: 'Ratio (%)', angle: -90, position: 'outside', offset: 70 }}
           />
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb">
@@ -193,11 +194,12 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
   return (
     <div className="h-[384px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ left: 140, right: 20, top: 20, bottom: 60 }}>
+        <BarChart data={data} margin={{ left: 90, right: 20, top: 20, bottom: 60 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" angle={-35} textAnchor="end" interval={0} fontSize={11} />
           <YAxis
-            label={{ value: label, angle: -90, position: 'outside', offset: 60 }}
+            tickFormatter={(v: number) => v.toFixed(2)}
+            label={{ value: label, angle: -90, position: 'outside', offset: 70 }}
           />
           <Tooltip formatter={(v: any) => formatMetricValue(v, metric)} />
           <Bar dataKey={metric} fill="#16a34a">
@@ -225,24 +227,23 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
 
   const xs = data.map((d) => d.x)
   const ys = data.map((d) => d.y)
-  const xDomain: [number, number] = xs.length > 1
-    ? [Math.min(...xs) * 0.95, Math.max(...xs) * 1.05]
-    : [xs[0] * 0.9, xs[0] * 1.1]
-  const yDomain: [number, number] = ys.length > 1
-    ? [Math.min(...ys) * 0.95, Math.max(...ys) * 1.05]
-    : [ys[0] * 0.9, ys[0] * 1.1]
+  const xPad = xs.length > 1 ? (xs[xs.length - 1] - xs[0]) * 0.05 || 1 : 1
+  const yPad = ys.length > 1 ? (Math.max(...ys) - Math.min(...ys)) * 0.05 || 1 : 1
+  const xDomain: [number, number] = [xs[0] - xPad, xs[xs.length - 1] + xPad]
+  const yDomain: [number, number] = [Math.min(...ys) - yPad, Math.max(...ys) + yPad]
 
   return (
     <div>
       <div className="h-[480px]">
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ left: 140, right: 20, top: 20, bottom: 120 }}>
+          <ScatterChart margin={{ left: 80, right: 20, top: 20, bottom: 120 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="x"
               name="Compression Ratio (%)"
               domain={xDomain}
               type="number"
+              tickFormatter={(v: number) => v.toFixed(2)}
               label={{ value: 'Compression Ratio (%)', position: 'bottom', offset: 50 }}
             />
             <YAxis
@@ -250,22 +251,19 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               name={metricLabel(metric)}
               domain={yDomain}
               type="number"
-              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 60 }}
+              tickFormatter={(v: number) => v.toFixed(2)}
+              label={{ value: metricLabel(metric), angle: -90, position: 'outside', offset: 70 }}
             />
             <Tooltip
+              labelFormatter={(_: any, payload: any) => payload?.[0]?.payload?.name || ''}
               formatter={(v: any, name: any) => {
-                if (name === 'y') {
-                  return [formatMetricValue(v, metric), metricLabel(metric)]
-                }
+                if (name === 'y') return [formatMetricValue(v, metric), metricLabel(metric)]
                 return [`${Number(v).toFixed(2)}%`, 'Compression Ratio']
               }}
             />
-            {/* Single Scatter with custom shape per point for proper axis domain */}
             <Scatter
               data={data}
-              shape={(scatterProps: any) => (
-                <CompressorShape cx={scatterProps.cx} cy={scatterProps.cy} name={scatterProps.payload?.name} />
-              )}
+              shape={CompressorShape}
               isAnimationActive={false}
             >
               {data.map((d) => (
@@ -275,7 +273,6 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
           </ScatterChart>
         </ResponsiveContainer>
       </div>
-      {/* Custom legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
         {data.map((d) => (
           <div key={d.name} className="flex items-center gap-1.5">
