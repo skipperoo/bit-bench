@@ -29,8 +29,8 @@ type MemoryResult struct {
 func RunMemoryHarness(binaryPath, compressor, binPath, massifOutPath string, timeout time.Duration) (*MemoryResult, error) {
 	cmd := exec.Command("valgrind",
 		"--tool=massif",
-		"--detailed-freq=1",
-		"--max-snapshots=100",
+		"--detailed-freq=10",
+		fmt.Sprintf("--max-snapshots=%d", 1000),
 		fmt.Sprintf("--massif-out-file=%s", massifOutPath),
 		binaryPath,
 		binPath,
@@ -81,6 +81,10 @@ func RunMemoryHarness(binaryPath, compressor, binPath, massifOutPath string, tim
 
 	// Extract peak memory from massif.out file
 	peakMemory := extractPeakFromMassif(massifOutPath)
+	if peakMemory == nil {
+		// Fallback: try without requiring the ready-phase marker (Python script does this too)
+		peakMemory = extractPeakFromMassifUnrestricted(massifOutPath)
+	}
 	if peakMemory == nil {
 		return nil, fmt.Errorf("could not extract peak memory from massif output: %s", massifOutPath)
 	}
@@ -165,6 +169,57 @@ func max64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// extractPeakFromMassifUnrestricted parses a Valgrind massif.out file and returns
+// the peak total memory across ALL snapshots (no READY_FOR_COMPRESSION filter).
+func extractPeakFromMassifUnrestricted(path string) *int64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var peak *int64
+	var curHeap, curExtra, curStacks int64
+	var curHeapSet bool
+
+	commitCurrent := func() {
+		if !curHeapSet {
+			return
+		}
+		total := curHeap + curExtra + curStacks
+		if peak == nil || total > *peak {
+			peak = &total
+		}
+	}
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "snapshot=") {
+			commitCurrent()
+			curHeapSet = false
+			curExtra = 0
+			curStacks = 0
+		} else if strings.HasPrefix(line, "mem_heap_B=") {
+			if v, err := strconv.ParseInt(strings.TrimPrefix(line, "mem_heap_B="), 10, 64); err == nil {
+				curHeap = v
+				curHeapSet = true
+			}
+		} else if strings.HasPrefix(line, "mem_heap_extra_B=") {
+			if v, err := strconv.ParseInt(strings.TrimPrefix(line, "mem_heap_extra_B="), 10, 64); err == nil {
+				curExtra = v
+			}
+		} else if strings.HasPrefix(line, "mem_stacks_B=") {
+			if v, err := strconv.ParseInt(strings.TrimPrefix(line, "mem_stacks_B="), 10, 64); err == nil {
+				curStacks = v
+			}
+		}
+	}
+	commitCurrent()
+
+	return peak
 }
 
 // RunMemoryHarnessWithBaseline runs MemoryHarness for a compressor and its
