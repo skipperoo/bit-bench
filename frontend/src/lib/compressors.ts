@@ -63,7 +63,7 @@ export const COMPRESSOR_COLORS: Record<string, string> = {
   TSXor: '#d62728',
   PForDelta: '#2ca02c',
   DAC: '#bcbd22',
-  ALP: '#ff7f0e',
+  ALP: '#bcbd22',
 }
 
 // Compressor families (from COMPRESSOR_FAMILIES_ORDERED in the Python script)
