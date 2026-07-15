@@ -36,9 +36,7 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (must change on fir
   - [Development Mode](#development-mode)
   - [Production Build](#production-build)
 - [Configuration](#configuration)
-- [API Overview](#api-overview)
 - [Project Structure](#project-structure)
-- [License](#license)
 
 ---
 
