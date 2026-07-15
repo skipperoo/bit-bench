@@ -1,6 +1,6 @@
-# BitBench — Compression Algorithm Benchmarking Platform
+# BitBench -- Compression Algorithm Benchmarking Platform
 
-BitBench is a **web-based platform** for evaluating lossless compression algorithms on integer sequence data. Researchers upload their datasets, select compressors with tunable parameters, and receive ranked results with Pareto-optimal trade-off analysis — all through a clean, precise web interface.
+BitBench is a **web-based platform** for evaluating lossless compression algorithms on integer sequence data. Researchers upload their datasets, select compressors with tunable parameters, and receive ranked results with Pareto-optimal trade-off analysis -- all through a clean, precise web interface.
 
 Born from the [GEF Experiments](https://github.com/mxpucci/gef-experiments) benchmarking suite, BitBench wraps the same C++ benchmark binary (`LosslessBenchmark`) in a full-stack web application: a Go backend with PostgreSQL, Redis, and a React frontend that renders the ranked tables, bar charts, and Pareto scatter plots that compression researchers rely on.
 
@@ -21,7 +21,7 @@ Then open **http://localhost** (main frontend) or **http://localhost:81** (admin
 
 Default admin credentials: `admin@bitbench.org` / `changeme` (must change on first login).
 
-> **Prerequisites:** Docker and Docker Compose v2. No local Go, C++, or Node toolchain required — everything is containerised.
+> **Prerequisites:** Docker and Docker Compose v2. No local Go, C++, or Node toolchain required -- everything is containerised.
 
 ---
 
@@ -120,19 +120,19 @@ See [`compression/README.md`](compression/README.md) for full attribution of the
 
 ### Key Design Decisions
 
-- **Admin-created accounts only** — no self-registration. Admin creates users from the admin panel.
-- **PostgreSQL as job queue** — the `benchmarks` table doubles as the work queue (`FOR UPDATE SKIP LOCKED`). No separate job broker.
-- **Ephemeral files** — uploaded files are deleted once the benchmark finishes. Re-running requires re-upload.
-- **Global checksum deduplication** — a file with the same MD5 cannot be uploaded twice, even by different users.
-- **Multi-stage Docker build** — the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
+- **Admin-created accounts only** -- no self-registration. Admin creates users from the admin panel.
+- **PostgreSQL as job queue** -- the `benchmarks` table doubles as the work queue (`FOR UPDATE SKIP LOCKED`). No separate job broker.
+- **Ephemeral files** -- uploaded files are deleted once the benchmark finishes. Re-running requires re-upload.
+- **Global checksum deduplication** -- a file with the same MD5 cannot be uploaded twice, even by different users.
+- **Multi-stage Docker build** -- the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
 
 ### Services
 
 | Service | Port | Description |
 |:--|:--|:--|
 | **nginx** | 80 / 81 | Reverse proxy: `/*` → frontend, `/api/*` → backend, port 81 → admin frontend |
-| **frontend** | 80 (internal) | Vite/React main app — upload, results, compare pages |
-| **admin-frontend** | 80 (internal) | Vite/React admin panel — user & group CRUD, benchmark management |
+| **frontend** | 80 (internal) | Vite/React main app -- upload, results, compare pages |
+| **admin-frontend** | 80 (internal) | Vite/React admin panel -- user & group CRUD, benchmark management |
 | **backend** | 8080 | Go HTTP server + background benchmark runner |
 | **postgres** | 5432 | Database (users, groups, benchmarks, results) |
 | **redis** | 6379 | JWT blocklist + rate limiting (ephemeral, no volume) |
@@ -179,7 +179,7 @@ The frontend renders the appropriate widget (slider, number input, switch, or dr
 
 BitBench accepts four file types. After upload, the backend normalises everything to `.bin` before invoking the benchmark binary.
 
-#### 1. Binary (`.bin`) — direct input
+#### 1. Binary (`.bin`) -- direct input
 
 Two header formats (auto-detected by file size):
 
@@ -197,13 +197,13 @@ Two header formats (auto-detected by file size):
 
 Validation: both formats are tried; the file is accepted if either yields an exact integer `N ≥ 0`.
 
-#### 2. CSV (`.csv`) — multi-column
+#### 2. CSV (`.csv`) -- multi-column
 
 Each column is treated as a separate integer sequence. The backend materialises one `.bin` per column (16-byte header, `decimals=0`) and runs all compressors on each. Results are **averaged** across columns into one row per compressor.
 
 The CSV must have a header row; every column is parsed as a sequence of integer values.
 
-#### 3. Zip / Tar (`.zip`, `.tar`) — batch
+#### 3. Zip / Tar (`.zip`, `.tar`) -- batch
 
 Containing one or more `.bin` files. Each inner `.bin` is extracted and benchmarked individually; results are **averaged** across all inner files into one row per compressor.
 
@@ -323,7 +323,7 @@ cd frontend && npm run dev
 cd admin-frontend && npm run dev
 ```
 
-The backend expects PostgreSQL and Redis to be available — use `docker compose up postgres redis` for those.
+The backend expects PostgreSQL and Redis to be available -- use `docker compose up postgres redis` for those.
 
 ### First-Time Setup
 
@@ -378,7 +378,7 @@ Log in, change the admin password, then create user accounts for your team.
 
 | Method | Path | Description |
 |:--|:--|:--|
-| `POST` | `/api/v1/auth/login` | Authenticate — returns JWT |
+| `POST` | `/api/v1/auth/login` | Authenticate -- returns JWT |
 | `GET` | `/api/v1/health` | Health check |
 | `GET` | `/api/v1/config` | Public config (`maxFileSizeMb`, `smtpEnabled`) |
 
@@ -501,13 +501,13 @@ Log in, change the admin password, then create user accounts for your team.
 
 ### Branching Strategy
 
-- `master` — stable, deployable
-- `develop` — integration branch
-- `feature/*` — new functionality
-- `fix/*` — bug fixes
-- `refactor/*` — internal restructuring
-- `migration/*` — database schema changes
-- `chore/*` — tooling, dependencies, CI
+- `master` -- stable, deployable
+- `develop` -- integration branch
+- `feature/*` -- new functionality
+- `fix/*` -- bug fixes
+- `refactor/*` -- internal restructuring
+- `migration/*` -- database schema changes
+- `chore/*` -- tooling, dependencies, CI
 
 ### Testing Requirements
 
