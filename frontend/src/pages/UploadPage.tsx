@@ -184,7 +184,7 @@ export default function UploadPage() {
   const canSubmit = name && files.length > 0 && selectedCount > 0
 
   function toggleFamily(family: string, on: boolean) {
-    const familyDef = FAMILIES.find(f => f.name === family)
+    const familyDef = familyGrids.find(f => f.name === family)
     if (!familyDef) return
     setSelectedCompressors((prev) => {
       const next = { ...prev }
@@ -196,8 +196,8 @@ export default function UploadPage() {
   }
 
   function allFamilySelected(family: string): boolean {
-    const familyDef = FAMILIES.find(f => f.name === family)
-    if (!familyDef) return false
+    const familyDef = familyGrids.find(f => f.name === family)
+    if (!familyDef || familyDef.compressors.length === 0) return false
     return familyDef.compressors.every(c => selectedCompressors[c])
   }
 
@@ -303,12 +303,20 @@ export default function UploadPage() {
     )
   }
 
-  // Group compressors by family for rendering
+  // Group compressors by family for rendering; user-provided packages that
+  // are not part of any built-in family get their own group.
   const familyGrids = useMemo(() => {
-    return FAMILIES.map(family => ({
+    const builtinNames = new Set(FAMILIES.flatMap(f => f.compressors))
+    const customNames = Object.keys(compressors).filter(name => !builtinNames.has(name))
+    const grids = FAMILIES.map(family => ({
       ...family,
       compressors: family.compressors.filter(c => c in compressors),
     })).filter(f => f.compressors.length > 0)
+
+    if (customNames.length > 0) {
+      return [{ name: 'Custom', compressors: customNames }, ...grids]
+    }
+    return grids
   }, [compressors])
 
   return (

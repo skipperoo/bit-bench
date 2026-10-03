@@ -25,9 +25,9 @@
   - [x] Multi-thread: `workers` in `spec.yaml`; global slot pool (`MAX_RUNNER_WORKERS`), runs wait for free slots, error if `workers` exceeds the maximum; container gets `--cpus=workers` and is killed + failed if cgroup throttling exceeds max(2s, 5% runtime).
   - [ ] Provide examples (`examples/user-compressors/LANGUAGE`) for each supported language to be compressed and uploaded to the platform
   - [x] Roles: `admin` (everything, including groups/priorities), `professor` (manage own-group users: create/delete/reset, assign `phd`/`student`; cannot touch peers, groups or priorities), `phd` (no management access), `student` (no management access). Existing `user` accounts migrated to `student`. Permissions resolved from the DB on every request. Admin frontend gated by role (professor sees Users only).
-  - [ ] Compressor-upload button always visible but disabled for `student`, enforced server side. Backend upload permission already enforced (`admin`/`professor`/`phd`).
+  - [x] Compressor-upload button always visible but disabled for `student`, enforced server side. Backend upload permission enforced (`admin`/`professor`/`phd`).
   - [x] User-uploaded compressors visibility: users see ready packages of their own group (uploaded by professor/phd) plus built-ins; admin sees everything. Names are globally unique and cannot collide with built-ins.
-  - [ ] Frontend: compressor management page (upload/status/logs/delete) and custom compressors in the benchmark options.
+  - [x] Frontend: Compressors page (upload with admin group selector, status pills, polling, build log, delete) and custom packages selectable in the benchmark options (Custom family).
   - [ ] Documentation: parameter-format reference, vendored dependencies (pip `--target`, static libs for C/C++, `-march=native` and checking the available instruction sets on the Status page).
 
 ## Remaining (future)
