@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { AppLayout } from '@/components/layout/AppLayout'
 import LoginPage from '@/pages/LoginPage'
 import UploadPage from '@/pages/UploadPage'
+import CompressorsPage from '@/pages/CompressorsPage'
 import ResultsPage from '@/pages/ResultsPage'
 import DetailPage from '@/pages/DetailPage'
 import ComparePage from '@/pages/ComparePage'
@@ -29,6 +30,7 @@ export default function App() {
           }
         >
           <Route path="/upload" element={<UploadPage />} />
+          <Route path="/compressors" element={<CompressorsPage />} />
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/results/:id" element={<DetailPage />} />
           <Route path="/compare" element={<ComparePage />} />

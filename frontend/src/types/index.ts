@@ -4,6 +4,30 @@ export interface Config {
   smtpEnabled: boolean
 }
 
+export interface CompressorPackage {
+  id: string
+  owner_id: string
+  group_id?: string
+  name: string
+  version: string
+  description: string
+  language: string
+  entrypoint: string
+  workers: number
+  spec: unknown
+  status: 'building' | 'ready' | 'failed'
+  error?: string
+  archive_checksum: string
+  build_log?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface GroupRef {
+  id: string
+  name: string
+}
+
 export interface LoginRequest {
   email: string
   password: string

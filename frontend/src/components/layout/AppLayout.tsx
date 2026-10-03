@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import {
   BarChart3,
+  Boxes,
   Upload,
   Activity,
   LogOut,
@@ -14,6 +15,7 @@ import { useState } from 'react'
 
 const navItems = [
   { path: '/upload', label: 'Upload', icon: Upload },
+  { path: '/compressors', label: 'Compressors', icon: Boxes },
   { path: '/results', label: 'Results', icon: BarChart3 },
   { path: '/status', label: 'Status', icon: Activity },
 ]
