@@ -8,6 +8,27 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	RoleAdmin     = "admin"
+	RoleProfessor = "professor"
+	RolePhD       = "phd"
+	RoleStudent   = "student"
+)
+
+// IsValidRole reports whether role is one of the supported role values.
+func IsValidRole(role string) bool {
+	switch role {
+	case RoleAdmin, RoleProfessor, RolePhD, RoleStudent:
+		return true
+	}
+	return false
+}
+
+// IsStaff reports whether role can access the management API.
+func IsStaff(role string) bool {
+	return role == RoleAdmin || role == RoleProfessor
+}
+
 type Claims struct {
 	Sub     string `json:"sub"`
 	Email   string `json:"email"`

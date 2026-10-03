@@ -1,7 +1,9 @@
+export type Role = 'admin' | 'professor' | 'phd' | 'student'
+
 export interface User {
   id: string
   email: string
-  role: 'admin' | 'user'
+  role: Role
   group_id?: string
   must_change_password?: boolean
   created_at?: string

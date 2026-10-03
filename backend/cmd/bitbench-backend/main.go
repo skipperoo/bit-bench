@@ -49,6 +49,7 @@ func main() {
 	service.InitRepos(db)
 	handler.InitHandlers(cfg)
 	middleware.InitAuthMiddleware(rdb)
+	middleware.InitUserResolver(service.UserRepo)
 
 	recoverMw := routy.NewRecoverMiddleware(nil)
 	loggingMw := routy.NewLoggingMiddleware(middleware.LoggingFunc)
@@ -67,6 +68,7 @@ func main() {
 	protected := routy.NewRouter()
 	protected.
 		AddMiddleware(middleware.JWTAuth).
+		AddMiddleware(middleware.ResolveUser).
 		AddHandler("POST  /auth/logout",           handler.Logout).
 		AddHandler("PUT   /auth/password",         handler.ChangePassword).
 		AddHandler("PUT   /me/config",             handler.SaveLastConfig).
@@ -84,19 +86,19 @@ func main() {
 	admin := routy.NewRouter()
 	admin.
 		AddMiddleware(middleware.JWTAuth).
-		AddMiddleware(middleware.RequireAdmin).
-		AddHandler("POST   /users",                    handler.AdminCreateUser).
-		AddHandler("GET    /users",                    handler.AdminListUsers).
-		AddHandler("PUT    /users/{id}",               handler.AdminUpdateUser).
-		AddHandler("DELETE /users/{id}",               handler.AdminDeleteUser).
-		AddHandler("POST   /groups",                  handler.AdminCreateGroup).
-		AddHandler("GET    /groups",                  handler.AdminListGroups).
-		AddHandler("PUT    /groups/{id}",              handler.AdminUpdateGroup).
-		AddHandler("DELETE /groups/{id}",              handler.AdminDeleteGroup).
-		AddHandler("GET    /benchmarks",               handler.AdminListBenchmarks).
-		AddHandler("DELETE /benchmarks/{id}",          handler.AdminDeleteBenchmark).
-		AddHandler("POST   /benchmarks/batch-delete",  handler.AdminBatchDeleteBenchmarks).
-		AddHandler("POST   /benchmarks/{id}/cancel",   handler.AdminCancelBenchmark)
+		AddMiddleware(middleware.ResolveUser).
+		AddHandler("POST   /users",                    middleware.RequireAdminOrProfessor(handler.AdminCreateUser)).
+		AddHandler("GET    /users",                    middleware.RequireAdminOrProfessor(handler.AdminListUsers)).
+		AddHandler("PUT    /users/{id}",               middleware.RequireAdminOrProfessor(handler.AdminUpdateUser)).
+		AddHandler("DELETE /users/{id}",               middleware.RequireAdminOrProfessor(handler.AdminDeleteUser)).
+		AddHandler("POST   /groups",                  middleware.RequireAdmin(handler.AdminCreateGroup)).
+		AddHandler("GET    /groups",                  middleware.RequireAdminOrProfessor(handler.AdminListGroups)).
+		AddHandler("PUT    /groups/{id}",              middleware.RequireAdmin(handler.AdminUpdateGroup)).
+		AddHandler("DELETE /groups/{id}",              middleware.RequireAdmin(handler.AdminDeleteGroup)).
+		AddHandler("GET    /benchmarks",               middleware.RequireAdmin(handler.AdminListBenchmarks)).
+		AddHandler("DELETE /benchmarks/{id}",          middleware.RequireAdmin(handler.AdminDeleteBenchmark)).
+		AddHandler("POST   /benchmarks/batch-delete",  middleware.RequireAdmin(handler.AdminBatchDeleteBenchmarks)).
+		AddHandler("POST   /benchmarks/{id}/cancel",   middleware.RequireAdmin(handler.AdminCancelBenchmark))
 
 	router.AddSubroute("/api/v1/", protected.Finalize())
 	router.AddSubroute("/api/v1/admin/", admin.Finalize())
