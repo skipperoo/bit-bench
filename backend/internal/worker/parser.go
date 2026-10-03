@@ -9,22 +9,35 @@ import (
 )
 
 type BenchmarkRow struct {
-	Compressor               string
-	Dataset                  string
-	NumValues                int64
-	OriginalSize             int64
-	MemoryUsage              int64
-	UncompressedBits         int64
-	CompressedBits           int64
-	CompressionRatio         float64
-	CompressionThroughputMbs float64
+	Compressor                 string
+	Dataset                    string
+	NumValues                  int64
+	OriginalSize               int64
+	MemoryUsage                int64
+	UncompressedBits           int64
+	CompressedBits             int64
+	CompressionRatio           float64
+	CompressionThroughputMbs   float64
 	DecompressionThroughputMbs float64
-	RandomAccessNs           float64
-	RandomAccessMbs          float64
-	RangeQueries             map[string]float64
+	RandomAccessNs             float64
+	RandomAccessMbs            float64
+	RangeQueries               map[string]float64
+	// Missing marks optional metrics whose cells were empty (not reported).
+	// Only populated by ParseCSVLenient.
+	Missing map[string]bool
 }
 
 func ParseCSV(r io.Reader) ([]BenchmarkRow, error) {
+	return parseCSV(r, false)
+}
+
+// ParseCSVLenient allows the optional metric cells to be empty, marking them
+// as missing. Used for user-provided compressor output.
+func ParseCSVLenient(r io.Reader) ([]BenchmarkRow, error) {
+	return parseCSV(r, true)
+}
+
+func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 	reader := csv.NewReader(r)
 	reader.TrimLeadingSpace = true
 
@@ -66,9 +79,12 @@ func ParseCSV(r io.Reader) ([]BenchmarkRow, error) {
 		lineNum++
 
 		row := BenchmarkRow{
-			Compressor: record[colIndex["compressor"]],
-			Dataset:    record[colIndex["dataset"]],
+			Compressor:   record[colIndex["compressor"]],
+			Dataset:      record[colIndex["dataset"]],
 			RangeQueries: make(map[string]float64),
+		}
+		if lenient {
+			row.Missing = make(map[string]bool)
 		}
 
 		if row.NumValues, err = parseInt(record, colIndex, "num_values"); err != nil {
@@ -77,7 +93,9 @@ func ParseCSV(r io.Reader) ([]BenchmarkRow, error) {
 		if row.OriginalSize, err = parseInt(record, colIndex, "original_size"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
-		if row.MemoryUsage, err = parseInt(record, colIndex, "memory_usage"); err != nil {
+		if lenient && cellEmpty(record, colIndex, "memory_usage") {
+			row.Missing["memory_usage"] = true
+		} else if row.MemoryUsage, err = parseInt(record, colIndex, "memory_usage"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 		if row.UncompressedBits, err = parseInt(record, colIndex, "uncompressed_bits"); err != nil {
@@ -95,10 +113,14 @@ func ParseCSV(r io.Reader) ([]BenchmarkRow, error) {
 		if row.DecompressionThroughputMbs, err = parseFloat(record, colIndex, "decompression_throughput_mbs"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
-		if row.RandomAccessNs, err = parseFloat(record, colIndex, "random_access_ns"); err != nil {
+		if lenient && cellEmpty(record, colIndex, "random_access_ns") {
+			row.Missing["random_access_ns"] = true
+		} else if row.RandomAccessNs, err = parseFloat(record, colIndex, "random_access_ns"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
-		if row.RandomAccessMbs, err = parseFloat(record, colIndex, "random_access_mbs"); err != nil {
+		if lenient && cellEmpty(record, colIndex, "random_access_mbs") {
+			row.Missing["random_access_mbs"] = true
+		} else if row.RandomAccessMbs, err = parseFloat(record, colIndex, "random_access_mbs"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
 
@@ -119,6 +141,14 @@ func ParseCSV(r io.Reader) ([]BenchmarkRow, error) {
 	}
 
 	return rows, nil
+}
+
+func cellEmpty(record []string, colIndex map[string]int, col string) bool {
+	idx, ok := colIndex[col]
+	if !ok || idx >= len(record) {
+		return true
+	}
+	return strings.TrimSpace(record[idx]) == ""
 }
 
 func parseInt(record []string, colIndex map[string]int, col string) (int64, error) {
@@ -150,24 +180,35 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 			Compressor:   comp,
 			Dataset:      group[0].Dataset,
 			RangeQueries: make(map[string]float64),
+			Missing:      make(map[string]bool),
 		}
 
 		var numValuesSum, originalSizeSum, memoryUsageSum int64
 		var uncompressedSum, compressedSum int64
 		var ratioSum, tpSum, decompSum, ransSum, rambsSum float64
 		n := len(group)
+		memoryCount, ransCount, rambsCount := 0, 0, 0
 
 		for _, r := range group {
 			numValuesSum += r.NumValues
 			originalSizeSum += r.OriginalSize
-			memoryUsageSum += r.MemoryUsage
+			if !r.Missing["memory_usage"] {
+				memoryUsageSum += r.MemoryUsage
+				memoryCount++
+			}
 			uncompressedSum += r.UncompressedBits
 			compressedSum += r.CompressedBits
 			ratioSum += r.CompressionRatio
 			tpSum += r.CompressionThroughputMbs
 			decompSum += r.DecompressionThroughputMbs
-			ransSum += r.RandomAccessNs
-			rambsSum += r.RandomAccessMbs
+			if !r.Missing["random_access_ns"] {
+				ransSum += r.RandomAccessNs
+				ransCount++
+			}
+			if !r.Missing["random_access_mbs"] {
+				rambsSum += r.RandomAccessMbs
+				rambsCount++
+			}
 
 			for k, v := range r.RangeQueries {
 				avg.RangeQueries[k] += v
@@ -176,14 +217,27 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 
 		avg.NumValues = numValuesSum / int64(n)
 		avg.OriginalSize = originalSizeSum / int64(n)
-		avg.MemoryUsage = memoryUsageSum / int64(n)
 		avg.UncompressedBits = uncompressedSum / int64(n)
 		avg.CompressedBits = compressedSum / int64(n)
 		avg.CompressionRatio = ratioSum / float64(n)
 		avg.CompressionThroughputMbs = tpSum / float64(n)
 		avg.DecompressionThroughputMbs = decompSum / float64(n)
-		avg.RandomAccessNs = ransSum / float64(n)
-		avg.RandomAccessMbs = rambsSum / float64(n)
+
+		if memoryCount > 0 {
+			avg.MemoryUsage = memoryUsageSum / int64(memoryCount)
+		} else {
+			avg.Missing["memory_usage"] = true
+		}
+		if ransCount > 0 {
+			avg.RandomAccessNs = ransSum / float64(ransCount)
+		} else {
+			avg.Missing["random_access_ns"] = true
+		}
+		if rambsCount > 0 {
+			avg.RandomAccessMbs = rambsSum / float64(rambsCount)
+		} else {
+			avg.Missing["random_access_mbs"] = true
+		}
 
 		for k := range avg.RangeQueries {
 			avg.RangeQueries[k] /= float64(n)

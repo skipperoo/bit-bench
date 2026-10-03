@@ -33,6 +33,16 @@ type Config struct {
 	DataDir           string
 	BenchBinaryPath   string
 
+	CompressorDir     string
+	MaxPackageSizeMB  int64
+	RunnerImage       string
+	RunnerMemoryMB    int64
+	RunnerPidsLimit   int64
+	MaxRunnerWorkers  int
+	BuildTimeout      time.Duration
+	BenchVolume       string
+	CompressorVolume  string
+
 	SMTPHost string
 	SMTPPort string
 	SMTPUser string
@@ -62,6 +72,16 @@ func LoadConfig() *Config {
 		BenchMaxRetries: getInt("BENCH_MAX_RETRIES", 2),
 		DataDir:         getEnv("DATA_DIR", "/data/benchmarks"),
 		BenchBinaryPath: getEnv("BENCH_BINARY_PATH", "/app/bin/LosslessBenchmarkFull"),
+
+		CompressorDir:    getEnv("COMPRESSOR_DIR", "/data/compressors"),
+		MaxPackageSizeMB: int64(getInt("MAX_PACKAGE_SIZE_MB", 50)),
+		RunnerImage:      getEnv("RUNNER_IMAGE", "bitbench-runner:latest"),
+		RunnerMemoryMB:   int64(getInt("RUNNER_MEMORY_MB", 4096)),
+		RunnerPidsLimit:  int64(getInt("RUNNER_PIDS_LIMIT", 512)),
+		MaxRunnerWorkers: getInt("MAX_RUNNER_WORKERS", getInt("MAX_PARALLELISM", 2)),
+		BuildTimeout:     getDuration("BUILD_TIMEOUT_SECONDS", 600*time.Second),
+		BenchVolume:      getEnv("BENCH_VOLUME", "bitbench_bench_data"),
+		CompressorVolume: getEnv("COMPRESSOR_VOLUME", "bitbench_compressor_data"),
 
 		SMTPHost:     getEnv("SMTP_HOST", ""),
 		SMTPPort:     getEnv("SMTP_PORT", "587"),

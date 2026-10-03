@@ -13,6 +13,7 @@ import (
 	"bitbench/internal/handler"
 	"bitbench/internal/logger"
 	"bitbench/internal/middleware"
+	"bitbench/internal/runner"
 	"bitbench/internal/service"
 	"bitbench/internal/worker"
 )
@@ -51,6 +52,17 @@ func main() {
 	middleware.InitAuthMiddleware(rdb)
 	middleware.InitUserResolver(service.UserRepo)
 
+	dockerRunner, dockerErr := runner.NewDockerRunner(cfg.RunnerImage, cfg.RunnerMemoryMB, cfg.RunnerPidsLimit)
+	if dockerErr != nil {
+		logger.Warn("docker runner unavailable; compressor packages will not build or run", "error", dockerErr)
+	} else {
+		defer dockerRunner.Close()
+		service.App.Compressor.SetRunner(dockerRunner)
+		if err := dockerRunner.Ping(ctx); err != nil {
+			logger.Warn("compressor runner not ready", "error", err)
+		}
+	}
+
 	recoverMw := routy.NewRecoverMiddleware(nil)
 	loggingMw := routy.NewLoggingMiddleware(middleware.LoggingFunc)
 
@@ -74,6 +86,10 @@ func main() {
 		AddHandler("PUT   /me/config",             handler.SaveLastConfig).
 		AddHandler("GET   /me",                    handler.Me).
 		AddHandler("GET   /compressors",           handler.ListCompressors).
+		AddHandler("POST  /compressors/packages",  middleware.RequireUploader(handler.UploadCompressorPackage)).
+		AddHandler("GET   /compressors/packages",  handler.ListCompressorPackages).
+		AddHandler("GET   /compressors/packages/{id}", handler.GetCompressorPackage).
+		AddHandler("DELETE /compressors/packages/{id}", handler.DeleteCompressorPackage).
 		AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
 		AddHandler("POST  /benchmarks",            handler.CreateBenchmark).
 		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
@@ -104,10 +120,13 @@ func main() {
 	router.AddSubroute("/api/v1/admin/", admin.Finalize())
 	final := router.Finalize()
 
-	runner := worker.NewBenchmarkRunner(cfg, db, rdb)
-	service.App.Benchmark.SetRunningFunc(runner.Running)
+	benchRunner := worker.NewBenchmarkRunner(cfg, db, rdb)
+	service.App.Benchmark.SetRunningFunc(benchRunner.Running)
+	if dockerRunner != nil {
+		benchRunner.SetContainerRunner(dockerRunner)
+	}
 
-	go runner.Run(ctx)
+	go benchRunner.Run(ctx)
 	go worker.NewEmailDispatcher(cfg, db).Run(ctx)
 
 	server := &http.Server{

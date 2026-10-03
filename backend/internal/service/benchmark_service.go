@@ -25,12 +25,13 @@ var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 type BenchmarkService struct {
 	benchRepo   *repository.BenchmarkRepository
 	resultRepo  *repository.BenchmarkResultRepository
+	pkgRepo     *repository.CompressorPackageRepository
 	cfg         *config.Config
 	runningFunc func() int
 }
 
-func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, cfg *config.Config) *BenchmarkService {
-	return &BenchmarkService{benchRepo: br, resultRepo: rr, cfg: cfg}
+func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, pr *repository.CompressorPackageRepository, cfg *config.Config) *BenchmarkService {
+	return &BenchmarkService{benchRepo: br, resultRepo: rr, pkgRepo: pr, cfg: cfg}
 }
 
 func (s *BenchmarkService) SetRunningFunc(fn func() int) {
@@ -69,15 +70,27 @@ func ValidateFileExt(ext string) bool {
 	return allowedExts[strings.ToLower(ext)]
 }
 
-func (s *BenchmarkService) CreateBenchmark(ctx context.Context, userID uuid.UUID, name string, file io.ReadSeeker, originalFilename string, compressors map[string]interface{}) (*model.Benchmark, error) {
+func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, file io.ReadSeeker, originalFilename string, compressors map[string]interface{}) (*model.Benchmark, error) {
+	if actor == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
 	ext := strings.ToLower(filepath.Ext(originalFilename))
 	if !ValidateFileExt(ext) {
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
 	}
 
-	// Validate compressor names against the registry
+	// Validate compressor names against the built-in registry, falling back
+	// to ready custom packages visible to the user.
 	for name := range compressors {
-		if !compressor.IsValid(name) {
+		if compressor.IsValid(name) {
+			continue
+		}
+		visible, err := s.pkgRepo.IsVisibleReady(ctx, name, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+		if err != nil {
+			return nil, fmt.Errorf("validate compressor %s: %w", name, err)
+		}
+		if !visible {
 			return nil, fmt.Errorf("unknown compressor: %s", name)
 		}
 	}
@@ -120,7 +133,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, userID uuid.UUID
 	}
 
 	benchmark := &model.Benchmark{
-		UserID:           userID,
+		UserID:           actor.ID,
 		Name:             name,
 		OriginalFilename: originalFilename,
 		FileSize:         fileSize,

@@ -133,3 +133,53 @@ func TestBuildCompressorListPForDeltaDefault(t *testing.T) {
 		t.Errorf("pfordelta with default codec should stay as pfordelta, got %q", list)
 	}
 }
+
+func TestParseCSVLenient(t *testing.T) {
+	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs
+custom,test,1000,8000,,64000,32000,0.5,500,600,,
+`
+	if _, err := ParseCSV(strings.NewReader(csv)); err == nil {
+		t.Fatal("strict parser should reject empty optional metrics")
+	}
+
+	rows, err := ParseCSVLenient(strings.NewReader(csv))
+	if err != nil {
+		t.Fatalf("lenient parse error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	row := rows[0]
+	if !row.Missing["memory_usage"] || !row.Missing["random_access_ns"] || !row.Missing["random_access_mbs"] {
+		t.Errorf("missing flags not set: %v", row.Missing)
+	}
+	if row.CompressionRatio != 0.5 {
+		t.Errorf("compression_ratio = %v, want 0.5", row.CompressionRatio)
+	}
+}
+
+func TestAverageRowsMissingPropagation(t *testing.T) {
+	rows := []BenchmarkRow{
+		{Compressor: "custom", Missing: map[string]bool{"memory_usage": true, "random_access_ns": true, "random_access_mbs": true}},
+		{Compressor: "custom", Missing: map[string]bool{"memory_usage": true, "random_access_ns": true, "random_access_mbs": true}},
+	}
+	averaged := AverageRows(rows)
+	if len(averaged) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(averaged))
+	}
+	if !averaged[0].Missing["memory_usage"] {
+		t.Error("memory_usage should stay missing when no row reports it")
+	}
+
+	rows = []BenchmarkRow{
+		{Compressor: "custom", MemoryUsage: 100},
+		{Compressor: "custom", Missing: map[string]bool{"memory_usage": true}},
+	}
+	averaged = AverageRows(rows)
+	if averaged[0].Missing["memory_usage"] {
+		t.Error("memory_usage should be reported when at least one row has it")
+	}
+	if averaged[0].MemoryUsage != 100 {
+		t.Errorf("memory_usage average = %d, want 100", averaged[0].MemoryUsage)
+	}
+}

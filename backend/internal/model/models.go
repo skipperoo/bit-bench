@@ -98,6 +98,26 @@ type BenchmarkResult struct {
 	RangeQueries                json.RawMessage `json:"range_queries,omitempty"`
 }
 
+type CompressorPackage struct {
+	ID              uuid.UUID       `json:"id"`
+	OwnerID         uuid.UUID       `json:"owner_id"`
+	GroupID         *uuid.UUID      `json:"group_id,omitempty"`
+	Name            string          `json:"name"`
+	Version         string          `json:"version"`
+	Description     string          `json:"description"`
+	Language        string          `json:"language"`
+	Entrypoint      string          `json:"entrypoint"`
+	Workers         int             `json:"workers"`
+	Spec            json.RawMessage `json:"spec"`
+	Status          string          `json:"status"`
+	Error           *string         `json:"error,omitempty"`
+	ArchiveChecksum string          `json:"archive_checksum"`
+	BuiltPath       *string         `json:"built_path,omitempty"`
+	BuildLog        string          `json:"build_log,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+}
+
 type EmailOutbox struct {
 	ID           uuid.UUID `json:"id"`
 	ToAddress    string    `json:"to_address"`
