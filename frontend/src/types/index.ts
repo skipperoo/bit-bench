@@ -84,10 +84,23 @@ export interface RunnerStatus {
   max_parallelism: number
 }
 
+export interface CPUStatus {
+  model: string
+  physical_cores: number
+  logical_cores: number
+  mhz: number
+  load1: number
+  load5: number
+  load15: number
+  utilization: number
+  flags: string[]
+}
+
 export interface QueueStatus {
   queue_depth: number
   runner: RunnerStatus
   stats: StatusStats
+  cpu?: CPUStatus
 }
 
 export interface BenchmarkListResponse {

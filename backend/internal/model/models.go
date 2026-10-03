@@ -131,8 +131,21 @@ type RunnerStatus struct {
 	MaxParallelism  int `json:"max_parallelism"`
 }
 
+type CPUStatus struct {
+	Model         string   `json:"model"`
+	PhysicalCores int      `json:"physical_cores"`
+	LogicalCores  int      `json:"logical_cores"`
+	MHz           float64  `json:"mhz"`
+	Load1         float64  `json:"load1"`
+	Load5         float64  `json:"load5"`
+	Load15        float64  `json:"load15"`
+	Utilization   float64  `json:"utilization"`
+	Flags         []string `json:"flags"`
+}
+
 type StatusResponse struct {
 	QueueDepth int          `json:"queue_depth"`
 	Runner     RunnerStatus `json:"runner"`
 	Stats      StatusStats  `json:"stats"`
+	CPU        *CPUStatus   `json:"cpu,omitempty"`
 }

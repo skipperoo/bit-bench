@@ -245,5 +245,6 @@ func (s *BenchmarkService) GetUserStatus(ctx context.Context, userID *uuid.UUID)
 			MaxParallelism: s.cfg.MaxParallelism,
 		},
 		Stats: userStats,
+		CPU:   CollectCPUStatus(),
 	}, nil
 }
