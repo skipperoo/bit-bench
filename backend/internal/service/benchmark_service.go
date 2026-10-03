@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"bitbench/internal/compressor"
 	"bitbench/internal/config"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
@@ -72,6 +73,13 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, userID uuid.UUID
 	ext := strings.ToLower(filepath.Ext(originalFilename))
 	if !ValidateFileExt(ext) {
 		return nil, fmt.Errorf("unsupported file extension: %s", ext)
+	}
+
+	// Validate compressor names against the registry
+	for name := range compressors {
+		if !compressor.IsValid(name) {
+			return nil, fmt.Errorf("unknown compressor: %s", name)
+		}
 	}
 
 	// Compute checksum

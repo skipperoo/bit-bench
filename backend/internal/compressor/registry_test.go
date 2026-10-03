@@ -138,6 +138,31 @@ func TestRegistrySerialization(t *testing.T) {
 	}
 }
 
+func TestIsValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		valid bool
+	}{
+		{"gzip", true},
+		{"GZip", true},
+		{"BZIP2", true},
+		{"GORILLA", true},
+		{"gorilla", true},
+		{"nonexistent", false},
+		{"rm -rf /", false},
+		{"gzip; echo pwned", false},
+		{"--help", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		got := IsValid(tt.name)
+		if got != tt.valid {
+			t.Errorf("IsValid(%q) = %v, want %v", tt.name, got, tt.valid)
+		}
+	}
+}
+
 func assertOption(t *testing.T, path string, opt Option, expectedType string, expectedMin, expectedMax int, expectedDefault any, expectedStep int) {
 	t.Helper()
 	if opt.Type != expectedType {

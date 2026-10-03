@@ -1,5 +1,7 @@
 package compressor
 
+import "strings"
+
 type Option struct {
 	Type    string   `json:"type"`
 	Min     *int     `json:"min,omitempty"`
@@ -91,6 +93,12 @@ var Registry = map[string]map[string]Option{
 		"level": {Type: "number", Min: intPtr(0), Max: intPtr(9), Default: 6, Step: intPtr(1)},
 	},
 	"snappy": {},
+}
+
+// IsValid checks whether name is a known compressor (case-insensitive).
+func IsValid(name string) bool {
+	_, ok := Registry[strings.ToLower(name)]
+	return ok
 }
 
 func intPtr(i int) *int {
