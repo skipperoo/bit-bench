@@ -1,0 +1,14 @@
+name: example_delta_go
+version: "1.0.0"
+description: Delta + zigzag varint example written in Go
+language: go
+entrypoint: ./codec
+workers: 1
+options:
+  mode:
+    type: select
+    options: [delta, raw]
+    default: delta
+  verify:
+    type: boolean
+    default: true

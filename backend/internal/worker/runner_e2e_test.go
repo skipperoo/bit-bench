@@ -3,10 +3,11 @@
 package worker
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,42 +70,19 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func e2eUserID(t *testing.T) uuid.UUID {
+func e2eUser(t *testing.T) *model.User {
 	t.Helper()
-	var id uuid.UUID
+	user := &model.User{}
+	var groupID uuid.UUID
 	if err := testDB.QueryRow(context.Background(),
-		`SELECT id FROM users WHERE email = 'e2e@test.com'`).Scan(&id); err != nil {
+		`SELECT u.id, g.id FROM users u JOIN groups g ON g.name = 'e2e' WHERE u.email = 'e2e@test.com'`,
+	).Scan(&user.ID, &groupID); err != nil {
 		t.Fatalf("lookup user: %v", err)
 	}
-	return id
+	user.Role = model.RoleProfessor
+	user.GroupID = &groupID
+	return user
 }
-
-const e2ePythonCompressor = `import os
-import sys
-
-args = sys.argv[1:]
-out = None
-inp = None
-i = 0
-while i < len(args):
-    a = args[i]
-    if a == '-o' and i + 1 < len(args):
-        out = args[i + 1]
-        i += 2
-    elif a == '--options' and i + 1 < len(args):
-        i += 2
-    elif a.startswith('--'):
-        i += 1
-    else:
-        inp = a
-        i += 1
-
-size = os.path.getsize(inp)
-header = "compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs\n"
-row = "custom_py,ds,%d,%d,,%d,%d,0.5,10.5,20.5,,\n" % (size // 8, size, size * 8, size * 4)
-with open(out, "w") as f:
-    f.write(header + row)
-`
 
 func buildImageIfMissing(t *testing.T, d *runner.DockerRunner) {
 	t.Helper()
@@ -119,8 +97,54 @@ func buildImageIfMissing(t *testing.T, d *runner.DockerRunner) {
 	}
 }
 
-func TestBenchmarkRunnerRunsCustomCompressor(t *testing.T) {
-	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 256)
+func zipDirectory(t *testing.T, dir string) string {
+	t.Helper()
+
+	outPath := filepath.Join(t.TempDir(), "package.zip")
+	out, err := os.Create(outPath)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	zw := zip.NewWriter(out)
+
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		hdr := &zip.FileHeader{Name: filepath.ToSlash(rel), Method: zip.Deflate}
+		hdr.SetMode(info.Mode())
+		entry, err := zw.CreateHeader(hdr)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		_, err = entry.Write(data)
+		return err
+	})
+	if walkErr != nil {
+		t.Fatalf("walk %s: %v", dir, walkErr)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	out.Close()
+	return outPath
+}
+
+// TestBenchmarkRunnerExamplesE2E uploads, builds and runs every example package
+// (one per supported language) through the real runner image.
+func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
+	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
 	if err != nil {
 		t.Skipf("docker unavailable, skipping E2E: %v", err)
 	}
@@ -131,113 +155,115 @@ func TestBenchmarkRunnerRunsCustomCompressor(t *testing.T) {
 	dataDir := t.TempDir()
 	compressorDir := t.TempDir()
 
-	// Create a ready package directly.
-	pkgDir := filepath.Join(compressorDir, "pkg1", "pkg")
-	if err := os.MkdirAll(filepath.Join(pkgDir, "src"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "src", "main.py"), []byte(e2ePythonCompressor), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "spec.yaml"), []byte("name: custom_py\nversion: \"1\"\nentrypoint: python3 src/main.py\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	specJSON, _ := json.Marshal(map[string]interface{}{
-		"name":       "custom_py",
-		"version":    "1",
-		"entrypoint": "python3 src/main.py",
-		"workers":    1,
-		"options": map[string]interface{}{
-			"level": map[string]interface{}{"type": "number", "min": 1, "max": 9, "default": 6, "step": 1},
-		},
-	})
-	builtPath := "pkg1"
-	ownerID := e2eUserID(t)
-	pkg := &model.CompressorPackage{
-		OwnerID:         ownerID,
-		Name:            "custom_py",
-		Version:         "1",
-		Entrypoint:      "python3 src/main.py",
-		Workers:         1,
-		Spec:            specJSON,
-		Status:          "ready",
-		ArchiveChecksum: "00000000000000000000000000000000",
-		BuiltPath:       &builtPath,
-	}
-	pkgRepo := repository.NewCompressorPackageRepository(testDB)
-	if err := pkgRepo.Create(ctx, pkg); err != nil {
-		t.Fatalf("create package: %v", err)
-	}
-
-	// Create the input .bin and the benchmark row.
-	filename := "e2e-sample.bin"
-	data := make([]byte, 16+8*128)
-	for i := 0; i < 128; i++ {
-		val := int64(i * 3)
-		for b := 0; b < 8; b++ {
-			data[16+i*8+b] = byte(val >> (8 * b))
-		}
-	}
-	sum := md5.Sum(data)
-	checksum := hex.EncodeToString(sum[:])
-	if err := os.WriteFile(filepath.Join(dataDir, service.StoredFilename(filename, checksum)), data, 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	benchRepo := repository.NewBenchmarkRepository(testDB)
-	resultRepo := repository.NewBenchmarkResultRepository(testDB)
-	benchmark := &model.Benchmark{
-		UserID:           ownerID,
-		Name:             "e2e custom run",
-		OriginalFilename: filename,
-		FileSize:         int64(len(data)),
-		FileChecksum:     checksum,
-		FileExt:          ".bin",
-		Compressors:      map[string]interface{}{"custom_py": map[string]interface{}{"level": float64(9)}},
-	}
-	if err := benchRepo.Create(ctx, benchmark); err != nil {
-		t.Fatalf("create benchmark: %v", err)
-	}
-
 	cfg := &config.Config{
 		DataDir:          dataDir,
 		CompressorDir:    compressorDir,
 		BenchBinaryPath:  "/nonexistent/LosslessBenchmarkFull",
-		BenchTimeout:     120 * time.Second,
+		BenchTimeout:     180 * time.Second,
 		BenchMaxRetries:  0,
 		MaxRunnerWorkers: 4,
+		BuildTimeout:     5 * time.Minute,
 	}
-	r := NewBenchmarkRunner(cfg, testDB, nil)
-	r.SetContainerRunner(dockerRunner)
-	r.executeJob(ctx, benchmark.ID)
+	service.InitServices(cfg, testDB, nil)
+	service.App.Compressor.SetRunner(dockerRunner)
 
-	got, err := benchRepo.FindByID(ctx, benchmark.ID)
-	if err != nil || got == nil {
-		t.Fatalf("reload benchmark: %v", err)
+	owner := e2eUser(t)
+
+	// Input sequence: 128 values with constant delta 3 -> ratio 0.125.
+	const numValues = 128
+	data := make([]byte, 16+8*numValues)
+	binary.LittleEndian.PutUint64(data[0:8], numValues)
+	binary.LittleEndian.PutUint64(data[8:16], 0)
+	for i := 0; i < numValues; i++ {
+		binary.LittleEndian.PutUint64(data[16+i*8:], uint64(int64(i*3)))
 	}
-	if got.Status != "ready" {
-		t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
+	sum := md5.Sum(data)
+	checksum := hex.EncodeToString(sum[:])
+	filename := "e2e-sample.bin"
+
+	benchRepo := repository.NewBenchmarkRepository(testDB)
+	resultRepo := repository.NewBenchmarkResultRepository(testDB)
+
+	examples := []struct {
+		dir  string
+		name string
+	}{
+		{"python", "example_delta_py"},
+		{"c", "example_delta_c"},
+		{"cpp", "example_delta_cpp"},
+		{"go", "example_delta_go"},
+		{"rust", "example_delta_rust"},
 	}
 
-	results, err := resultRepo.FindByBenchmarkID(ctx, benchmark.ID)
-	if err != nil {
-		t.Fatalf("list results: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("results = %d, want 1", len(results))
-	}
-	res := results[0]
-	if res.Compressor != "custom_py" {
-		t.Errorf("compressor = %q", res.Compressor)
-	}
-	if res.CompressionRatio == nil || *res.CompressionRatio != 0.5 {
-		t.Errorf("compression_ratio = %v, want 0.5", res.CompressionRatio)
-	}
-	if res.MemoryUsage != nil {
-		t.Errorf("memory_usage = %v, want NULL (not reported)", *res.MemoryUsage)
-	}
-	if res.RandomAccessNs != nil || res.RandomAccessMbs != nil {
-		t.Error("random access metrics should be NULL when not reported")
+	for _, example := range examples {
+		t.Run(example.name, func(t *testing.T) {
+			exampleDir := filepath.Join("..", "..", "..", "examples", "user-compressors", example.dir)
+			archive := zipDirectory(t, exampleDir)
+
+			file, err := os.Open(archive)
+			if err != nil {
+				t.Fatalf("open archive: %v", err)
+			}
+			pkg, err := service.App.Compressor.UploadPackage(ctx, owner, owner.GroupID, file, example.dir+".zip")
+			file.Close()
+			if err != nil {
+				t.Fatalf("upload package: %v", err)
+			}
+			if pkg.Name != example.name {
+				t.Fatalf("package name = %q, want %q", pkg.Name, example.name)
+			}
+			if err := service.App.Compressor.Build(ctx, pkg.ID); err != nil {
+				t.Fatalf("build package: %v", err)
+			}
+
+			// The runner deletes the source file after each benchmark, so it
+			// must be written again for every subtest.
+			if err := os.WriteFile(filepath.Join(dataDir, service.StoredFilename(filename, checksum)), data, 0644); err != nil {
+				t.Fatalf("write sample: %v", err)
+			}
+
+			benchmark := &model.Benchmark{
+				UserID:           owner.ID,
+				Name:             "e2e " + example.name,
+				OriginalFilename: filename,
+				FileSize:         int64(len(data)),
+				FileChecksum:     checksum,
+				FileExt:          ".bin",
+				Compressors:      map[string]interface{}{example.name: map[string]interface{}{}},
+			}
+			if err := benchRepo.Create(ctx, benchmark); err != nil {
+				t.Fatalf("create benchmark: %v", err)
+			}
+
+			r := NewBenchmarkRunner(cfg, testDB, nil)
+			r.SetContainerRunner(dockerRunner)
+			r.executeJob(ctx, benchmark.ID)
+
+			got, err := benchRepo.FindByID(ctx, benchmark.ID)
+			if err != nil || got == nil {
+				t.Fatalf("reload benchmark: %v", err)
+			}
+			if got.Status != "ready" {
+				t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
+			}
+
+			results, err := resultRepo.FindByBenchmarkID(ctx, benchmark.ID)
+			if err != nil {
+				t.Fatalf("list results: %v", err)
+			}
+			if len(results) != 1 {
+				t.Fatalf("results = %d, want 1", len(results))
+			}
+			res := results[0]
+			if res.Compressor != example.name {
+				t.Errorf("compressor = %q, want %q", res.Compressor, example.name)
+			}
+			if res.CompressionRatio == nil || *res.CompressionRatio != 0.125 {
+				t.Errorf("compression_ratio = %v, want 0.125", res.CompressionRatio)
+			}
+			if res.MemoryUsage != nil {
+				t.Errorf("memory_usage = %v, want NULL (not reported)", *res.MemoryUsage)
+			}
+		})
 	}
 }
