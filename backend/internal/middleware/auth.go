@@ -129,3 +129,7 @@ func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 func RequireAdminOrProfessor(next http.HandlerFunc) http.HandlerFunc {
 	return requireRole(model.RoleAdmin, model.RoleProfessor)(next)
 }
+
+func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
+	return requireRole(model.RoleAdmin, model.RoleProfessor, model.RolePhD)(next)
+}

@@ -29,15 +29,9 @@ func ListChecksums(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
-	claims := middleware.ClaimsFromContext(r.Context())
-	if claims == nil {
+	actor := middleware.UserFromContext(r.Context())
+	if actor == nil {
 		writeError(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := uuid.Parse(claims.Sub)
-	if err != nil {
-		writeError(w, "invalid user", http.StatusBadRequest)
 		return
 	}
 
@@ -71,7 +65,7 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), userID, name, file, header.Filename, compressors)
+	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, file, header.Filename, compressors)
 	if err != nil {
 		msg := err.Error()
 		// Detect stale JWT after DB reset

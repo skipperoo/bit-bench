@@ -40,6 +40,14 @@ services:
       - backend
     restart: unless-stopped
 
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    image: bitbench-runner:latest
+    command: ["/bin/true"]
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -71,12 +79,23 @@ services:
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
       - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
+      - COMPRESSOR_DIR=/data/compressors
+      - MAX_PACKAGE_SIZE_MB=50
+      - RUNNER_IMAGE=bitbench-runner:latest
+      - RUNNER_MEMORY_MB=4096
+      - RUNNER_PIDS_LIMIT=512
+      - MAX_RUNNER_WORKERS=8
+      - BUILD_TIMEOUT_SECONDS=600
+      - BENCH_VOLUME=bitbench_bench_data
+      - COMPRESSOR_VOLUME=bitbench_compressor_data
       - SMTP_HOST=${SMTP_HOST:-}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_FROM=${SMTP_FROM:-}
     volumes:
       - bench_data:/data/benchmarks
+      - compressor_data:/data/compressors
+      - /var/run/docker.sock:/var/run/docker.sock
     expose:
       - "8080"
     depends_on:
@@ -84,6 +103,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      runner:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   postgres:
@@ -118,6 +139,10 @@ services:
 volumes:
   bench_data:
     driver: local
+    name: bitbench_bench_data
+  compressor_data:
+    driver: local
+    name: bitbench_compressor_data
   pg_data:
     driver: local
 

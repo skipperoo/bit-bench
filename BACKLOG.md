@@ -20,13 +20,15 @@
 
 - [x] Add cpu info to the system info page (model, physical/logical cores, live load average, instruction sets).
 - [ ] Document and add an API to insert executables/scripts to introduce new compressors:
-  - [ ] Fix the source structure: zip with inside `src`, `Makefile` if compilation is needed or requirements.txt if a python script is provided, `spec.yaml` a spec file where the user specifies the available options (something like the already present object to govern the ui rendering for compressors parameters) and the entrypoint command. The input parameters and the ouput format must be fixed to the ones of the original losses benchmark.
-  - [ ] Add a runner container where the user provided benchmark can be run in a constrianed environment (fix it to a full debian contianer with latest python3/pip support and c/c++, golang and rust toolchain installed so that the user can use those languages). The runner container must talk with the original container to gather the result and the containers must be spawned dynamically based on the workers available.
-  - [ ] Multi-thread implementations must specify the workers requirements in the spec.yaml and wait for available workers to free up or return an error if the worker requirements are over the maximum available
+  - [x] Source structure: zip with `spec.yaml` (name, version, entrypoint, workers, options, optional build), `src/`, `Makefile` (compiled languages) or vendored python deps. Offline build at upload in the sandbox image; entrypoint contract `<entrypoint> -o <out.csv> --<option>=<value>... --options <options.json> <input.bin>` (JSON takes precedence) with the standard benchmark CSV output.
+  - [x] Runner container: Debian image with python3/pip, C/C++, Go and Rust toolchains (`runner/Dockerfile`); spawned dynamically per build/run from the backend via the Docker socket; no network, non-root, read-only rootfs, CPU/memory/pids limits; files exchanged through the shared volumes.
+  - [x] Multi-thread: `workers` in `spec.yaml`; global slot pool (`MAX_RUNNER_WORKERS`), runs wait for free slots, error if `workers` exceeds the maximum; container gets `--cpus=workers` and is killed + failed if cgroup throttling exceeds max(2s, 5% runtime).
   - [ ] Provide examples (`examples/user-compressors/LANGUAGE`) for each supported language to be compressed and uploaded to the platform
-  - [x] Roles: `admin` (everything, including groups/priorities), `professor` (manage own-group users: create/delete/reset, assign `phd`/`student`; cannot touch peers, groups or priorities), `phd` (no management access), `student` (no management access). Existing `user` accounts migrated to `student`. Permissions resolved from the DB on every request. Admin frontend gated by role (professor sees Users only). Upload permissions for custom compressors still to come with the compressor API.
-  - [ ] Compressor-upload button always visible but disabled for `student`, enforced server side.
-  - [ ] User-uploaded compressors are not universally show to all users: users within the same group (think of it as a research group) see the compressors available by default plus the ones uploaded by phd and professor of the same group. Admin can see everything.
+  - [x] Roles: `admin` (everything, including groups/priorities), `professor` (manage own-group users: create/delete/reset, assign `phd`/`student`; cannot touch peers, groups or priorities), `phd` (no management access), `student` (no management access). Existing `user` accounts migrated to `student`. Permissions resolved from the DB on every request. Admin frontend gated by role (professor sees Users only).
+  - [ ] Compressor-upload button always visible but disabled for `student`, enforced server side. Backend upload permission already enforced (`admin`/`professor`/`phd`).
+  - [x] User-uploaded compressors visibility: users see ready packages of their own group (uploaded by professor/phd) plus built-ins; admin sees everything. Names are globally unique and cannot collide with built-ins.
+  - [ ] Frontend: compressor management page (upload/status/logs/delete) and custom compressors in the benchmark options.
+  - [ ] Documentation: parameter-format reference, vendored dependencies (pip `--target`, static libs for C/C++, `-march=native` and checking the available instruction sets on the Status page).
 
 ## Remaining (future)
 

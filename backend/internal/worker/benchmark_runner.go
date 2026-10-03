@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,20 +15,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"bitbench/internal/compressor"
 	"bitbench/internal/config"
 	"bitbench/internal/logger"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
+	"bitbench/internal/runner"
 	"bitbench/internal/service"
 )
 
+// ContainerRunner executes sandboxed container specs; implemented by runner.DockerRunner.
+type ContainerRunner interface {
+	Run(ctx context.Context, spec runner.Spec) (*runner.Result, error)
+}
+
 type BenchmarkRunner struct {
-	cfg       *config.Config
-	db        *pgxpool.Pool
-	rdb       *redis.Client
-	benchRepo *repository.BenchmarkRepository
+	cfg        *config.Config
+	db         *pgxpool.Pool
+	rdb        *redis.Client
+	benchRepo  *repository.BenchmarkRepository
 	resultRepo *repository.BenchmarkResultRepository
-	running   atomic.Int32
+	pkgRepo    *repository.CompressorPackageRepository
+	slots      *SlotPool
+	container  ContainerRunner
+	running    atomic.Int32
 }
 
 func NewBenchmarkRunner(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) *BenchmarkRunner {
@@ -37,7 +48,17 @@ func NewBenchmarkRunner(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client)
 		rdb:        rdb,
 		benchRepo:  repository.NewBenchmarkRepository(db),
 		resultRepo: repository.NewBenchmarkResultRepository(db),
+		pkgRepo:    repository.NewCompressorPackageRepository(db),
+		slots:      NewSlotPool(cfg.MaxRunnerWorkers),
 	}
+}
+
+func (r *BenchmarkRunner) SetContainerRunner(cr ContainerRunner) {
+	r.container = cr
+}
+
+func (r *BenchmarkRunner) Slots() *SlotPool {
+	return r.slots
 }
 
 func (r *BenchmarkRunner) Run(ctx context.Context) {
@@ -147,22 +168,34 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 		return
 	}
 
-	compressorList := BuildCompressorList(benchmark.Compressors)
-	if compressorList == "" {
+	builtinCompressors := make(map[string]interface{})
+	customCompressors := make(map[string]interface{})
+	for name, opts := range benchmark.Compressors {
+		if compressor.IsValid(name) {
+			builtinCompressors[name] = opts
+		} else {
+			customCompressors[name] = opts
+		}
+	}
+
+	compressorList := BuildCompressorList(builtinCompressors)
+	if compressorList == "" && len(customCompressors) == 0 {
 		r.failJob(ctx, id, "no compressors selected", workDir)
 		return
 	}
 
-	// Find the benchmark binary path
+	// The native benchmark binary is only needed for built-in compressors.
 	binaryPath := r.cfg.BenchBinaryPath
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		// Try fallback
-		fallback := strings.Replace(binaryPath, "LosslessBenchmarkFull", "LosslessBenchmark", 1)
-		if _, err := os.Stat(fallback); err == nil {
-			binaryPath = fallback
-		} else {
-			r.failJob(ctx, id, fmt.Sprintf("benchmark binary not found: %s", binaryPath), workDir)
-			return
+	if compressorList != "" {
+		if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+			// Try fallback
+			fallback := strings.Replace(binaryPath, "LosslessBenchmarkFull", "LosslessBenchmark", 1)
+			if _, err := os.Stat(fallback); err == nil {
+				binaryPath = fallback
+			} else {
+				r.failJob(ctx, id, fmt.Sprintf("benchmark binary not found: %s", binaryPath), workDir)
+				return
+			}
 		}
 	}
 
@@ -176,7 +209,7 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	r.updateProgress(ctx, id, 8)
 
 	// Count total compressor runs for progress tracking (compressors × bin files)
-	totalCompRuns := len(benchmark.Compressors) * len(binPaths)
+	totalCompRuns := (len(builtinCompressors) + len(customCompressors)) * len(binPaths)
 	compCompleted := 0
 	compProgressFn := func(compressorName string) {
 		compCompleted++
@@ -186,78 +219,116 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 		}
 	}
 
-	for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
-		if attempt > 0 {
-			logger.Info("retrying benchmark", "id", id, "attempt", attempt)
-			time.Sleep(1 * time.Second)
+	if compressorList != "" {
+		for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
+			if attempt > 0 {
+				logger.Info("retrying benchmark", "id", id, "attempt", attempt)
+				time.Sleep(1 * time.Second)
+			}
+
+			allRows = nil
+			var hadError bool
+
+			for _, binPath := range binPaths {
+				result, err := RunBenchmark(binaryPath, compressorList, binPath, workDir, r.cfg.BenchTimeout, compProgressFn)
+				if err != nil {
+					lastErr = fmt.Sprintf("exec error: %v", err)
+					hadError = true
+					break
+				}
+
+				if result.ExitCode == 124 {
+					// Timeout
+					r.benchRepo.UpdateStatus(ctx, id, "timed_out", strPtr(fmt.Sprintf("timeout after %ds", int(r.cfg.BenchTimeout.Seconds()))))
+					r.cleanup(workDir, srcPath)
+					logger.Warn("benchmark timed out", "id", id)
+					return
+				}
+
+				if result.ExitCode != 0 {
+					lastErr = fmt.Sprintf("exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
+					hadError = true
+					break
+				}
+
+				if result.CSVPath == "" {
+					lastErr = "no CSV output produced"
+					hadError = true
+					break
+				}
+
+				// Parse CSV
+				f, err := os.Open(result.CSVPath)
+				if err != nil {
+					lastErr = fmt.Sprintf("open csv: %v", err)
+					hadError = true
+					break
+				}
+
+				rows, err := ParseCSV(f)
+				f.Close()
+				if err != nil {
+					lastErr = fmt.Sprintf("parse csv: %v", err)
+					hadError = true
+					break
+				}
+
+				allRows = append(allRows, rows...)
+			}
+
+			if !hadError {
+				break
+			}
 		}
 
-		allRows = nil
-		var hadError bool
-
-		for _, binPath := range binPaths {
-			result, err := RunBenchmark(binaryPath, compressorList, binPath, workDir, r.cfg.BenchTimeout, compProgressFn)
-			if err != nil {
-				lastErr = fmt.Sprintf("exec error: %v", err)
-				hadError = true
-				break
-			}
-
-			if result.ExitCode == 124 {
-				// Timeout
-				r.benchRepo.UpdateStatus(ctx, id, "timed_out", strPtr(fmt.Sprintf("timeout after %ds", int(r.cfg.BenchTimeout.Seconds()))))
-				r.cleanup(workDir, srcPath)
-				logger.Warn("benchmark timed out", "id", id)
-				return
-			}
-
-			if result.ExitCode != 0 {
-				lastErr = fmt.Sprintf("exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
-				hadError = true
-				break
-			}
-
-			if result.CSVPath == "" {
-				lastErr = "no CSV output produced"
-				hadError = true
-				break
-			}
-
-			// Parse CSV
-			f, err := os.Open(result.CSVPath)
-			if err != nil {
-				lastErr = fmt.Sprintf("open csv: %v", err)
-				hadError = true
-				break
-			}
-
-			rows, err := ParseCSV(f)
-			f.Close()
-			if err != nil {
-				lastErr = fmt.Sprintf("parse csv: %v", err)
-				hadError = true
-				break
-			}
-
-			allRows = append(allRows, rows...)
-		}
-
-		if !hadError {
-			break
+		if allRows == nil {
+			r.failJob(ctx, id, lastErr, workDir)
+			return
 		}
 	}
 
-	if allRows == nil {
-		r.failJob(ctx, id, lastErr, workDir)
+	// Run user-provided compressors in sandboxed containers.
+	for name, opts := range customCompressors {
+		pkg, err := r.pkgRepo.FindByName(ctx, name)
+		if err != nil {
+			r.failJob(ctx, id, fmt.Sprintf("load compressor %s: %v", name, err), workDir)
+			return
+		}
+		if pkg == nil || pkg.Status != "ready" {
+			r.failJob(ctx, id, fmt.Sprintf("compressor %s is not ready", name), workDir)
+			return
+		}
+		optMap, _ := opts.(map[string]interface{})
+
+		for _, binPath := range binPaths {
+			rows, err := r.runCustomCompressor(ctx, pkg, name, binPath, workDir, optMap)
+			if err != nil {
+				if errors.Is(err, runner.ErrTimeout) {
+					r.benchRepo.UpdateStatus(ctx, id, "timed_out", strPtr(fmt.Sprintf("timeout after %ds", int(r.cfg.BenchTimeout.Seconds()))))
+					r.cleanup(workDir, srcPath)
+					logger.Warn("custom compressor timed out", "id", id, "compressor", name)
+					return
+				}
+				r.failJob(ctx, id, fmt.Sprintf("custom compressor %s: %v", name, err), workDir)
+				return
+			}
+			allRows = append(allRows, rows...)
+			compProgressFn(name)
+		}
+	}
+
+	if len(allRows) == 0 {
+		r.failJob(ctx, id, "no benchmark results produced", workDir)
 		return
 	}
 
 	// Average rows per compressor
 	averaged := AverageRows(allRows)
 
-	// Get original compressor names for MemoryHarness (lowercase)
-	originalCompNames := make([]string, 0, len(benchmark.Compressors))
-	for name, opts := range benchmark.Compressors {
+	// Get original built-in compressor names for MemoryHarness (lowercase).
+	// Custom compressors cannot be introspected by the native harness.
+	originalCompNames := make([]string, 0, len(builtinCompressors))
+	for name, opts := range builtinCompressors {
 		optMap, _ := opts.(map[string]interface{})
 		baseName := mapCompressorName(name, optMap)
 		originalCompNames = append(originalCompNames, baseName)
@@ -282,20 +353,26 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 		rangeJSON, _ := json.Marshal(row.RangeQueries)
 
 		res := &model.BenchmarkResult{
-			BenchmarkID:               id,
-			Compressor:                row.Compressor,
-			Dataset:                   dataset,
-			NumValues:                 int64Ptr(row.NumValues),
-			OriginalSize:              int64Ptr(row.OriginalSize),
-			MemoryUsage:               int64Ptr(row.MemoryUsage),
-			UncompressedBits:          int64Ptr(row.UncompressedBits),
-			CompressedBits:            int64Ptr(row.CompressedBits),
-			CompressionRatio:          float64Ptr(row.CompressionRatio),
-			CompressionThroughputMbs:  float64Ptr(row.CompressionThroughputMbs),
+			BenchmarkID:                id,
+			Compressor:                 row.Compressor,
+			Dataset:                    dataset,
+			NumValues:                  int64Ptr(row.NumValues),
+			OriginalSize:               int64Ptr(row.OriginalSize),
+			UncompressedBits:           int64Ptr(row.UncompressedBits),
+			CompressedBits:             int64Ptr(row.CompressedBits),
+			CompressionRatio:           float64Ptr(row.CompressionRatio),
+			CompressionThroughputMbs:   float64Ptr(row.CompressionThroughputMbs),
 			DecompressionThroughputMbs: float64Ptr(row.DecompressionThroughputMbs),
-			RandomAccessNs:            float64Ptr(row.RandomAccessNs),
-			RandomAccessMbs:           float64Ptr(row.RandomAccessMbs),
-			RangeQueries:              rangeJSON,
+			RangeQueries:               rangeJSON,
+		}
+		if !row.Missing["memory_usage"] {
+			res.MemoryUsage = int64Ptr(row.MemoryUsage)
+		}
+		if !row.Missing["random_access_ns"] {
+			res.RandomAccessNs = float64Ptr(row.RandomAccessNs)
+		}
+		if !row.Missing["random_access_mbs"] {
+			res.RandomAccessMbs = float64Ptr(row.RandomAccessMbs)
 		}
 
 		// Override memory_usage with Massif measurement if available.
@@ -335,6 +412,88 @@ func (r *BenchmarkRunner) executeJob(ctx context.Context, id uuid.UUID) {
 	r.cleanup(workDir, srcPath)
 
 	logger.Info("benchmark completed", "id", id, "results", len(averaged))
+}
+
+// runCustomCompressor executes a user-provided compressor package in a runner
+// container against a single .bin file and parses its CSV output.
+func (r *BenchmarkRunner) runCustomCompressor(ctx context.Context, pkg *model.CompressorPackage, name, binPath, workDir string, provided map[string]interface{}) ([]BenchmarkRow, error) {
+	if pkg.BuiltPath == nil {
+		return nil, fmt.Errorf("package has no build artifact")
+	}
+	if pkg.Workers > r.cfg.MaxRunnerWorkers {
+		return nil, fmt.Errorf("requires %d workers, maximum is %d", pkg.Workers, r.cfg.MaxRunnerWorkers)
+	}
+	if r.container == nil {
+		return nil, fmt.Errorf("container runner unavailable")
+	}
+
+	if err := r.slots.Acquire(ctx, pkg.Workers); err != nil {
+		return nil, fmt.Errorf("acquire workers: %w", err)
+	}
+	defer r.slots.Release(pkg.Workers)
+
+	var spec compressor.PackageSpec
+	if err := json.Unmarshal(pkg.Spec, &spec); err != nil {
+		return nil, fmt.Errorf("decode package spec: %w", err)
+	}
+	options := mergeOptions(spec.Options, provided)
+
+	customDir := filepath.Join(workDir, "custom")
+	if err := os.MkdirAll(customDir, 0777); err != nil {
+		return nil, err
+	}
+	_ = os.Chmod(customDir, 0777)
+	// The runner container executes as uid 1000 and must be able to write.
+	_ = os.Chown(customDir, 1000, 1000)
+
+	optionsPath := filepath.Join(customDir, name+"_options.json")
+	optJSON, err := marshalOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(optionsPath, optJSON, 0644); err != nil {
+		return nil, err
+	}
+
+	outPath := filepath.Join(customDir, name+".csv")
+	command := buildCustomCommand(pkg.Entrypoint, options, outPath, optionsPath, binPath)
+
+	runCtx, cancel := context.WithTimeout(ctx, r.cfg.BenchTimeout)
+	defer cancel()
+
+	result, err := r.container.Run(runCtx, runner.Spec{
+		Mounts: []runner.Mount{
+			volumeOrBind(r.cfg.CompressorDir, r.cfg.CompressorVolume, true),
+			volumeOrBind(r.cfg.DataDir, r.cfg.BenchVolume, false),
+		},
+		WorkingDir:     filepath.Join(r.cfg.CompressorDir, *pkg.BuiltPath, "pkg"),
+		Command:        command,
+		Env:            []string{"HOME=/tmp", "TMPDIR=/tmp"},
+		User:           "1000",
+		Workers:        pkg.Workers,
+		KillOnThrottle: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("exit code %d: %s", result.ExitCode, truncate(result.Logs, 500))
+	}
+
+	f, err := os.Open(outPath)
+	if err != nil {
+		return nil, fmt.Errorf("open output csv: %w", err)
+	}
+	defer f.Close()
+
+	rows, err := ParseCSVLenient(f)
+	if err != nil {
+		return nil, fmt.Errorf("parse output csv: %w", err)
+	}
+	for i := range rows {
+		rows[i].Compressor = name
+	}
+	return rows, nil
 }
 
 func (r *BenchmarkRunner) failJob(ctx context.Context, id uuid.UUID, errMsg string, workDir string) {
