@@ -18,7 +18,7 @@
 
 ## Urgent
 
-- [ ] Add cpu info to the system info page.
+- [x] Add cpu info to the system info page (model, physical/logical cores, live load average, instruction sets).
 - [ ] Document and add an API to insert executables/scripts to introduce new compressors:
   - [ ] Fix the source structure: zip with inside `src`, `Makefile` if compilation is needed or requirements.txt if a python script is provided, `spec.yaml` a spec file where the user specifies the available options (something like the already present object to govern the ui rendering for compressors parameters) and the entrypoint command. The input parameters and the ouput format must be fixed to the ones of the original losses benchmark.
   - [ ] Add a runner container where the user provided benchmark can be run in a constrianed environment (fix it to a full debian contianer with latest python3/pip support and c/c++, golang and rust toolchain installed so that the user can use those languages). The runner container must talk with the original container to gather the result and the containers must be spawned dynamically based on the workers available.
