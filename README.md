@@ -31,6 +31,7 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed fro
 - [Acknowledgments](#acknowledgments)
 - [Architecture Overview](#architecture-overview)
 - [Supported Compressors](#supported-compressors)
+- [User-provided Compressors](#user-provided-compressors)
 - [Dataset Format & Preparation](#dataset-format--preparation)
 - [Building & Running](#building--running)
   - [Development Mode](#development-mode)
@@ -156,6 +157,22 @@ Each compressor exposes its tunable parameters (inferred from the C++ source). E
 ```
 
 The frontend renders the appropriate widget (slider, number input, switch, or dropdown) based on the option schema.
+
+### User-provided Compressors
+
+Researchers with the `professor` or `phd` role (and admins) can upload their own
+compressor implementations as `.zip` packages from the **Compressors** page.
+A package contains a `spec.yaml` (name, entrypoint, options, worker count,
+optional build command) and its sources. Packages are built once, offline, in a
+sandboxed Debian image with Python, C/C++, Go and Rust toolchains, and then run
+in a network-isolated container while the benchmark executes.
+
+Ready packages are selectable next to the built-in compressors by every member
+of the uploader's group. See
+[`docs/user-compressors.md`](docs/user-compressors.md) for the package format,
+the invocation/CSV contract, vendoring instructions and resource limits, and
+[`examples/user-compressors/`](examples/user-compressors) for a working example
+in every supported language.
 
 ---
 

@@ -1,0 +1,14 @@
+name: example_delta_py
+version: "1.0.0"
+description: Delta + zigzag varint example written in Python
+language: python
+entrypoint: python3 src/main.py
+workers: 1
+options:
+  mode:
+    type: select
+    options: [delta, raw]
+    default: delta
+  verify:
+    type: boolean
+    default: true
