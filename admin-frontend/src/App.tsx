@@ -6,9 +6,13 @@ import UsersPage from '@/pages/UsersPage'
 import GroupsPage from '@/pages/GroupsPage'
 import BenchmarksPage from '@/pages/BenchmarksPage'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles: string[] }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const getRole = useAuthStore((s) => s.getRole)
+
   if (!isAuthenticated()) return <Navigate to="/login" replace />
+  const role = getRole()
+  if (!role || !roles.includes(role)) return <Navigate to="/users" replace />
   return <>{children}</>
 }
 
@@ -17,10 +21,37 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/groups" element={<GroupsPage />} />
-          <Route path="/benchmarks" element={<BenchmarksPage />} />
+        <Route
+          element={
+            <ProtectedRoute roles={['admin', 'professor']}>
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute roles={['admin', 'professor']}>
+                <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/groups"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <GroupsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/benchmarks"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <BenchmarksPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/users" replace />} />
       </Routes>

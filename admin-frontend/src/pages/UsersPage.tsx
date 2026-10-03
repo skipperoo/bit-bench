@@ -5,19 +5,30 @@ import { Label } from '@/components/ui/label'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { apiFetch } from '@/lib/api'
-import type { User, Group } from '@/types'
+import { useAuthStore } from '@/stores/auth-store'
+import type { Role, User, Group } from '@/types'
+
+const ALL_ROLES: Role[] = ['student', 'phd', 'professor', 'admin']
+const SUBORDINATE_ROLES: Role[] = ['student', 'phd']
+
+function roleLabel(role: Role): string {
+  return role.charAt(0).toUpperCase() + role.slice(1)
+}
 
 export default function UsersPage() {
+  const isAdmin = useAuthStore((s) => s.getRole)() === 'admin'
+  const roleOptions = isAdmin ? ALL_ROLES : SUBORDINATE_ROLES
+
   const [users, setUsers] = useState<User[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<'user' | 'admin'>('user')
+  const [role, setRole] = useState<Role>('student')
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editRole, setEditRole] = useState<string>('')
+  const [editRole, setEditRole] = useState<Role>('student')
   const [editGroupId, setEditGroupId] = useState<string>('')
 
   const loadUsers = async () => {
@@ -48,7 +59,7 @@ export default function UsersPage() {
       setShowForm(false)
       setEmail('')
       setPassword('')
-      setRole('user')
+      setRole('student')
       loadUsers()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create user')
@@ -63,15 +74,14 @@ export default function UsersPage() {
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditRole('')
+    setEditRole('student')
     setEditGroupId('')
   }
 
   const saveEdit = async (id: string) => {
     try {
       const body: Record<string, unknown> = { role: editRole }
-      if (editGroupId) body.group_id = editGroupId
-      else body.group_id = null
+      if (isAdmin) body.group_id = editGroupId || null
       await apiFetch(`/users/${id}`, {
         method: 'PUT',
         body: JSON.stringify(body),
@@ -109,6 +119,14 @@ export default function UsersPage() {
     } catch {}
   }
 
+  const canManage = (u: User) => isAdmin || u.role === 'student' || u.role === 'phd'
+
+  const badgeVariant = (r: Role) => {
+    if (r === 'admin') return 'default' as const
+    if (r === 'professor') return 'secondary' as const
+    return 'outline' as const
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -136,11 +154,17 @@ export default function UsersPage() {
                 <select
                   className="flex h-9 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm"
                   value={role}
-                  onChange={(e) => setRole(e.target.value as 'user' | 'admin')}
+                  onChange={(e) => setRole(e.target.value as Role)}
                 >
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
+                  {roleOptions.map((r) => (
+                    <option key={r} value={r}>{roleLabel(r)}</option>
+                  ))}
                 </select>
+                {!isAdmin && (
+                  <p className="text-xs text-neutral-500">
+                    New users are added to your group.
+                  </p>
+                )}
               </div>
               {error && <p className="text-sm text-red-600">{error}</p>}
               <Button type="submit">Create</Button>
@@ -171,17 +195,18 @@ export default function UsersPage() {
                       <select
                         className="h-8 rounded border border-neutral-300 px-2 text-sm"
                         value={editRole}
-                        onChange={(e) => setEditRole(e.target.value)}
+                        onChange={(e) => setEditRole(e.target.value as Role)}
                       >
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
+                        {roleOptions.map((r) => (
+                          <option key={r} value={r}>{roleLabel(r)}</option>
+                        ))}
                       </select>
                     ) : (
-                      <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>{u.role}</Badge>
+                      <Badge variant={badgeVariant(u.role)}>{u.role}</Badge>
                     )}
                   </td>
                   <td className="p-3">
-                    {editingId === u.id ? (
+                    {editingId === u.id && isAdmin ? (
                       <select
                         className="h-8 rounded border border-neutral-300 px-2 text-sm"
                         value={editGroupId}
@@ -204,12 +229,14 @@ export default function UsersPage() {
                         <Button variant="default" size="sm" onClick={() => saveEdit(u.id)}>Save</Button>
                         <Button variant="outline" size="sm" onClick={cancelEdit}>Cancel</Button>
                       </>
-                    ) : (
+                    ) : canManage(u) ? (
                       <>
                         <Button variant="outline" size="sm" onClick={() => startEdit(u)}>Edit</Button>
                         <Button variant="outline" size="sm" onClick={() => handleResetPassword(u.id)}>Password</Button>
                         <Button variant="destructive" size="sm" onClick={() => handleDelete(u.id)}>Delete</Button>
                       </>
+                    ) : (
+                      <span className="text-neutral-400">—</span>
                     )}
                   </td>
                 </tr>

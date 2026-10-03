@@ -29,10 +29,10 @@ export default function LoginPage() {
         throw new Error(err.error || 'Login failed')
       }
       const data = await res.json()
-      // Verify admin role
+      // Management console is limited to admin and professor roles.
       const payload = JSON.parse(atob(data.token.split('.')[1]))
-      if (payload.role !== 'admin') {
-        throw new Error('Admin access required')
+      if (payload.role !== 'admin' && payload.role !== 'professor') {
+        throw new Error('Admin or professor access required')
       }
       setToken(data.token)
       navigate('/users')

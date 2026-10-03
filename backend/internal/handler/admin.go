@@ -12,10 +12,21 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"bitbench/internal/middleware"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
 	"bitbench/internal/service"
 )
+
+// currentActor returns the DB-resolved user attached by middleware.ResolveUser.
+func currentActor(r *http.Request) *model.User {
+	return middleware.UserFromContext(r.Context())
+}
+
+// inSameGroup reports whether both users belong to the same non-nil group.
+func inSameGroup(a, b *model.User) bool {
+	return a.GroupID != nil && b.GroupID != nil && *a.GroupID == *b.GroupID
+}
 
 // ─── Users ────────────────────────────────────────────────
 
@@ -31,12 +42,39 @@ func AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actor := currentActor(r)
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	if req.Email == "" || req.Password == "" {
 		writeError(w, "email and password are required", http.StatusBadRequest)
 		return
 	}
-	if req.Role != "admin" && req.Role != "user" {
-		req.Role = "user"
+
+	if actor.Role == model.RoleProfessor {
+		if actor.GroupID == nil {
+			writeError(w, "professor has no group assigned", http.StatusForbidden)
+			return
+		}
+		if req.Role == "" {
+			req.Role = model.RoleStudent
+		}
+		if req.Role != model.RoleStudent && req.Role != model.RolePhD {
+			writeError(w, "professors can only create student or phd users", http.StatusForbidden)
+			return
+		}
+		groupID := actor.GroupID.String()
+		req.GroupID = &groupID
+	} else {
+		if req.Role == "" {
+			req.Role = model.RoleStudent
+		}
+		if !model.IsValidRole(req.Role) {
+			writeError(w, "invalid role", http.StatusBadRequest)
+			return
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -73,7 +111,25 @@ func AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := service.UserRepo.List(r.Context())
+	actor := currentActor(r)
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var (
+		users []*model.User
+		err   error
+	)
+	if actor.Role == model.RoleProfessor {
+		if actor.GroupID == nil {
+			users = []*model.User{}
+		} else {
+			users, err = service.UserRepo.ListByGroup(r.Context(), *actor.GroupID)
+		}
+	} else {
+		users, err = service.UserRepo.List(r.Context())
+	}
 	if err != nil {
 		writeError(w, "failed to list users", http.StatusInternalServerError)
 		return
@@ -124,9 +180,45 @@ func AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Role != nil && *req.Role != "admin" && *req.Role != "user" {
-		writeError(w, "role must be 'admin' or 'user'", http.StatusBadRequest)
+	actor := currentActor(r)
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	target, err := service.UserRepo.FindByID(r.Context(), userID)
+	if err != nil || target == nil {
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	if req.Role != nil && !model.IsValidRole(*req.Role) {
+		writeError(w, "invalid role", http.StatusBadRequest)
+		return
+	}
+
+	if actor.ID == userID && req.Role != nil && *req.Role != actor.Role {
+		writeError(w, "cannot change your own role", http.StatusBadRequest)
+		return
+	}
+
+	if actor.Role == model.RoleProfessor {
+		if !inSameGroup(actor, target) {
+			writeError(w, "cannot manage users outside your group", http.StatusForbidden)
+			return
+		}
+		if target.Role == model.RoleAdmin || target.Role == model.RoleProfessor {
+			writeError(w, "cannot manage peers", http.StatusForbidden)
+			return
+		}
+		if req.GroupID != nil {
+			writeError(w, "professors cannot change group membership", http.StatusForbidden)
+			return
+		}
+		if req.Role != nil && *req.Role != model.RoleStudent && *req.Role != model.RolePhD {
+			writeError(w, "professors can only assign student or phd roles", http.StatusForbidden)
+			return
+		}
 	}
 
 	var newHash *string
@@ -154,6 +246,33 @@ func AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, "invalid user id", http.StatusBadRequest)
 		return
+	}
+
+	actor := currentActor(r)
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if actor.ID == userID {
+		writeError(w, "cannot delete your own account", http.StatusBadRequest)
+		return
+	}
+
+	target, err := service.UserRepo.FindByID(r.Context(), userID)
+	if err != nil || target == nil {
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	if actor.Role == model.RoleProfessor {
+		if !inSameGroup(actor, target) {
+			writeError(w, "cannot manage users outside your group", http.StatusForbidden)
+			return
+		}
+		if target.Role == model.RoleAdmin || target.Role == model.RoleProfessor {
+			writeError(w, "cannot manage peers", http.StatusForbidden)
+			return
+		}
 	}
 
 	if err := service.UserRepo.SoftDelete(r.Context(), userID); err != nil {
@@ -198,10 +317,31 @@ func AdminCreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminListGroups(w http.ResponseWriter, r *http.Request) {
-	groups, err := service.GroupRepo.List(r.Context())
-	if err != nil {
-		writeError(w, "failed to list groups", http.StatusInternalServerError)
+	actor := currentActor(r)
+	if actor == nil {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	var groups []*model.Group
+	if actor.Role == model.RoleProfessor {
+		if actor.GroupID != nil {
+			group, err := service.GroupRepo.FindByID(r.Context(), *actor.GroupID)
+			if err != nil {
+				writeError(w, "failed to list groups", http.StatusInternalServerError)
+				return
+			}
+			if group != nil {
+				groups = append(groups, group)
+			}
+		}
+	} else {
+		var err error
+		groups, err = service.GroupRepo.List(r.Context())
+		if err != nil {
+			writeError(w, "failed to list groups", http.StatusInternalServerError)
+			return
+		}
 	}
 	if groups == nil {
 		groups = []*model.Group{}

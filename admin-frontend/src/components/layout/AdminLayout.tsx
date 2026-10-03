@@ -3,15 +3,16 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Users, Layers, BarChart3, LogOut, Shield } from 'lucide-react'
 
 const navItems = [
-  { path: '/users', label: 'Users', icon: Users },
-  { path: '/groups', label: 'Groups', icon: Layers },
-  { path: '/benchmarks', label: 'Benchmarks', icon: BarChart3 },
+  { path: '/users', label: 'Users', icon: Users, roles: ['admin', 'professor'] },
+  { path: '/groups', label: 'Groups', icon: Layers, roles: ['admin'] },
+  { path: '/benchmarks', label: 'Benchmarks', icon: BarChart3, roles: ['admin'] },
 ]
 
 export function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const logout = useAuthStore((s) => s.logout)
+  const role = useAuthStore((s) => s.getRole)()
 
   const handleLogout = () => {
     logout()
@@ -28,7 +29,7 @@ export function AdminLayout() {
           </Link>
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {navItems.map((item) => {
+          {navItems.filter((item) => role && item.roles.includes(role)).map((item) => {
             const Icon = item.icon
             const active = location.pathname.startsWith(item.path)
             return (

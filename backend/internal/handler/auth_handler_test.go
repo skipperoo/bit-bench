@@ -68,8 +68,13 @@ func TestMain(m *testing.M) {
 	// Seed admin user directly (not via config.Seed to avoid default group creation)
 	hash, _ := bcrypt.GenerateFromPassword([]byte("adminpass"), bcrypt.DefaultCost)
 	testDB.Exec(ctx, `INSERT INTO groups (name, priority) VALUES ('default', 0)`)
+	testDB.Exec(ctx, `INSERT INTO groups (name, priority) VALUES ('group-a', 1)`)
+	testDB.Exec(ctx, `INSERT INTO groups (name, priority) VALUES ('group-b', 2)`)
 	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'admin')`, "admin@test.com", string(hash))
-	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'user')`, "user@test.com", string(hash))
+	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'student')`, "user@test.com", string(hash))
+	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role, group_id) SELECT $1, $2, 'professor', id FROM groups WHERE name = 'group-a'`, "professor@test.com", string(hash))
+	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role, group_id) SELECT $1, $2, 'phd', id FROM groups WHERE name = 'group-a'`, "phd@test.com", string(hash))
+	testDB.Exec(ctx, `INSERT INTO users (email, password_hash, role, group_id) SELECT $1, $2, 'student', id FROM groups WHERE name = 'group-b'`, "other@test.com", string(hash))
 
 	// Start Redis
 	redisC, err := tcRedis.Run(ctx,

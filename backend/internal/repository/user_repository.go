@@ -95,6 +95,32 @@ func (r *UserRepository) List(ctx context.Context) ([]*model.User, error) {
 	return users, nil
 }
 
+func (r *UserRepository) ListByGroup(ctx context.Context, groupID uuid.UUID) ([]*model.User, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, email, password_hash, role, group_id, must_change_password,
+		       COALESCE(last_bench_config, '{}'::jsonb), created_at, updated_at, deleted_at
+		FROM users WHERE group_id = $1 AND deleted_at IS NULL
+		ORDER BY created_at DESC
+	`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		u := &model.User{}
+		if err := rows.Scan(
+			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.GroupID,
+			&u.MustChangePassword, &u.LastBenchConfig, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
 func (r *UserRepository) UpdateLastConfig(ctx context.Context, id uuid.UUID, config map[string]interface{}) error {
 	_, err := r.db.Exec(ctx, "UPDATE users SET last_bench_config = $1, updated_at = NOW() WHERE id = $2", config, id)
 	return err
