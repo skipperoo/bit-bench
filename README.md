@@ -19,7 +19,7 @@ docker compose up --build
 
 Then open **<http://localhost>** (main frontend) or **<http://localhost:81>** (admin panel).
 
-Default admin credentials: `admin@bitbench.org` / `changeme` (must change on first login).
+Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed from the admin panel).
 
 > **Prerequisites:** Docker, Docker Compose and an AVX/AVX2 compatible processor.
 
