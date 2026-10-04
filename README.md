@@ -83,30 +83,33 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 ## Architecture Overview
 
 ```
-┌────────────┐    ┌─────────────┐    ┌──────────────────┐
-│ Frontend   │──▶ │ Backend     │──▶ │ PostgreSQL        │
-│ (Vite/React)│   │ (Go + routy)│    │  users, groups,   │
-└────────────┘    │             │    │  benchmarks,      │
-┌────────────┐    │  - handlers │    │  results          │
-│ Admin FE   │──▶ │  - runner   │    └──────────────────┘
-│ (separate) │    │    pool (N) │──▶ ┌──────────────────┐
-└────────────┘    │  - C++ bin  │    │ Redis             │
-                  │    subprocess│   │ (JWT blocklist    │
-                  └──────┬──────┘    │  + rate limiting) │
-                         │ spawns    └──────────────────┘
-                         ▼
-                  ┌──────────────────┐
-                  │ LosslessBenchmark│ (C++ binary)
-                  │ -c <compressors> │
-                  │ -o <out.csv>     │
-                  └──────────────────┘
+┌────────────┐    ┌─────────────┐    ┌──────────────────────────┐
+│ Frontend   │──▶ │ Backend     │──▶ │ PostgreSQL               │
+│ (Vite/React)│   │ (Go + routy)│    │  users, groups,          │
+└────────────┘    │             │    │  benchmarks, results,    │
+┌────────────┐    │  - handlers │    │  compressor_packages     │
+│ Admin FE   │──▶ │  - runner   │    └──────────────────────────┘
+│ (separate) │    │    pool (N) │    ┌──────────────────────────┐
+└────────────┘    │  - C++ bin  │──▶ │ Redis (JWT blocklist +   │
+                  │    subprocess│   │  rate limiting)          │
+                  └──────┬──────┘    └──────────────────────────┘
+                         │ spawns (docker.sock)
+          ┌──────────────┴────────────────┐
+          ▼                               ▼
+  ┌──────────────────┐         ┌──────────────────────┐
+  │ LosslessBenchmark│         │ Runner container     │
+  │ (C++ binary)     │         │ (builds/runs user    │
+  │ -c <compressors> │         │  compressor packages;│
+  │ -o <out.csv>     │         │  no network, limits) │
+  └──────────────────┘         └──────────────────────┘
 ```
 
 ### Key Design Decisions
 
-- **Admin-created accounts only**: admin creates users from the admin panel.
+- **Staff-created accounts only**: admins manage everything; professors manage users of their own group; `phd` users can upload compressors; `student` users run benchmarks.
 - **PostgreSQL as job queue**: the `benchmarks` table doubles as the work queue (`FOR UPDATE SKIP LOCKED`). No separate job broker.
-- **Ephemeral files**: uploaded files are deleted once the benchmark finishes. Re-running requires re-upload.
+- **Ephemeral files**: uploaded files are deleted once the benchmark finishes. Re-running requires re-upload. Built compressor-package workspaces persist.
+- **Sandboxed user compressors**: uploaded packages are built once, offline, in the runner image and executed in network-isolated containers with CPU/memory/pid limits.
 - **Multi-stage Docker build**: the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
 
 ### Services
@@ -114,10 +117,11 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 | Service            | Port          | Description                                                                  |
 | :----------------- | :------------ | :--------------------------------------------------------------------------- |
 | **nginx**          | 80 / 81       | Reverse proxy: `/*` → frontend, `/api/*` → backend, port 81 → admin frontend |
-| **frontend**       | 80 (internal) | Vite/React main app -- upload, results, compare pages                        |
-| **admin-frontend** | 80 (internal) | Vite/React admin panel -- user & group CRUD, benchmark management            |
-| **backend**        | 8080          | Go HTTP server + background benchmark runner                                 |
-| **postgres**       | 5432          | Database (users, groups, benchmarks, results)                                |
+| **frontend**       | 80 (internal) | Vite/React main app -- upload, results, compare, compressor pages            |
+| **admin-frontend** | 80 (internal) | Vite/React management panel -- user & group CRUD, benchmark management       |
+| **backend**        | 8080          | Go HTTP server + background benchmark runner + package builder               |
+| **runner**         | —             | Build-only service producing the sandbox image `bitbench-runner:latest`      |
+| **postgres**       | 5432          | Database (users, groups, benchmarks, results, packages)                      |
 | **redis**          | 6379          | JWT blocklist + rate limiting (ephemeral, no volume)                         |
 
 ---
@@ -298,7 +302,7 @@ For active development with hot-reload:
 docker compose watch
 ```
 
-This watches `./frontend`, `./admin-frontend`, `./backend`, and `./compression` for changes and rebuilds the affected services automatically.
+This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmark sources for changes and rebuilds the affected services automatically.
 
 ---
 
@@ -321,6 +325,15 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and `./compression` 
 | `BENCH_MAX_RETRIES`     | `2`                              | Number of retries on non-zero exit                  |
 | `DATA_DIR`              | `/data/benchmarks`               | Ephemeral workspace for uploaded files              |
 | `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                        |
+| `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages        |
+| `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)       |
+| `RUNNER_IMAGE`          | `bitbench-runner:latest`         | Sandbox image used to build/run user compressors    |
+| `RUNNER_MEMORY_MB`      | `4096`                           | Per-container memory limit for user compressors     |
+| `RUNNER_PIDS_LIMIT`     | `512`                            | Per-container pid limit                             |
+| `MAX_RUNNER_WORKERS`    | `MAX_PARALLELISM`                | Global CPU worker slot pool for custom compressors  |
+| `BUILD_TIMEOUT_SECONDS` | `600`                            | Default package build timeout                       |
+| `BENCH_VOLUME`          | `bitbench_bench_data`            | Named volume mounted in runner containers (bench)   |
+| `COMPRESSOR_VOLUME`     | `bitbench_compressor_data`       | Named volume mounted in runner containers (packages)|
 | `SMTP_HOST`             | _(empty)_                        | SMTP server hostname (leave empty to disable email) |
 | `SMTP_PORT`             | `587`                            | SMTP port                                           |
 | `SMTP_USER`             | _(empty)_                        | SMTP username                                       |
@@ -352,16 +365,16 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and `./compression` 
 │   │   └── bitbench-backend/
 │   │       └── main.go      # Entry point
 │   ├── internal/
-│   │   ├── config/          # Environment + secret loading
-│   │   ├── compressor/      # Compressor registry (static Go map)
+│   │   ├── config/          # Environment + secret loading + SQL migrations
+│   │   ├── compressor/      # Compressor registry + spec.yaml/archive handling
 │   │   ├── handler/         # HTTP handlers
 │   │   ├── logger/          # Structured logging
-│   │   ├── middleware/      # JWT auth, admin guard, rate limiting
+│   │   ├── middleware/      # JWT auth, DB-resolved roles, rate limiting
 │   │   ├── model/           # Domain types
 │   │   ├── repository/      # Database queries
+│   │   ├── runner/          # Docker SDK orchestration for user compressors
 │   │   ├── service/         # Business logic
-│   │   └── worker/          # Benchmark runner + email dispatcher
-│   ├── migrations/          # SQL migration files
+│   │   └── worker/          # Benchmark runner + package builder + slots
 │   ├── scripts/             # Migration helper scripts
 │   ├── Dockerfile           # Multi-stage: Squash → C++ → Go → runtime
 │   ├── go.mod / go.sum
@@ -387,6 +400,15 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and `./compression` 
 │   │   ├── pages/
 │   │   └── lib/
 │   └── package.json
+│
+├── runner/                  # Sandbox image for user compressor packages
+│   └── Dockerfile           # Debian + Python/C/C++/Go/Rust toolchains
+│
+├── docs/
+│   └── user-compressors.md  # Package format, contract and limits
+│
+├── examples/
+│   └── user-compressors/    # Working examples (python, c, cpp, go, rust)
 │
 ├── nginx/
 │   └── nginx.conf           # Reverse proxy config
