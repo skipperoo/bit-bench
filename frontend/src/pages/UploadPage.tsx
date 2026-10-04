@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
-import { Loader2, FileUp, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Loader2, FileUp, AlertCircle, CheckCircle2, X } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor} from '@/lib/compressors'
@@ -144,14 +144,13 @@ export default function UploadPage() {
       }).catch(() => {})
 
       if (files.length === 1 || multiMode === 'average') {
-        // For single file or average mode: send one of each (or zip for multiple)
-        // We approximate average by uploading all files as the same benchmark.
-        // For simplicity, upload the first file — the backend already averages
-        // across .bin files when a tar/zip contains multiple.
+        // One benchmark; all files are processed in parallel and averaged.
         const formData = new FormData()
         formData.append('name', multiMode === 'average' && files.length > 1
           ? `${name} (avg ${files.length})` : name)
-        formData.append('file', files[0])
+        for (const f of files) {
+          formData.append('files', f)
+        }
         formData.append('compressors', JSON.stringify(compressorsPayload))
         await apiUpload<{ id: string }>('/benchmarks', formData)
         navigate(`/results`)
@@ -162,7 +161,7 @@ export default function UploadPage() {
           const fname = f.name.replace(/\.[^.]+$/, '')
           const formData = new FormData()
           formData.append('name', `${name} (${fname})`)
-          formData.append('file', f)
+          formData.append('files', f)
           formData.append('compressors', JSON.stringify(compressorsPayload))
           await apiUpload<{ id: string }>('/benchmarks', formData)
           if (i === files.length - 1) {
@@ -364,35 +363,49 @@ export default function UploadPage() {
           >
             {files.length > 0 ? (
               <div className="p-5">
-                {files.map((f, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-3 mb-2 last:mb-0">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{f.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {(f.size / 1024).toFixed(1)} KB
-                          {idx === 0 && ' · Ready'}
-                        </p>
+                {/* Show at most five files; longer selections scroll. */}
+                <div data-testid="file-list" className="max-h-[13rem] overflow-y-auto pr-1">
+                  {files.map((f, idx) => (
+                    <div key={`${f.name}-${idx}`} className="flex items-center justify-between gap-3 mb-2 last:mb-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{f.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(f.size / 1024).toFixed(1)} KB
+                            {idx === 0 && ' · Ready'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {idx === 0 && (
+                          <span className="flex items-center gap-1 text-xs text-emerald-600">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Ready
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${f.name}`}
+                          onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {idx === 0 && (
-                        <span className="flex items-center gap-1 text-xs text-emerald-600">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Ready
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => { setFiles([]); setError('') }}
-                  className="mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Remove all files
-                </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => { setFiles([]); setError('') }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Remove all files
+                  </button>
+                  <span className="text-xs text-muted-foreground">{files.length} files</span>
+                </div>
                 {files.length > 1 && (
                   <div className="mt-3 flex items-center gap-4 text-sm">
                     <label className="flex items-center gap-2">

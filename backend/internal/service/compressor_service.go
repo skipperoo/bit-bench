@@ -111,9 +111,9 @@ func (s *CompressorService) UploadPackage(ctx context.Context, owner *model.User
 		cleanup()
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
-	if spec.Workers > s.cfg.MaxRunnerWorkers {
+	if spec.Workers > s.cfg.MaxParallelism {
 		cleanup()
-		return nil, fmt.Errorf("%w: workers=%d exceeds the maximum of %d", ErrBadRequest, spec.Workers, s.cfg.MaxRunnerWorkers)
+		return nil, fmt.Errorf("%w: workers=%d exceeds the maximum of %d", ErrBadRequest, spec.Workers, s.cfg.MaxParallelism)
 	}
 
 	specJSON, err := json.Marshal(spec)

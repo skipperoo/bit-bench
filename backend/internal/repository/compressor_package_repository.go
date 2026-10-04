@@ -100,9 +100,9 @@ func (r *CompressorPackageRepository) ListVisible(ctx context.Context, userID uu
 	return packages, rows.Err()
 }
 
-// IsVisibleReady reports whether name refers to a ready package visible to the user.
-func (r *CompressorPackageRepository) IsVisibleReady(ctx context.Context, name string, userID uuid.UUID, groupID *uuid.UUID, isAdmin bool) (bool, error) {
-	query := `SELECT 1 FROM compressor_packages WHERE LOWER(name) = LOWER($1) AND status = 'ready'`
+// FindVisibleReadyByName returns a ready package visible to the user, or nil.
+func (r *CompressorPackageRepository) FindVisibleReadyByName(ctx context.Context, name string, userID uuid.UUID, groupID *uuid.UUID, isAdmin bool) (*model.CompressorPackage, error) {
+	query := `SELECT ` + packageColumns + ` FROM compressor_packages WHERE LOWER(name) = LOWER($1) AND status = 'ready'`
 	args := []any{name}
 	if !isAdmin {
 		if groupID != nil {
@@ -114,16 +114,16 @@ func (r *CompressorPackageRepository) IsVisibleReady(ctx context.Context, name s
 		}
 	}
 	query += ` LIMIT 1`
+	return scanPackage(r.db.QueryRow(ctx, query, args...))
+}
 
-	var one int
-	err := r.db.QueryRow(ctx, query, args...).Scan(&one)
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
+// IsVisibleReady reports whether name refers to a ready package visible to the user.
+func (r *CompressorPackageRepository) IsVisibleReady(ctx context.Context, name string, userID uuid.UUID, groupID *uuid.UUID, isAdmin bool) (bool, error) {
+	pkg, err := r.FindVisibleReadyByName(ctx, name, userID, groupID, isAdmin)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	return pkg != nil, nil
 }
 
 // Replace resets an existing package with a new upload and marks it building.
@@ -133,10 +133,10 @@ func (r *CompressorPackageRepository) Replace(ctx context.Context, p *model.Comp
 		UPDATE compressor_packages SET
 			group_id = $2, version = $3, description = $4, language = $5, entrypoint = $6,
 			workers = $7, spec = $8, status = 'building', error = NULL,
-			archive_checksum = $9, built_path = NULL, build_log = NULL, updated_at = NOW()
+			archive_checksum = $9, built_path = $10, build_log = NULL, updated_at = NOW()
 		WHERE id = $1
 	`, p.ID, p.GroupID, p.Version, p.Description, p.Language, p.Entrypoint,
-		p.Workers, specJSON, p.ArchiveChecksum)
+		p.Workers, specJSON, p.ArchiveChecksum, p.BuiltPath)
 	return err
 }
 

@@ -1,5 +1,7 @@
 # BitBench — Technical Specifications
 
+> **Revision 4** — Supersedes Revision 3. Replaces the benchmark-per-goroutine runner with a **task-based scheduler over a single CPU worker budget** (`MAX_PARALLELISM` = allocatable cores): one benchmark can fan its `.bin` files and custom packages across the whole pool with priority + fair-share claiming, multi-file uploads are averaged into one benchmark, normalization happens at upload, and crash recovery re-queues interrupted tasks. All design decisions are recorded inline (marked **[DECISION]**).
+>
 > **Revision 3** — Supersedes Revision 2. Adds the role hierarchy (`admin`/`professor`/`phd`/`student`) with DB-resolved permissions, the CPU section on the status endpoint/page, and **user-provided compressor packages**: package format (`spec.yaml`), package API, offline builds, sandboxed runner containers, worker-slot scheduling, group-scoped visibility, management UI, examples and documentation. All design decisions are recorded inline (marked **[DECISION]**).
 >
 > **Revision 2** — Supersedes Revision 1. Incorporates implementation decisions discovered during the build: subroute prefix conflict resolution (routy), postgres 18 volume layout, secret trimming, nginx resolver for dynamic upstream resolution, TS 6 `paths` without `baseUrl`. All design decisions are recorded inline (marked **[DECISION]**).
@@ -41,7 +43,9 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D19 | **Role hierarchy `admin` > `professor` > `phd` > `student`.** Permissions are resolved **from the database on every request** (`middleware.ResolveUser`), not from JWT claims, so role/group changes and deletions take effect immediately. Existing `user` accounts migrate to `student` (migration `0005`). Only `admin` manages groups/priorities and creates admins/professors; `professor` manages `phd`/`student` users of their own group; `phd` can upload compressor packages; `student` can only run benchmarks. | Avoids stale privileges for the 24h token lifetime. |
 | D20 | **User-provided compressors are `.zip` packages** with `spec.yaml` at the root (`name`, `version`, `entrypoint`, `workers`, `options`, optional `build`). Uploaded by `admin`/`professor`/`phd`; **built once, offline**, at upload time in the runner image. Re-uploading the same name by the same owner replaces the package; names are globally unique and cannot collide with built-ins. | Reproducible, no toolchain in the backend runtime image, offline sandbox. |
 | D21 | **Runner containers are spawned by the backend via the Docker socket** (`internal/runner`, Docker SDK). The runner containers never receive the socket. Files are exchanged through the named volumes `bitbench_bench_data` (rw) and `bitbench_compressor_data` (ro for runs, rw for builds) mounted at the same absolute paths in both containers. | Simple, restart-safe, no extra service; untrusted code is confined to the runner container. |
-| D22 | **CPU worker slots.** `spec.yaml:workers` declares how many slots a run needs; a global pool (`MAX_RUNNER_WORKERS`) makes runs wait until slots free up, and rejects requirements above the maximum. Containers get `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the run and fails the benchmark. | Prevents CPU oversubscription and enforces declared parallelism. |
+| D22 | **Unified CPU worker budget.** `MAX_PARALLELISM` is the total budget and defaults to the cores allocatable to the process (`runtime.GOMAXPROCS(0)`, cgroup-aware), overridable by env. Work is split into claimable `benchmark_tasks`: a built-in `.bin` task costs 1 unit and a custom `(bin × package)` task costs the package's declared `workers`. The scheduler never lets the sum of running task costs exceed the budget and never spawns more task goroutines than the budget. Containers get `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the run and fails the benchmark. `MAX_RUNNER_WORKERS` is removed; `spec.yaml:workers` is validated against the budget at upload and run time. | Prevents CPU oversubscription and enforces declared parallelism with one accounting model. |
+| D26 | **One benchmark per averaging upload, fanned out as tasks.** Multiple selected files are normalized to `.bin` **at upload** (`POST /benchmarks` accepts repeated `files`), stored under `DATA_DIR/<benchmark_id>/inputs/`, and fanned out as one built-in task per `.bin` plus one task per `(custom package × .bin)`. When all tasks complete, the scheduler averages their rows into one row per compressor. The source uploads are deleted right after normalization. | Parallelizes averaging without changing the "one averaged row per compressor" result model. |
+| D27 | **Scheduling policy: strict priority, fair share, no preemption.** Claim order is group `priority` DESC, then the benchmark with the fewest **running worker units** (fair share), then FIFO. The scheduler claims the best-fitting task that fits in the free budget, so a large custom task waits while smaller tasks keep the pool busy. Higher-priority work never interrupts running tasks; it takes the next freed units. Retries are per task (`BENCH_MAX_RETRIES`); cancellation marks queued tasks cancelled and lets running tasks finish with their results discarded. | Predictable priority with per-benchmark fairness and no disruptive preemption. |
 | D23 | **Visibility is group-tied at upload time.** A package is visible to its owner, the owner's group (so group members can select professor/phd packages), and admins. Moving a user to another group does not move the package. `GET /compressors` returns the flat `{name: options}` map with built-ins and visible ready packages merged. | Matches the "research group" visibility model and keeps the frontend contract unchanged. |
 | D24 | **Custom compressor CSV is parsed leniently**: `memory_usage`, `random_access_ns`, `random_access_mbs` and `range_query_*` may be empty and are stored as `NULL`; the platform does not run the Massif/MemoryHarness measurement on user programs. | "Leave NULL unless self-reported" avoids misleading zeros in rankings. |
 | D25 | **CPU information on `GET /status`** via `gopsutil` (cached static fields, live load per request): model, physical/logical cores, MHz, load 1/5/15, derived utilization, instruction-set flags. Shown on the Status page so users can pick safe `-march=native`/SIMD targets. | Needed by the compressor-package documentation and useful operationally. |
@@ -58,8 +62,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 │ (Vite/React)│   │ (Go + routy)│    │  users, groups,          │
 └────────────┘    │             │    │  benchmarks, results,    │
 ┌────────────┐    │  - handlers │    │  compressor_packages     │
-│ Admin FE   │──▶ │  - runner   │    └──────────────────────────┘
-│ (separate) │    │    pool (N) │    ┌──────────────────────────┐
+│ Admin FE   │──▶ │  - task     │    └──────────────────────────┘
+│ (separate) │    │   scheduler │    ┌──────────────────────────┐
 └────────────┘    │  - C++ bin  │──▶ │ Redis (JWT blocklist +   │
                   │    subprocess│   │  rate limiting)          │
                   └──────┬──────┘    └──────────────────────────┘
@@ -98,7 +102,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 ```
 
 - `queued`: row inserted on upload; claimable by the runner.
-- `in_progress`: a runner goroutine owns it (`started_at` set).
+- `in_progress`: at least one of its tasks is running (`started_at` set on the first claim).
 - `ready`: CSV parsed, `benchmark_results` rows inserted, `finished_at` set, files deleted.
 - `failed`: subprocess exited non-zero and retries exhausted (`error` column set).
 - `timed_out`: subprocess killed by `timeout` (exit 124) (`error` set).
@@ -106,20 +110,20 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 
 ### 2.3 File lifecycle (per benchmark)
 
-1. **Upload** → validate type + size (`MAX_FILE_SIZE_MB`) → compute MD5 → insert `benchmarks` row (`status='queued'`) → write file to `DATA_DIR/<escaped-name>-<md5>.<ext>`. Duplicate checksums are allowed.
-2. **Claim** → runner sets `in_progress`, `started_at`.
-3. **Normalize** → convert to one or more `.bin` under `DATA_DIR/<benchmark_id>/`.
-4. **Run** → for each `.bin`: built-in compressors via the image-built binary (`-c <names> -o <out.csv>` under `timeout BENCH_TIMEOUT_SECONDS`); user-provided compressors via sandboxed runner containers (`internal/runner`), acquiring CPU worker slots first.
-5. **Parse** → read `<out.csv>`, average across all inner `.bin`/columns into **one row per compressor**. Built-in output is parsed strictly; custom output leniently (empty optional metrics → `NULL`).
-6. **Persist** → insert `benchmark_results` rows.
-7. **Finalize** → set `ready`, `finished_at`; delete `DATA_DIR/<benchmark_id>/` and the original uploaded file. Built `compressor_packages` workspaces persist in `COMPRESSOR_DIR` until the package is deleted or replaced.
+1. **Upload** → validate types + sizes (`MAX_FILE_SIZE_MB` per file, repeated `files` allowed) → normalize **synchronously at upload** to `.bin` under `DATA_DIR/<benchmark_id>/inputs/<i>/` (CSV → one `.bin` per column; zip/tar → one per member; `.bin` copied) → compute the combined MD5 over all file contents → insert the `benchmarks` row plus one `benchmark_tasks` row per unit of work (`status='queued'`) → delete the source uploads. Duplicate checksums are allowed.
+2. **Claim** → the scheduler marks the best-fitting task `running` and (on the first claim) the benchmark `in_progress`, `started_at`.
+3. **Run** → per task: a built-in task runs every selected built-in compressor for its `.bin` via the image-built binary (`-c <names> -o <out.csv>` under `timeout BENCH_TIMEOUT_SECONDS`) plus that `.bin`'s memory harness; a custom task runs one package against one `.bin` in a sandboxed runner container (`internal/runner`).
+4. **Task result** → parsed rows are stored as JSONB on the task (`result`). Built-in output is parsed strictly; custom output leniently (empty optional metrics → `NULL`).
+5. **Finalize** → once **all** tasks of a benchmark are terminal, the finalizing worker averages every task's rows into **one row per compressor**, inserts `benchmark_results`, sets `ready`/`finished_at`, deletes the task rows and `DATA_DIR/<benchmark_id>/`. A task failure fails the benchmark (queued siblings are cancelled; running siblings finish and are discarded); a timeout sets `timed_out`.
+6. Built `compressor_packages` workspaces persist in `COMPRESSOR_DIR` until the package is deleted or replaced.
 
-### 2.4 Concurrency & priority
+### 2.4 Concurrency, priority and fair share
 
-- `MAX_PARALLELISM` goroutines each loop: `SELECT ... FROM benchmarks WHERE status='queued' ORDER BY group.priority DESC, created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1`.
-- On claim: `UPDATE benchmarks SET status='in_progress', started_at=NOW() WHERE id=$1 AND status='queued'` (guarded re-check inside the transaction).
-- Each goroutine processes one benchmark end-to-end.
-- **Worker slots (D22):** a `worker.SlotPool` of `MAX_RUNNER_WORKERS` slots is shared by all runner goroutines. Before each custom-compressor run the goroutine acquires the package's declared `workers`; it waits (holding the claimed benchmark) until slots free up. A requirement above the pool maximum is rejected at package upload and re-checked at run time. One slot pool per backend process.
+- `MAX_PARALLELISM` is a **single CPU worker budget** (default: allocatable cores). The scheduler keeps `running_units <= budget`; each task declares its cost (built-in = 1, custom = package `workers`).
+- A single scheduler loop claims tasks while free units remain: `SELECT ... FROM benchmark_tasks t JOIN benchmarks b ... WHERE t.status='queued' AND b.status IN ('queued','in_progress') AND t.workers <= <free> ORDER BY group.priority DESC, <running units per benchmark> ASC, t.created_at ASC LIMIT 1`; the benchmark row is locked before the task row (`finalize` uses the same lock order).
+- The claim picks the **best-fitting** task, so a large custom task waits while smaller tasks keep the pool busy; higher-priority work never preempts running tasks.
+- **Crash recovery:** at startup, tasks left `running` are re-queued (`ResetRunning`) and `in_progress` benchmarks whose tasks are all terminal are finalized (`ListStrandedInProgress`).
+- **Cancellation:** `benchmarks.Cancel` marks the benchmark and its queued tasks `cancelled`; running tasks finish and their results are discarded before cleanup.
 
 ### 2.5 Redis usage
 
@@ -146,7 +150,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - Brief platform introduction.
 - Brief instructions on accepted file types and structure (see §4.5).
 - **Benchmark name** input.
-- **Upload / drag-and-drop area** with client-side validation (extension + size from `GET /api/v1/config.maxFileSizeMb`).
+- **Upload / drag-and-drop area** with client-side validation (extension + size from `GET /api/v1/config.maxFileSizeMb`). Multiple files allowed; the list shows at most five rows and scrolls beyond that, with a per-file remove button and a "remove all" action.
+- **Multi-file mode**: *Average* sends all files in one request as repeated `files` fields (one benchmark, tasks fan out, results averaged into one row per compressor); *Run separate benchmarks* enqueues one benchmark per file.
 - **Run button** (disabled until name + valid file + compressors selected).
 - **Advanced Options accordion**: for each compressor from `GET /api/v1/compressors`, render its option fields. Rule:
   - Range option with **≤ 20** steps → **slider**.
@@ -359,7 +364,7 @@ func main() {
     }
 
     // --- Background workers ---
-    benchRunner := worker.NewBenchmarkRunner(cfg, db, rdb)   // pool of MAX_PARALLELISM goroutines
+    benchRunner := worker.NewBenchmarkRunner(cfg, db)   // task scheduler over the CPU worker budget
     if dockerRunner != nil {
         benchRunner.SetContainerRunner(dockerRunner)
     }
@@ -489,7 +494,7 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `GET`  | `/api/v1/compressors/packages/{id}` | Package details incl. status, error and build log. |
 | `DELETE` | `/api/v1/compressors/packages/{id}` | Delete a package (owner, admin, or professor of the same group). |
 | `GET`  | `/api/v1/benchmarks/checksums` | `[{"checksum":"<md5>"}, ...]` retained for backwards compatibility (duplicates are allowed, D6). |
-| `POST` | `/api/v1/benchmarks` | Multipart: `name`, `file`, `compressors` (JSON: `{"<name>": {<option>: <value>}, ...}`). Validates type/size; compressor names must be built-ins or ready packages visible to the user; inserts `queued` row. |
+| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), `compressors` (JSON: `{"<name>": {<option>: <value>}, ...}`). Validates type/size, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows. Compressor names must be built-ins or ready packages visible to the user. |
 | `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
 | `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
@@ -514,17 +519,14 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 
 ### 4.4 Background workers
 
-#### Benchmark Runner (the core worker)
-A pool of `MAX_PARALLELISM` goroutines. Each iteration:
-1. `SELECT id FROM benchmarks WHERE status='queued' ORDER BY g.priority DESC, b.created_at ASC FOR UPDATE SKIP LOCKED LIMIT 1` (join `groups`).
-2. `UPDATE benchmarks SET status='in_progress', started_at=NOW() WHERE id=$1 AND status='queued'` (re-guard).
-3. Normalize the uploaded file to `.bin`(s) under `DATA_DIR/<id>/`.
-4. Split the selected compressors into built-ins (static registry) and custom packages. Built-ins: for each `.bin`, run `timeout $BENCH_TIMEOUT_SECONDS $BENCH_BINARY -c <builtins> -o <out.csv> <file.bin>` (set `LD_LIBRARY_PATH` to the bundled Squash libs when using `LosslessBenchmarkFull`).
-5. Custom packages: for each `.bin`, acquire `workers` slots from the pool, write the merged options JSON, and run the package entrypoint in a runner container (offline, non-root, `--cpus=workers`, throttling above the quota kills + fails) writing to `<workdir>/custom/<name>.csv`.
-6. Parse every `<out.csv>` (§6.3 schema): strictly for built-ins, leniently for custom (empty optional metrics → `NULL`); **average** all rows per compressor into one row.
-7. Insert `benchmark_results`.
-8. `UPDATE benchmarks SET status='ready', finished_at=NOW() WHERE id=$1`; delete `DATA_DIR/<id>/` and the original upload (package workspaces persist).
-9. On built-in exit code `124` / custom container timeout → `status='timed_out'`, `error='timeout after <n>s'`, cleanup files. On other non-zero → built-ins retry up to `BENCH_MAX_RETRIES`; custom runs fail directly with the container log tail. Then `status='failed'`, `error=<log tail>`.
+#### Benchmark Task Scheduler (the core worker)
+One scheduler loop plus one goroutine per running task, with an in-process counter of running worker units. Each iteration:
+1. Compute `free = MAX_PARALLELISM - running_units`; claim the best-fitting queued task via `internal/repository.BenchmarkTaskRepository.ClaimNext` (priority DESC, fewest running units per benchmark, FIFO, `t.workers <= free`). The transaction locks the benchmark row **before** the task row to match `finalize`.
+2. Launch the task with `runTask`; release the units and signal the scheduler when it finishes.
+3. Built-in task: `timeout $BENCH_TIMEOUT_SECONDS $BENCH_BINARY -c <builtins> -o <out.csv> <file.bin>` plus `MemoryHarness` for that same `.bin`; parse strictly; store rows JSONB on the task.
+4. Custom task: merge options, run the package entrypoint in a runner container (offline, non-root, `--cpus=workers`, throttling above the quota kills + fails); parse leniently; store rows JSONB on the task.
+5. `finalize` runs after every terminal task: under the benchmark row lock, if no queued/running tasks remain it averages every task's rows, inserts `benchmark_results`, sets `ready`/`finished_at`, deletes the task rows and `DATA_DIR/<benchmark_id>/`. A failed task sets the benchmark `failed` and cancels queued siblings; a container/binary timeout sets `timed_out`.
+6. On startup: `ResetRunning` re-queues interrupted tasks; `ListStrandedInProgress` finalizes benchmarks that crashed between the last task and aggregation.
 
 #### Compressor Package Builder
 - Triggered asynchronously after `POST /compressors/packages`: validates/extracts the archive, parses `spec.yaml`, then runs the optional build command (`make` when a `Makefile` exists) in a runner container **with no network** (all dependencies must be vendored).
@@ -557,7 +559,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`.
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -598,7 +600,8 @@ CREATE TABLE benchmarks (
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name            VARCHAR(255) NOT NULL,
     original_filename VARCHAR(255) NOT NULL,
-    file_size       BIGINT NOT NULL,
+    file_size       BIGINT NOT NULL,                -- sum of all uploaded files
+    file_count      INT NOT NULL DEFAULT 1,
     file_checksum   CHAR(32) NOT NULL,              -- MD5 hex; duplicates allowed (D6)
     file_ext        VARCHAR(10) NOT NULL,           -- 'bin','csv','zip','tar'
     status          VARCHAR(12) NOT NULL DEFAULT 'queued'
@@ -631,6 +634,27 @@ CREATE TABLE benchmark_results (
     random_access_mbs               DOUBLE PRECISION,
     range_queries                   JSONB,                   -- {"<range>": <mbs>, ...}
     UNIQUE (benchmark_id, compressor)
+);
+
+-- ============================================================
+-- BENCHMARK TASKS  (parallel work queue, D22/D26/D27)
+-- ============================================================
+CREATE TABLE benchmark_tasks (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    benchmark_id UUID NOT NULL REFERENCES benchmarks(id) ON DELETE CASCADE,
+    seq          INT NOT NULL,
+    kind         VARCHAR(16) NOT NULL CHECK (kind IN ('builtin', 'custom')),
+    compressor   VARCHAR(64),               -- custom package name; NULL for builtin
+    input_path   TEXT NOT NULL,             -- .bin path relative to DATA_DIR
+    workers      INT NOT NULL DEFAULT 1 CHECK (workers >= 1),
+    status       VARCHAR(12) NOT NULL DEFAULT 'queued'
+                 CHECK (status IN ('queued', 'running', 'done', 'failed', 'cancelled')),
+    result       JSONB,                     -- []BenchmarkRow produced by this task
+    error        TEXT,
+    started_at   TIMESTAMPTZ,
+    finished_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (benchmark_id, seq)
 );
 
 -- ============================================================
@@ -680,6 +704,8 @@ CREATE INDEX ON benchmarks (status, created_at) WHERE status = 'queued';   -- qu
 CREATE INDEX ON benchmarks (file_checksum);
 CREATE INDEX ON benchmark_results (benchmark_id, compressor);
 CREATE INDEX ON email_outbox (status, scheduled_for) WHERE status = 'pending';
+CREATE INDEX ON benchmark_tasks (benchmark_id, status);
+CREATE INDEX ON benchmark_tasks (status, created_at) WHERE status = 'queued';
 CREATE INDEX ON compressor_packages (owner_id);
 CREATE INDEX ON compressor_packages (group_id);
 CREATE INDEX ON compressor_packages (status) WHERE status = 'ready';
@@ -773,7 +799,7 @@ Both forms are always passed; when both specify a key the JSON file wins.
 
 **Sandbox** (build and run): image `RUNNER_IMAGE` (Debian + python3/pip, gcc/g++, Go, rustc/cargo), `--network none`, non-root (`uid 1000`) for runs, read-only rootfs with a `/tmp` tmpfs, memory `RUNNER_MEMORY_MB`, pids `RUNNER_PIDS_LIMIT`. Files are exchanged through the named volumes mounted at identical paths in backend and runner containers (D21). The runner never receives the Docker socket.
 
-**Workers**: the run acquires `workers` slots from the global `MAX_RUNNER_WORKERS` pool (waiting while the benchmark stays claimed) and gets `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the container and fails the benchmark (D22).
+**Workers**: each custom `(bin × package)` task costs the package's declared `workers` units from the unified `MAX_PARALLELISM` budget (`workers <= budget` is validated at upload and run time) and gets `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the container and fails the task (D22).
 
 **Validation**: package size `MAX_PACKAGE_SIZE_MB` (default 50), uncompressed archive ≤ 20x, ≤ 5000 files, no symlinks/path traversal, entrypoint must exist and be executable after the build.
 
@@ -861,7 +887,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - JWT_EXPIRY=24h
-      - MAX_PARALLELISM=8
+      # Total worker budget: defaults to the cores allocatable to this
+      # container (cgroup-aware). Uncomment to pin an explicit cap.
+      # - MAX_PARALLELISM=8
       - MAX_FILE_SIZE_MB=500
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
@@ -872,7 +900,6 @@ services:
       - RUNNER_IMAGE=bitbench-runner:latest
       - RUNNER_MEMORY_MB=4096
       - RUNNER_PIDS_LIMIT=512
-      - MAX_RUNNER_WORKERS=8
       - BUILD_TIMEOUT_SECONDS=600
       - BENCH_VOLUME=bitbench_bench_data
       - COMPRESSOR_VOLUME=bitbench_compressor_data
@@ -954,10 +981,10 @@ secrets:
 | `DB_HOST/PORT/USER/NAME` | — | Postgres connection. |
 | `REDIS_HOST/PORT` | — | Redis connection. |
 | `JWT_EXPIRY` | `24h` | JWT lifetime. |
-| `MAX_PARALLELISM` | `2` (compose: `8`) | Runner goroutine pool size. |
-| `MAX_FILE_SIZE_MB` | `500` | Upload size cap (frontend reads via `/config`). |
-| `BENCH_TIMEOUT_SECONDS` | `3600` | Per-`.bin` subprocess/container timeout. |
-| `BENCH_MAX_RETRIES` | `2` | Built-in subprocess failure retries. |
+| `MAX_PARALLELISM` | allocatable cores (`GOMAXPROCS`) | Total CPU worker budget (task scheduler, D22). |
+| `MAX_FILE_SIZE_MB` | `500` | Upload size cap per file (frontend reads via `/config`). |
+| `BENCH_TIMEOUT_SECONDS` | `3600` | Per-task subprocess/container timeout. |
+| `BENCH_MAX_RETRIES` | `2` | Per-task failure retries. |
 | `DATA_DIR` | `/data/benchmarks` | Ephemeral file workspace. |
 | `BENCH_BINARY_PATH` | `/app/bin/LosslessBenchmarkFull` | Benchmark executable. |
 | `COMPRESSOR_DIR` | `/data/compressors` | Persistent package/workspace root. |
@@ -965,7 +992,6 @@ secrets:
 | `RUNNER_IMAGE` | `bitbench-runner:latest` | Sandbox image for builds and runs. |
 | `RUNNER_MEMORY_MB` | `4096` | Per-container memory limit. |
 | `RUNNER_PIDS_LIMIT` | `512` | Per-container pid limit. |
-| `MAX_RUNNER_WORKERS` | `MAX_PARALLELISM` | Global CPU worker slot pool (D22). |
 | `BUILD_TIMEOUT_SECONDS` | `600` | Default package build timeout. |
 | `BENCH_VOLUME` | `bitbench_bench_data` | Named volume mounted at `DATA_DIR` in runner containers. |
 | `COMPRESSOR_VOLUME` | `bitbench_compressor_data` | Named volume mounted at `COMPRESSOR_DIR`. Empty → bind mount (local dev). |
@@ -1072,8 +1098,8 @@ Every PR introducing behavior MUST ship tests in the same commit.
 
 | Layer | Tool | What to cover |
 |:--|:--|:--|
-| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), worker `SlotPool`, custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
-| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; login → logout + JWT blocklist eviction; upload happy path + oversize rejection (duplicates allowed); role/scope matrix (professor group scoping, student 403, deleted-user token rejection); compressor package API (upload/list/visibility/replace/delete) with a fake runner; benchmark runner end-to-end with the **real runner image** (enqueue → build → run → parse → `ready` → files deleted), including all `examples/user-compressors` packages |
+| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging incl. memory fields), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
+| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; multi-file upload creates one benchmark + one task per `.bin`; login → logout + JWT blocklist eviction; role/scope matrix (professor group scoping, student 403, deleted-user token rejection); compressor package API (upload/list/visibility/replace/delete) with a fake runner; task claim ordering (priority, fewest-running fair share, worker fit, cancelled benchmarks); benchmark scheduler end-to-end with the **real runner image** (normalize → task fan-out → build/run → parse → average → `ready` → files deleted), including all `examples/user-compressors` packages and a multi-file averaging case |
 
 Minimum per PR: new handler → ≥1 happy + ≥1 error integration test; new worker → unit test for the scheduling/claim predicate + integration test for the DB interaction; new migration → integration test against a fresh schema.
 

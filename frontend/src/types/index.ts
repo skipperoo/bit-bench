@@ -54,6 +54,7 @@ export interface Benchmark {
   name: string
   original_filename: string
   file_size: number
+  file_count?: number
   file_checksum: string
   file_ext: string
   status: 'queued' | 'in_progress' | 'ready' | 'failed' | 'timed_out' | 'cancelled'

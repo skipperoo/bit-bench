@@ -73,7 +73,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - JWT_EXPIRY=24h
-      - MAX_PARALLELISM=32
+      # Total worker budget: defaults to the cores allocatable to this
+      # container (cgroup-aware). Uncomment to pin an explicit cap.
+      # - MAX_PARALLELISM=8
       - MAX_FILE_SIZE_MB=500
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
@@ -84,7 +86,6 @@ services:
       - RUNNER_IMAGE=bitbench-runner:latest
       - RUNNER_MEMORY_MB=4096
       - RUNNER_PIDS_LIMIT=512
-      - MAX_RUNNER_WORKERS=8
       - BUILD_TIMEOUT_SECONDS=600
       - BENCH_VOLUME=bitbench_bench_data
       - COMPRESSOR_VOLUME=bitbench_compressor_data

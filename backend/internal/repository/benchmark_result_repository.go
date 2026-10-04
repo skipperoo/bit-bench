@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"bitbench/internal/model"
@@ -18,14 +20,27 @@ func NewBenchmarkResultRepository(db *pgxpool.Pool) *BenchmarkResultRepository {
 	return &BenchmarkResultRepository{db: db}
 }
 
+type dbExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
 func (r *BenchmarkResultRepository) Insert(ctx context.Context, res *model.BenchmarkResult) error {
+	return insertResult(ctx, r.db, res)
+}
+
+// InsertTx inserts a result inside an existing transaction.
+func (r *BenchmarkResultRepository) InsertTx(ctx context.Context, tx pgx.Tx, res *model.BenchmarkResult) error {
+	return insertResult(ctx, tx, res)
+}
+
+func insertResult(ctx context.Context, exec dbExecer, res *model.BenchmarkResult) error {
 	res.ID = uuid.New()
 
 	if res.RangeQueries == nil {
 		res.RangeQueries = json.RawMessage("{}")
 	}
 
-	_, err := r.db.Exec(ctx, `
+	_, err := exec.Exec(ctx, `
 		INSERT INTO benchmark_results
 			(id, benchmark_id, compressor, dataset, num_values, original_size, memory_usage,
 			 input_buffer, compressor_internal, internal_memory_ratio, relative_memory_usage,

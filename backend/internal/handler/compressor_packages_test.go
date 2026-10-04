@@ -38,10 +38,9 @@ func setupPackageTest(t *testing.T) (http.Handler, *fakeRunner) {
 	cfg := &config.Config{
 		JWTSecret:        "test-secret",
 		JWTExpiry:        1 * time.Hour,
-		MaxParallelism:   2,
+		MaxParallelism:   8,
 		CompressorDir:    t.TempDir(),
 		MaxPackageSizeMB: 10,
-		MaxRunnerWorkers: 8,
 		BuildTimeout:     30 * time.Second,
 	}
 	model.InitJWT(cfg.JWTSecret)
@@ -229,6 +228,10 @@ func TestPackageReplaceOnlyByOwner(t *testing.T) {
 	json.Unmarshal(second.Body.Bytes(), &replaced)
 	if replaced.ID != pkg.ID {
 		t.Errorf("replace changed id: %s -> %s", pkg.ID, replaced.ID)
+	}
+	// The replacement must keep a usable workspace (regression: built_path was cleared).
+	if err := service.App.Compressor.Build(context.Background(), replaced.ID); err != nil {
+		t.Fatalf("build after replace: %v", err)
 	}
 
 	// Another user cannot take the name.

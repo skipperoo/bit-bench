@@ -513,9 +513,13 @@ func AdminCancelBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	errMsg := "cancelled by admin"
-	if err := service.BenchRepo.UpdateStatus(r.Context(), benchID, "cancelled", &errMsg); err != nil {
+	cancelled, err := service.BenchRepo.Cancel(r.Context(), benchID, "cancelled by admin")
+	if err != nil {
 		writeError(w, "failed to cancel benchmark", http.StatusInternalServerError)
+		return
+	}
+	if !cancelled {
+		writeError(w, "benchmark is no longer cancellable", http.StatusConflict)
 		return
 	}
 

@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,28 +26,27 @@ type Config struct {
 	JWTSecret string
 	JWTExpiry time.Duration
 
-	MaxParallelism    int
-	MaxFileSizeMB     int64
-	MaxCompare        int
-	BenchTimeout      time.Duration
-	BenchMaxRetries   int
-	DataDir           string
-	BenchBinaryPath   string
+	MaxParallelism  int
+	MaxFileSizeMB   int64
+	MaxCompare      int
+	BenchTimeout    time.Duration
+	BenchMaxRetries int
+	DataDir         string
+	BenchBinaryPath string
 
-	CompressorDir     string
-	MaxPackageSizeMB  int64
-	RunnerImage       string
-	RunnerMemoryMB    int64
-	RunnerPidsLimit   int64
-	MaxRunnerWorkers  int
-	BuildTimeout      time.Duration
-	BenchVolume       string
-	CompressorVolume  string
+	CompressorDir    string
+	MaxPackageSizeMB int64
+	RunnerImage      string
+	RunnerMemoryMB   int64
+	RunnerPidsLimit  int64
+	BuildTimeout     time.Duration
+	BenchVolume      string
+	CompressorVolume string
 
-	SMTPHost string
-	SMTPPort string
-	SMTPUser string
-	SMTPFrom string
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPFrom     string
 	SMTPPassword string
 }
 
@@ -65,7 +65,7 @@ func LoadConfig() *Config {
 		JWTSecret: readSecret("jwt_secret"),
 		JWTExpiry: getDuration("JWT_EXPIRY", 24*time.Hour),
 
-		MaxParallelism:  getInt("MAX_PARALLELISM", 2),
+		MaxParallelism:  getInt("MAX_PARALLELISM", runtime.GOMAXPROCS(0)),
 		MaxFileSizeMB:   int64(getInt("MAX_FILE_SIZE_MB", 500)),
 		MaxCompare:      getInt("MAX_COMPARE_BENCHMARKS", 5),
 		BenchTimeout:    getDuration("BENCH_TIMEOUT_SECONDS", 3600*time.Second),
@@ -78,7 +78,6 @@ func LoadConfig() *Config {
 		RunnerImage:      getEnv("RUNNER_IMAGE", "bitbench-runner:latest"),
 		RunnerMemoryMB:   int64(getInt("RUNNER_MEMORY_MB", 4096)),
 		RunnerPidsLimit:  int64(getInt("RUNNER_PIDS_LIMIT", 512)),
-		MaxRunnerWorkers: getInt("MAX_RUNNER_WORKERS", getInt("MAX_PARALLELISM", 2)),
 		BuildTimeout:     getDuration("BUILD_TIMEOUT_SECONDS", 600*time.Second),
 		BenchVolume:      getEnv("BENCH_VOLUME", "bitbench_bench_data"),
 		CompressorVolume: getEnv("COMPRESSOR_VOLUME", "bitbench_compressor_data"),

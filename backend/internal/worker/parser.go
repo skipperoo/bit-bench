@@ -19,11 +19,16 @@ type BenchmarkRow struct {
 	CompressionRatio           float64
 	CompressionThroughputMbs   float64
 	DecompressionThroughputMbs float64
-	RandomAccessNs             float64
-	RandomAccessMbs            float64
-	RangeQueries               map[string]float64
+	RandomAccessNs           float64
+	RandomAccessMbs          float64
+	// Memory metrics measured by the native harness (built-in tasks only).
+	InputBuffer         int64
+	CompressorInternal  int64
+	InternalMemoryRatio float64
+	RelativeMemoryUsage float64
+	RangeQueries        map[string]float64
 	// Missing marks optional metrics whose cells were empty (not reported).
-	// Only populated by ParseCSVLenient.
+	// Only populated by ParseCSVLenient and by tasks without memory results.
 	Missing map[string]bool
 }
 
@@ -186,8 +191,12 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 		var numValuesSum, originalSizeSum, memoryUsageSum int64
 		var uncompressedSum, compressedSum int64
 		var ratioSum, tpSum, decompSum, ransSum, rambsSum float64
+		var inputBufferSum, compressorInternalSum int64
+		var internalRatioSum, relativeMemorySum float64
 		n := len(group)
 		memoryCount, ransCount, rambsCount := 0, 0, 0
+		inputBufferCount, compressorInternalCount := 0, 0
+		internalRatioCount, relativeMemoryCount := 0, 0
 
 		for _, r := range group {
 			numValuesSum += r.NumValues
@@ -195,6 +204,22 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 			if !r.Missing["memory_usage"] {
 				memoryUsageSum += r.MemoryUsage
 				memoryCount++
+			}
+			if !r.Missing["input_buffer"] {
+				inputBufferSum += r.InputBuffer
+				inputBufferCount++
+			}
+			if !r.Missing["compressor_internal"] {
+				compressorInternalSum += r.CompressorInternal
+				compressorInternalCount++
+			}
+			if !r.Missing["internal_memory_ratio"] {
+				internalRatioSum += r.InternalMemoryRatio
+				internalRatioCount++
+			}
+			if !r.Missing["relative_memory_usage"] {
+				relativeMemorySum += r.RelativeMemoryUsage
+				relativeMemoryCount++
 			}
 			uncompressedSum += r.UncompressedBits
 			compressedSum += r.CompressedBits
@@ -227,6 +252,26 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 			avg.MemoryUsage = memoryUsageSum / int64(memoryCount)
 		} else {
 			avg.Missing["memory_usage"] = true
+		}
+		if inputBufferCount > 0 {
+			avg.InputBuffer = inputBufferSum / int64(inputBufferCount)
+		} else {
+			avg.Missing["input_buffer"] = true
+		}
+		if compressorInternalCount > 0 {
+			avg.CompressorInternal = compressorInternalSum / int64(compressorInternalCount)
+		} else {
+			avg.Missing["compressor_internal"] = true
+		}
+		if internalRatioCount > 0 {
+			avg.InternalMemoryRatio = internalRatioSum / float64(internalRatioCount)
+		} else {
+			avg.Missing["internal_memory_ratio"] = true
+		}
+		if relativeMemoryCount > 0 {
+			avg.RelativeMemoryUsage = relativeMemorySum / float64(relativeMemoryCount)
+		} else {
+			avg.Missing["relative_memory_usage"] = true
 		}
 		if ransCount > 0 {
 			avg.RandomAccessNs = ransSum / float64(ransCount)

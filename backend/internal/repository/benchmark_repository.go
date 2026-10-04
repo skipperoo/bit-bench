@@ -26,15 +26,20 @@ func (r *BenchmarkRepository) Create(ctx context.Context, b *model.Benchmark) er
 	if err != nil {
 		return err
 	}
-	b.ID = uuid.New()
+	if b.ID == uuid.Nil {
+		b.ID = uuid.New()
+	}
+	if b.FileCount < 1 {
+		b.FileCount = 1
+	}
 	b.Status = "queued"
 	b.CreatedAt = time.Now()
 	b.UpdatedAt = time.Now()
 
 	_, err = r.db.Exec(ctx, `
-		INSERT INTO benchmarks (id, user_id, name, original_filename, file_size, file_checksum, file_ext, status, compressors)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, b.ID, b.UserID, b.Name, b.OriginalFilename, b.FileSize, b.FileChecksum, b.FileExt, b.Status, compressorsJSON)
+		INSERT INTO benchmarks (id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, b.ID, b.UserID, b.Name, b.OriginalFilename, b.FileSize, b.FileCount, b.FileChecksum, b.FileExt, b.Status, compressorsJSON)
 	return err
 }
 
@@ -42,11 +47,11 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	b := &model.Benchmark{}
 	var compressorsJSON []byte
 	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, name, original_filename, file_size, file_checksum, file_ext, status, compressors, error,
+		SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error,
 		       progress, created_at, started_at, finished_at, updated_at
 		FROM benchmarks WHERE id = $1
-	`, id	).Scan(
-		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileChecksum,
+	`, id).Scan(
+		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 		&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
 		&b.Progress,
 		&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
@@ -93,7 +98,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		p.Limit = 20
 	}
 
-	query := `SELECT id, user_id, name, original_filename, file_size, file_checksum, file_ext, status, compressors, error,
+	query := `SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error,
 	                  progress, created_at, started_at, finished_at, updated_at
 	           FROM benchmarks WHERE 1=1`
 	args := []any{}
@@ -139,7 +144,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		b := &model.Benchmark{}
 		var compressorsJSON []byte
 		err := rows.Scan(
-			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileChecksum,
+			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 			&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
 			&b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
@@ -187,6 +192,78 @@ func (r *BenchmarkRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 func (r *BenchmarkRepository) UpdateProgress(ctx context.Context, id uuid.UUID, progress int) error {
 	_, err := r.db.Exec(ctx, "UPDATE benchmarks SET progress = $1, updated_at = NOW() WHERE id = $2", progress, id)
 	return err
+}
+
+// UpdateProgressFromTasks derives progress from terminal task counts.
+func (r *BenchmarkRepository) UpdateProgressFromTasks(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE benchmarks SET progress = COALESCE((
+			SELECT (COUNT(*) FILTER (WHERE status IN ('done','failed','cancelled')) * 100) / NULLIF(COUNT(*), 0)
+			FROM benchmark_tasks WHERE benchmark_id = $1
+		), 0), updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	return err
+}
+
+// Cancel marks a queued/in_progress benchmark and its queued tasks cancelled.
+// Running tasks finish normally and their results are discarded.
+func (r *BenchmarkRepository) Cancel(ctx context.Context, id uuid.UUID, errMsg string) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE benchmarks SET status = 'cancelled', error = $2, finished_at = NOW(), progress = 100, updated_at = NOW()
+		WHERE id = $1 AND status IN ('queued', 'in_progress')
+	`, id, errMsg)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE benchmark_tasks SET status = 'cancelled', finished_at = NOW()
+		WHERE benchmark_id = $1 AND status = 'queued'
+	`, id); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ListStrandedInProgress returns in_progress benchmarks whose tasks are all
+// terminal (e.g. after a backend crash during aggregation).
+func (r *BenchmarkRepository) ListStrandedInProgress(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT b.id FROM benchmarks b
+		WHERE b.status = 'in_progress'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM benchmark_tasks t
+		      WHERE t.benchmark_id = b.id AND t.status IN ('queued', 'running')
+		  )
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *BenchmarkRepository) ListChecksums(ctx context.Context) ([]string, error) {

@@ -64,6 +64,7 @@ type Benchmark struct {
 	Name             string                 `json:"name"`
 	OriginalFilename string                 `json:"original_filename"`
 	FileSize         int64                  `json:"file_size"`
+	FileCount        int                    `json:"file_count"`
 	FileChecksum     string                 `json:"file_checksum"`
 	FileExt          string                 `json:"file_ext"`
 	Status           string                 `json:"status"`
@@ -74,6 +75,36 @@ type Benchmark struct {
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
 	FinishedAt       *time.Time             `json:"finished_at,omitempty"`
 	UpdatedAt        time.Time              `json:"updated_at"`
+}
+
+const (
+	TaskKindBuiltin = "builtin"
+	TaskKindCustom  = "custom"
+
+	TaskQueued    = "queued"
+	TaskRunning   = "running"
+	TaskDone      = "done"
+	TaskFailed    = "failed"
+	TaskCancelled = "cancelled"
+)
+
+// BenchmarkTask is one claimable unit of work of a benchmark. Built-in tasks
+// run every built-in compressor for one .bin (1 worker); custom tasks run one
+// package against one .bin (workers = package workers).
+type BenchmarkTask struct {
+	ID          uuid.UUID  `json:"id"`
+	BenchmarkID uuid.UUID  `json:"benchmark_id"`
+	Seq         int        `json:"seq"`
+	Kind        string     `json:"kind"`
+	Compressor  *string    `json:"compressor,omitempty"`
+	InputPath   string     `json:"input_path"`
+	Workers     int        `json:"workers"`
+	Status      string     `json:"status"`
+	Result      []byte     `json:"result,omitempty"`
+	Error       *string    `json:"error,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type BenchmarkResult struct {
