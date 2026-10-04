@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"bitbench/internal/config"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
+	"bitbench/internal/seqfile"
 )
 
 var nonAlphaNum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
@@ -26,12 +28,19 @@ type BenchmarkService struct {
 	benchRepo   *repository.BenchmarkRepository
 	resultRepo  *repository.BenchmarkResultRepository
 	pkgRepo     *repository.CompressorPackageRepository
+	taskRepo    *repository.BenchmarkTaskRepository
 	cfg         *config.Config
 	runningFunc func() int
 }
 
-func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, pr *repository.CompressorPackageRepository, cfg *config.Config) *BenchmarkService {
-	return &BenchmarkService{benchRepo: br, resultRepo: rr, pkgRepo: pr, cfg: cfg}
+func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, pr *repository.CompressorPackageRepository, tr *repository.BenchmarkTaskRepository, cfg *config.Config) *BenchmarkService {
+	return &BenchmarkService{benchRepo: br, resultRepo: rr, pkgRepo: pr, taskRepo: tr, cfg: cfg}
+}
+
+// UploadedFile is one file of a (possibly multi-file) benchmark upload.
+type UploadedFile struct {
+	Reader   io.ReadSeeker
+	Filename string
 }
 
 func (s *BenchmarkService) SetRunningFunc(fn func() int) {
@@ -70,81 +79,171 @@ func ValidateFileExt(ext string) bool {
 	return allowedExts[strings.ToLower(ext)]
 }
 
-func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, file io.ReadSeeker, originalFilename string, compressors map[string]interface{}) (*model.Benchmark, error) {
+func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, files []UploadedFile, compressors map[string]interface{}) (*model.Benchmark, error) {
 	if actor == nil {
 		return nil, fmt.Errorf("unauthorized")
 	}
-
-	ext := strings.ToLower(filepath.Ext(originalFilename))
-	if !ValidateFileExt(ext) {
-		return nil, fmt.Errorf("unsupported file extension: %s", ext)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("at least one file is required")
 	}
 
-	// Validate compressor names against the built-in registry, falling back
-	// to ready custom packages visible to the user.
-	for name := range compressors {
-		if compressor.IsValid(name) {
+	// Validate extensions and per-file sizes.
+	totalSize := int64(0)
+	for _, file := range files {
+		ext := strings.ToLower(filepath.Ext(file.Filename))
+		if !ValidateFileExt(ext) {
+			return nil, fmt.Errorf("unsupported file extension: %s", ext)
+		}
+		size, err := file.Reader.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, fmt.Errorf("read file size: %w", err)
+		}
+		if _, err := file.Reader.Seek(0, io.SeekStart); err != nil {
+			return nil, fmt.Errorf("rewind file: %w", err)
+		}
+		if s.cfg.MaxFileSizeMB > 0 && size > s.cfg.MaxFileSizeMB*1024*1024 {
+			return nil, fmt.Errorf("file %s exceeds max size of %d MB", file.Filename, s.cfg.MaxFileSizeMB)
+		}
+		totalSize += size
+	}
+
+	// Split compressors into built-ins and visible ready custom packages.
+	builtinCompressors := make(map[string]interface{})
+	customPackages := make(map[string]*model.CompressorPackage)
+	for compName := range compressors {
+		if compressor.IsValid(compName) {
+			builtinCompressors[compName] = compressors[compName]
 			continue
 		}
-		visible, err := s.pkgRepo.IsVisibleReady(ctx, name, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+		pkg, err := s.pkgRepo.FindVisibleReadyByName(ctx, compName, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
 		if err != nil {
-			return nil, fmt.Errorf("validate compressor %s: %w", name, err)
+			return nil, fmt.Errorf("validate compressor %s: %w", compName, err)
 		}
-		if !visible {
-			return nil, fmt.Errorf("unknown compressor: %s", name)
+		if pkg == nil {
+			return nil, fmt.Errorf("unknown compressor: %s", compName)
 		}
+		if pkg.Workers > s.cfg.MaxParallelism {
+			return nil, fmt.Errorf("compressor %s requires %d workers, more than the %d available", compName, pkg.Workers, s.cfg.MaxParallelism)
+		}
+		customPackages[compName] = pkg
+	}
+	if len(builtinCompressors) == 0 && len(customPackages) == 0 {
+		return nil, fmt.Errorf("no compressors selected")
 	}
 
-	// Compute checksum
-	checksum, err := fileChecksum(file)
-	if err != nil {
-		return nil, fmt.Errorf("checksum: %w", err)
-	}
-	file.Seek(0, 0)
-
-	// Check size
-	fileSize := int64(0)
-	if f, ok := file.(*os.File); ok {
-		info, _ := f.Stat()
-		fileSize = info.Size()
-	} else {
-		// Read the file to determine size
-		data, _ := io.ReadAll(file)
-		fileSize = int64(len(data))
-		file.Seek(0, 0)
-	}
-	if s.cfg.MaxFileSizeMB > 0 && fileSize > s.cfg.MaxFileSizeMB*1024*1024 {
-		return nil, fmt.Errorf("file exceeds max size of %d MB", s.cfg.MaxFileSizeMB)
-	}
-
-	// Write file to DATA_DIR
-	storedName := StoredFilename(originalFilename, checksum)
-	destPath := filepath.Join(s.cfg.DataDir, storedName)
-	if err := os.MkdirAll(s.cfg.DataDir, 0755); err != nil {
+	benchmarkID := uuid.New()
+	workRoot := filepath.Join(s.cfg.DataDir, benchmarkID.String())
+	if err := os.MkdirAll(workRoot, 0755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	dst, err := os.Create(destPath)
-	if err != nil {
-		return nil, fmt.Errorf("create file: %w", err)
+	srcDir := filepath.Join(workRoot, "sources")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		os.RemoveAll(workRoot)
+		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	defer dst.Close()
-	if _, err := io.Copy(dst, file); err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+	cleanup := func() { os.RemoveAll(workRoot) }
+
+	// Save the sources while computing the combined checksum, then normalize
+	// each one to .bin (one .bin per CSV column or archive member).
+	hasher := md5.New()
+	var binPaths []string
+	for i, file := range files {
+		ext := strings.ToLower(filepath.Ext(file.Filename))
+		base := escapeFilename(strings.TrimSuffix(filepath.Base(file.Filename), filepath.Ext(file.Filename)))
+		if base == "" {
+			base = "input"
+		}
+		srcPath := filepath.Join(srcDir, fmt.Sprintf("%02d-%s%s", i, base, ext))
+
+		dst, err := os.Create(srcPath)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("store file: %w", err)
+		}
+		if _, err := io.Copy(io.MultiWriter(dst, hasher), file.Reader); err != nil {
+			dst.Close()
+			cleanup()
+			return nil, fmt.Errorf("store file: %w", err)
+		}
+		dst.Close()
+
+		inputDir := filepath.Join(workRoot, "inputs", fmt.Sprintf("%02d", i))
+		bins, err := seqfile.NormalizeFile(srcPath, inputDir, ext)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("normalize %s: %w", file.Filename, err)
+		}
+		binPaths = append(binPaths, bins...)
+	}
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+
+	// One built-in task per .bin (all built-ins batched) plus one task per
+	// (custom package x .bin), each costing its declared worker count.
+	customNames := make([]string, 0, len(customPackages))
+	for compName := range customPackages {
+		customNames = append(customNames, compName)
+	}
+	sort.Strings(customNames)
+
+	var tasks []*model.BenchmarkTask
+	seq := 0
+	for _, binPath := range binPaths {
+		rel, err := filepath.Rel(s.cfg.DataDir, binPath)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("resolve task input: %w", err)
+		}
+		if len(builtinCompressors) > 0 {
+			seq++
+			tasks = append(tasks, &model.BenchmarkTask{
+				BenchmarkID: benchmarkID,
+				Seq:         seq,
+				Kind:        model.TaskKindBuiltin,
+				InputPath:   rel,
+				Workers:     1,
+			})
+		}
+		for _, compName := range customNames {
+			seq++
+			pkgName := compName
+			tasks = append(tasks, &model.BenchmarkTask{
+				BenchmarkID: benchmarkID,
+				Seq:         seq,
+				Kind:        model.TaskKindCustom,
+				Compressor:  &pkgName,
+				InputPath:   rel,
+				Workers:     customPackages[compName].Workers,
+			})
+		}
+	}
+	if len(tasks) == 0 {
+		cleanup()
+		return nil, fmt.Errorf("no benchmark tasks produced")
 	}
 
+	// Sources are no longer needed once normalized.
+	os.RemoveAll(srcDir)
+
 	benchmark := &model.Benchmark{
+		ID:               benchmarkID,
 		UserID:           actor.ID,
 		Name:             name,
-		OriginalFilename: originalFilename,
-		FileSize:         fileSize,
+		OriginalFilename: filepath.Base(files[0].Filename),
+		FileSize:         totalSize,
+		FileCount:        len(files),
 		FileChecksum:     checksum,
-		FileExt:          ext,
+		FileExt:          strings.ToLower(filepath.Ext(files[0].Filename)),
 		Compressors:      compressors,
 	}
 
 	if err := s.benchRepo.Create(ctx, benchmark); err != nil {
-		os.Remove(destPath)
+		cleanup()
 		return nil, fmt.Errorf("create benchmark: %w", err)
+	}
+	if err := s.taskRepo.CreateBatch(ctx, tasks); err != nil {
+		_ = s.benchRepo.Delete(ctx, benchmarkID)
+		cleanup()
+		return nil, fmt.Errorf("create tasks: %w", err)
 	}
 
 	return benchmark, nil

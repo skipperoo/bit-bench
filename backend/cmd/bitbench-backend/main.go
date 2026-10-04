@@ -120,7 +120,7 @@ func main() {
 	router.AddSubroute("/api/v1/admin/", admin.Finalize())
 	final := router.Finalize()
 
-	benchRunner := worker.NewBenchmarkRunner(cfg, db, rdb)
+	benchRunner := worker.NewBenchmarkRunner(cfg, db)
 	service.App.Benchmark.SetRunningFunc(benchRunner.Running)
 	if dockerRunner != nil {
 		benchRunner.SetContainerRunner(dockerRunner)

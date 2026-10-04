@@ -1,4 +1,4 @@
-package worker
+package seqfile
 
 import (
 	"encoding/binary"

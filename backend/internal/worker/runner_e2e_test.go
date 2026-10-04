@@ -141,8 +141,77 @@ func zipDirectory(t *testing.T, dir string) string {
 	return outPath
 }
 
+func writeSampleBin(t *testing.T, dir, name string, values []int64) (string, string) {
+	t.Helper()
+	data := make([]byte, 16+8*len(values))
+	binary.LittleEndian.PutUint64(data[0:8], uint64(len(values)))
+	for i, v := range values {
+		binary.LittleEndian.PutUint64(data[16+i*8:], uint64(v))
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("write sample: %v", err)
+	}
+	sum := md5.Sum(data)
+	return path, hex.EncodeToString(sum[:])
+}
+
+func uploadExamplePackage(t *testing.T, ctx context.Context, owner *model.User, dir, name string) {
+	t.Helper()
+	archive := zipDirectory(t, filepath.Join("..", "..", "..", "examples", "user-compressors", dir))
+	file, err := os.Open(archive)
+	if err != nil {
+		t.Fatalf("open archive: %v", err)
+	}
+	pkg, err := service.App.Compressor.UploadPackage(ctx, owner, owner.GroupID, file, dir+".zip")
+	file.Close()
+	if err != nil {
+		t.Fatalf("upload package: %v", err)
+	}
+	if pkg.Name != name {
+		t.Fatalf("package name = %q, want %q", pkg.Name, name)
+	}
+	if err := service.App.Compressor.Build(ctx, pkg.ID); err != nil {
+		t.Fatalf("build package: %v", err)
+	}
+}
+
+func waitForBenchmark(t *testing.T, ctx context.Context, benchRepo *repository.BenchmarkRepository, id uuid.UUID) *model.Benchmark {
+	t.Helper()
+	deadline := time.Now().Add(4 * time.Minute)
+	for time.Now().Before(deadline) {
+		benchmark, err := benchRepo.FindByID(ctx, id)
+		if err != nil {
+			t.Fatalf("load benchmark: %v", err)
+		}
+		switch benchmark.Status {
+		case "ready", "failed", "timed_out", "cancelled":
+			return benchmark
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatal("benchmark did not finish in time")
+	return nil
+}
+
+func startScheduler(t *testing.T, cfg *config.Config, dockerRunner *runner.DockerRunner) func() {
+	t.Helper()
+	schedCtx, cancel := context.WithCancel(context.Background())
+	r := NewBenchmarkRunner(cfg, testDB)
+	r.SetContainerRunner(dockerRunner)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(schedCtx)
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
 // TestBenchmarkRunnerExamplesE2E uploads, builds and runs every example package
-// (one per supported language) through the real runner image.
+// (one per supported language) through the real runner image and scheduler.
 func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
 	if err != nil {
@@ -152,37 +221,31 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 	buildImageIfMissing(t, dockerRunner)
 
 	ctx := context.Background()
-	dataDir := t.TempDir()
-	compressorDir := t.TempDir()
-
 	cfg := &config.Config{
-		DataDir:          dataDir,
-		CompressorDir:    compressorDir,
-		BenchBinaryPath:  "/nonexistent/LosslessBenchmarkFull",
-		BenchTimeout:     180 * time.Second,
-		BenchMaxRetries:  0,
-		MaxRunnerWorkers: 4,
-		BuildTimeout:     5 * time.Minute,
+		DataDir:         t.TempDir(),
+		CompressorDir:   t.TempDir(),
+		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		BenchTimeout:    180 * time.Second,
+		BenchMaxRetries: 0,
+		MaxParallelism:  4,
+		BuildTimeout:    5 * time.Minute,
 	}
 	service.InitServices(cfg, testDB, nil)
 	service.App.Compressor.SetRunner(dockerRunner)
-
 	owner := e2eUser(t)
 
-	// Input sequence: 128 values with constant delta 3 -> ratio 0.125.
-	const numValues = 128
-	data := make([]byte, 16+8*numValues)
-	binary.LittleEndian.PutUint64(data[0:8], numValues)
-	binary.LittleEndian.PutUint64(data[8:16], 0)
-	for i := 0; i < numValues; i++ {
-		binary.LittleEndian.PutUint64(data[16+i*8:], uint64(int64(i*3)))
-	}
-	sum := md5.Sum(data)
-	checksum := hex.EncodeToString(sum[:])
-	filename := "e2e-sample.bin"
+	stop := startScheduler(t, cfg, dockerRunner)
+	defer stop()
 
 	benchRepo := repository.NewBenchmarkRepository(testDB)
 	resultRepo := repository.NewBenchmarkResultRepository(testDB)
+
+	// Constant delta 3 -> 1 varint byte per value -> ratio 0.125.
+	values := make([]int64, 128)
+	for i := range values {
+		values[i] = int64(i * 3)
+	}
+	binPath, _ := writeSampleBin(t, t.TempDir(), "e2e.bin", values)
 
 	examples := []struct {
 		dir  string
@@ -197,52 +260,21 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 
 	for _, example := range examples {
 		t.Run(example.name, func(t *testing.T) {
-			exampleDir := filepath.Join("..", "..", "..", "examples", "user-compressors", example.dir)
-			archive := zipDirectory(t, exampleDir)
+			uploadExamplePackage(t, ctx, owner, example.dir, example.name)
 
-			file, err := os.Open(archive)
+			file, err := os.Open(binPath)
 			if err != nil {
-				t.Fatalf("open archive: %v", err)
+				t.Fatal(err)
 			}
-			pkg, err := service.App.Compressor.UploadPackage(ctx, owner, owner.GroupID, file, example.dir+".zip")
+			benchmark, err := service.App.Benchmark.CreateBenchmark(ctx, owner, "e2e "+example.name,
+				[]service.UploadedFile{{Reader: file, Filename: "e2e.bin"}},
+				map[string]interface{}{example.name: map[string]interface{}{}})
 			file.Close()
 			if err != nil {
-				t.Fatalf("upload package: %v", err)
-			}
-			if pkg.Name != example.name {
-				t.Fatalf("package name = %q, want %q", pkg.Name, example.name)
-			}
-			if err := service.App.Compressor.Build(ctx, pkg.ID); err != nil {
-				t.Fatalf("build package: %v", err)
-			}
-
-			// The runner deletes the source file after each benchmark, so it
-			// must be written again for every subtest.
-			if err := os.WriteFile(filepath.Join(dataDir, service.StoredFilename(filename, checksum)), data, 0644); err != nil {
-				t.Fatalf("write sample: %v", err)
-			}
-
-			benchmark := &model.Benchmark{
-				UserID:           owner.ID,
-				Name:             "e2e " + example.name,
-				OriginalFilename: filename,
-				FileSize:         int64(len(data)),
-				FileChecksum:     checksum,
-				FileExt:          ".bin",
-				Compressors:      map[string]interface{}{example.name: map[string]interface{}{}},
-			}
-			if err := benchRepo.Create(ctx, benchmark); err != nil {
 				t.Fatalf("create benchmark: %v", err)
 			}
 
-			r := NewBenchmarkRunner(cfg, testDB, nil)
-			r.SetContainerRunner(dockerRunner)
-			r.executeJob(ctx, benchmark.ID)
-
-			got, err := benchRepo.FindByID(ctx, benchmark.ID)
-			if err != nil || got == nil {
-				t.Fatalf("reload benchmark: %v", err)
-			}
+			got := waitForBenchmark(t, ctx, benchRepo, benchmark.ID)
 			if got.Status != "ready" {
 				t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
 			}
@@ -265,5 +297,78 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 				t.Errorf("memory_usage = %v, want NULL (not reported)", *res.MemoryUsage)
 			}
 		})
+	}
+}
+
+// TestMultiFileAveragingE2E uploads two files in one benchmark and verifies the
+// parallel tasks are averaged into a single row per compressor.
+func TestMultiFileAveragingE2E(t *testing.T) {
+	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
+	if err != nil {
+		t.Skipf("docker unavailable, skipping E2E: %v", err)
+	}
+	defer dockerRunner.Close()
+	buildImageIfMissing(t, dockerRunner)
+
+	ctx := context.Background()
+	cfg := &config.Config{
+		DataDir:         t.TempDir(),
+		CompressorDir:   t.TempDir(),
+		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		BenchTimeout:    180 * time.Second,
+		BenchMaxRetries: 0,
+		MaxParallelism:  4,
+		BuildTimeout:    5 * time.Minute,
+	}
+	service.InitServices(cfg, testDB, nil)
+	service.App.Compressor.SetRunner(dockerRunner)
+	owner := e2eUser(t)
+
+	stop := startScheduler(t, cfg, dockerRunner)
+	defer stop()
+
+	uploadExamplePackage(t, ctx, owner, "python", "example_delta_py")
+	benchRepo := repository.NewBenchmarkRepository(testDB)
+	resultRepo := repository.NewBenchmarkResultRepository(testDB)
+
+	// File A: delta 1 -> 1 byte/value -> 0.125. File B: delta 1000 -> 2 bytes/value -> 0.25.
+	tmp := t.TempDir()
+	valuesA := make([]int64, 128)
+	valuesB := make([]int64, 128)
+	for i := range valuesA {
+		valuesA[i] = int64(i)
+		valuesB[i] = int64((i + 1) * 1000)
+	}
+	binA, _ := writeSampleBin(t, tmp, "a.bin", valuesA)
+	binB, _ := writeSampleBin(t, tmp, "b.bin", valuesB)
+
+	fileA, _ := os.Open(binA)
+	fileB, _ := os.Open(binB)
+	benchmark, err := service.App.Benchmark.CreateBenchmark(ctx, owner, "avg two files",
+		[]service.UploadedFile{
+			{Reader: fileA, Filename: "a.bin"},
+			{Reader: fileB, Filename: "b.bin"},
+		},
+		map[string]interface{}{"example_delta_py": map[string]interface{}{}})
+	fileA.Close()
+	fileB.Close()
+	if err != nil {
+		t.Fatalf("create benchmark: %v", err)
+	}
+	if benchmark.FileCount != 2 {
+		t.Errorf("file_count = %d, want 2", benchmark.FileCount)
+	}
+
+	got := waitForBenchmark(t, ctx, benchRepo, benchmark.ID)
+	if got.Status != "ready" {
+		t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
+	}
+
+	results, err := resultRepo.FindByBenchmarkID(ctx, benchmark.ID)
+	if err != nil || len(results) != 1 {
+		t.Fatalf("results = %d (err %v), want 1", len(results), err)
+	}
+	if results[0].CompressionRatio == nil || *results[0].CompressionRatio != 0.1875 {
+		t.Errorf("averaged compression_ratio = %v, want 0.1875", results[0].CompressionRatio)
 	}
 }

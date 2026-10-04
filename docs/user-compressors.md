@@ -168,9 +168,11 @@ codec: src/main.rs Cargo.toml
 
 ## Workers and resource limits
 
-- `workers` declares how many CPU slots the compressor needs. Runs wait until
-  that many slots are free (`MAX_RUNNER_WORKERS` global pool). If `workers`
-  exceeds the pool maximum the upload is rejected.
+- `workers` declares how many CPU slots the compressor needs. Every run of the
+  compressor costs that many units from the server's single worker budget
+  (`MAX_PARALLELISM`, which defaults to the allocatable CPU cores and is shared
+  fairly between competing benchmarks). If `workers` exceeds the budget the
+  upload is rejected.
 - The container is started with `--cpus=<workers>`. **If the process exceeds
   its declared quota** (cgroup throttling beyond `max(2s, 5% of runtime)`),
   it is killed and the benchmark fails.

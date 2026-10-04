@@ -107,7 +107,7 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 ### Key Design Decisions
 
 - **Staff-created accounts only**: admins manage everything; professors manage users of their own group; `phd` users can upload compressors; `student` users run benchmarks.
-- **PostgreSQL as job queue**: the `benchmarks` table doubles as the work queue (`FOR UPDATE SKIP LOCKED`). No separate job broker.
+- **PostgreSQL as task queue**: each benchmark owns `benchmark_tasks` rows (`FOR UPDATE SKIP LOCKED`); a single scheduler spreads them over one CPU worker budget with group priority and per-benchmark fair share. No separate job broker.
 - **Ephemeral files**: uploaded files are deleted once the benchmark finishes. Re-running requires re-upload. Built compressor-package workspaces persist.
 - **Sandboxed user compressors**: uploaded packages are built once, offline, in the runner image and executed in network-isolated containers with CPU/memory/pid limits.
 - **Multi-stage Docker build**: the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
@@ -206,7 +206,7 @@ Two header formats (auto-detected by file size):
 
 Validation: both formats are tried; the file is accepted if either yields an exact integer `N ≥ 0`.
 
-Uploading multiple files is allowed and the results can be kept separate or averaged together.
+Uploading multiple files is allowed. In **average** mode the files become one benchmark whose per-file tasks fan out over the CPU worker budget and are averaged into one row per compressor; in **separate** mode each file becomes its own benchmark.
 
 #### 2. CSV (`.csv`) -- multi-column
 
@@ -319,7 +319,7 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 | `REDIS_HOST`            | `redis`                          | Redis hostname                                      |
 | `REDIS_PORT`            | `6379`                           | Redis port                                          |
 | `JWT_EXPIRY`            | `24h`                            | JWT token lifetime                                  |
-| `MAX_PARALLELISM`       | `8`                              | Number of concurrent benchmark runner goroutines    |
+| `MAX_PARALLELISM`       | allocatable CPU cores            | Total CPU worker budget for benchmark tasks         |
 | `MAX_FILE_SIZE_MB`      | `500`                            | Maximum upload file size (MB)                       |
 | `BENCH_TIMEOUT_SECONDS` | `3600`                           | Per-benchmark subprocess timeout                    |
 | `BENCH_MAX_RETRIES`     | `2`                              | Number of retries on non-zero exit                  |
@@ -330,7 +330,6 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 | `RUNNER_IMAGE`          | `bitbench-runner:latest`         | Sandbox image used to build/run user compressors    |
 | `RUNNER_MEMORY_MB`      | `4096`                           | Per-container memory limit for user compressors     |
 | `RUNNER_PIDS_LIMIT`     | `512`                            | Per-container pid limit                             |
-| `MAX_RUNNER_WORKERS`    | `MAX_PARALLELISM`                | Global CPU worker slot pool for custom compressors  |
 | `BUILD_TIMEOUT_SECONDS` | `600`                            | Default package build timeout                       |
 | `BENCH_VOLUME`          | `bitbench_bench_data`            | Named volume mounted in runner containers (bench)   |
 | `COMPRESSOR_VOLUME`     | `bitbench_compressor_data`       | Named volume mounted in runner containers (packages)|
@@ -374,7 +373,7 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 │   │   ├── repository/      # Database queries
 │   │   ├── runner/          # Docker SDK orchestration for user compressors
 │   │   ├── service/         # Business logic
-│   │   └── worker/          # Benchmark runner + package builder + slots
+│   │   └── worker/          # Task scheduler + package builder + parser
 │   ├── scripts/             # Migration helper scripts
 │   ├── Dockerfile           # Multi-stage: Squash → C++ → Go → runtime
 │   ├── go.mod / go.sum

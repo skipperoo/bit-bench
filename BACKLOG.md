@@ -30,6 +30,11 @@
   - [x] Frontend: Compressors page (upload with admin group selector, status pills, polling, build log, delete) and custom packages selectable in the benchmark options (Custom family).
   - [x] Documentation: `docs/user-compressors.md` (spec.yaml reference, invocation/CSV contract, vendored dependencies with pip `--target`, static libs for C/C++, Go `-mod=vendor`, Cargo vendoring, `-march=native`/`-C target-cpu=native` and checking instruction sets on the Status page) plus README links.
 
+## Benchmark scheduling
+
+- [x] Average mode: multiple selected files become one benchmark, normalized to `.bin` at upload and fanned out as per-`.bin` tasks over a unified CPU worker budget (`MAX_PARALLELISM`, default allocatable cores). Custom `(bin × package)` tasks cost their declared `workers`. Claim order: group priority, then fewest running worker units per benchmark, best-fitting task; no preemption; per-task retries; crash recovery; graceful cancellation. `MAX_RUNNER_WORKERS` removed.
+- [x] Upload page: file list shows at most five rows with scrolling and per-file remove.
+
 ## Remaining (future)
 
 - [ ] E2E tests (Playwright)

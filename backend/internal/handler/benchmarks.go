@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,6 +36,12 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalization (CSV/zip/tar -> .bin) runs synchronously in this handler,
+	// so allow well beyond the server's default write timeout for large files.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Minute))
+	}
+
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100 MB max memory
 		writeError(w, "failed to parse form", http.StatusBadRequest)
 		return
@@ -58,14 +65,38 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("file")
-	if err != nil {
+	// Accept one or many files: "files" (repeated) or the legacy "file" field.
+	var headers []*multipart.FileHeader
+	if r.MultipartForm != nil {
+		headers = r.MultipartForm.File["files"]
+		if len(headers) == 0 {
+			headers = r.MultipartForm.File["file"]
+		}
+	}
+	if len(headers) == 0 {
 		writeError(w, "file is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
 
-	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, file, header.Filename, compressors)
+	uploads := make([]service.UploadedFile, 0, len(headers))
+	openFiles := make([]multipart.File, 0, len(headers))
+	defer func() {
+		for _, f := range openFiles {
+			f.Close()
+		}
+	}()
+
+	for _, header := range headers {
+		file, err := header.Open()
+		if err != nil {
+			writeError(w, "failed to read uploaded file", http.StatusBadRequest)
+			return
+		}
+		openFiles = append(openFiles, file)
+		uploads = append(uploads, service.UploadedFile{Reader: file, Filename: header.Filename})
+	}
+
+	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, uploads, compressors)
 	if err != nil {
 		msg := err.Error()
 		// Detect stale JWT after DB reset
