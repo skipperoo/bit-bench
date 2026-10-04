@@ -13,13 +13,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/archive"
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/go-archive"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 // Mount describes a mount for a runner container.
@@ -43,18 +42,18 @@ type Spec struct {
 	KillOnThrottle bool
 }
 
+// Result of a container execution.
+type Result struct {
+	ExitCode int
+	Logs     string
+}
+
 var (
 	// ErrTimeout indicates the container exceeded its context deadline.
 	ErrTimeout = errors.New("container timed out")
 	// ErrWorkerQuota indicates the process used more CPU than declared.
 	ErrWorkerQuota = errors.New("worker quota exceeded")
 )
-
-// Result of a container execution.
-type Result struct {
-	ExitCode int
-	Logs     string
-}
 
 // DockerRunner spawns sandboxed containers using the Docker daemon.
 type DockerRunner struct {
@@ -81,10 +80,10 @@ func (d *DockerRunner) Close() error {
 
 // Ping verifies connectivity to the Docker daemon and image availability.
 func (d *DockerRunner) Ping(ctx context.Context) error {
-	if _, err := d.cli.Ping(ctx); err != nil {
+	if _, err := d.cli.Ping(ctx, client.PingOptions{}); err != nil {
 		return fmt.Errorf("docker daemon unreachable: %w", err)
 	}
-	if _, _, err := d.cli.ImageInspectWithRaw(ctx, d.image); err != nil {
+	if _, err := d.cli.ImageInspect(ctx, d.image); err != nil {
 		return fmt.Errorf("runner image %q not available: %w", d.image, err)
 	}
 	return nil
@@ -146,18 +145,22 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 		Resources:      resources,
 	}
 
-	created, err := d.cli.ContainerCreate(ctx, cfg, hostCfg, &network.NetworkingConfig{}, nil, "")
+	created, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           cfg,
+		HostConfig:       hostCfg,
+		NetworkingConfig: &network.NetworkingConfig{},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("create container: %w", err)
 	}
 	defer func() {
 		removeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = d.cli.ContainerRemove(removeCtx, created.ID, container.RemoveOptions{Force: true})
+		_, _ = d.cli.ContainerRemove(removeCtx, created.ID, client.ContainerRemoveOptions{Force: true})
 	}()
 
 	start := time.Now()
-	if err := d.cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+	if _, err := d.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
 		return nil, fmt.Errorf("start container: %w", err)
 	}
 
@@ -167,19 +170,19 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 		go d.monitorThrottling(ctx, created.ID, start, stopMonitor, &quotaExceeded)
 	}
 
-	statusCh, errCh := d.cli.ContainerWait(ctx, created.ID, container.WaitConditionNotRunning)
+	wait := d.cli.ContainerWait(ctx, created.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	var exitCode int
 	var waitErr error
 	select {
 	case <-ctx.Done():
 		close(stopMonitor)
 		killCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_ = d.cli.ContainerKill(killCtx, created.ID, "SIGKILL")
+		_, _ = d.cli.ContainerKill(killCtx, created.ID, client.ContainerKillOptions{Signal: "SIGKILL"})
 		cancel()
 		return nil, fmt.Errorf("%w: %v", ErrTimeout, ctx.Err())
-	case err := <-errCh:
+	case err := <-wait.Error:
 		waitErr = err
-	case status := <-statusCh:
+	case status := <-wait.Result:
 		exitCode = int(status.StatusCode)
 	}
 	close(stopMonitor)
@@ -223,7 +226,7 @@ func (d *DockerRunner) monitorThrottling(ctx context.Context, id string, start t
 			if throttled > threshold {
 				exceeded.Store(true)
 				killCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_ = d.cli.ContainerKill(killCtx, id, "SIGKILL")
+				_, _ = d.cli.ContainerKill(killCtx, id, client.ContainerKillOptions{Signal: "SIGKILL"})
 				cancel()
 				return
 			}
@@ -232,7 +235,7 @@ func (d *DockerRunner) monitorThrottling(ctx context.Context, id string, start t
 }
 
 func (d *DockerRunner) throttledTime(ctx context.Context, id string) (time.Duration, error) {
-	resp, err := d.cli.ContainerStatsOneShot(ctx, id)
+	resp, err := d.cli.ContainerStats(ctx, id, client.ContainerStatsOptions{Stream: false})
 	if err != nil {
 		return 0, err
 	}
@@ -246,7 +249,7 @@ func (d *DockerRunner) throttledTime(ctx context.Context, id string) (time.Durat
 }
 
 func (d *DockerRunner) containerLogs(ctx context.Context, id string) (string, error) {
-	rc, err := d.cli.ContainerLogs(ctx, id, container.LogsOptions{
+	rc, err := d.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	})
@@ -270,7 +273,7 @@ func (d *DockerRunner) BuildImage(ctx context.Context, contextDir, tag string) (
 	}
 	defer tar.Close()
 
-	resp, err := d.cli.ImageBuild(ctx, tar, types.ImageBuildOptions{
+	resp, err := d.cli.ImageBuild(ctx, tar, client.ImageBuildOptions{
 		Tags:       []string{tag},
 		Dockerfile: "Dockerfile",
 		Remove:     true,
