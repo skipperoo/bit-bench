@@ -35,3 +35,12 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 }
+
+/*
+ * File rows in the upload list: skip layout/paint for rows that are scrolled
+ * out of view so very large selections stay responsive.
+ */
+.file-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2.75rem;
+}

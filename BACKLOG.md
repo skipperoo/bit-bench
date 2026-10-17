@@ -34,6 +34,7 @@
 
 - [x] Average mode: multiple selected files become one benchmark, normalized to `.bin` at upload and fanned out as per-`.bin` tasks over a unified CPU worker budget (`MAX_PARALLELISM`, default allocatable cores). Custom `(bin × package)` tasks cost their declared `workers`. Claim order: group priority, then fewest running worker units per benchmark, best-fitting task; no preemption; per-task retries; crash recovery; graceful cancellation. `MAX_RUNNER_WORKERS` removed.
 - [x] Upload page: file list shows at most five rows with scrolling and per-file remove.
+- [x] Upload page: the file list appears immediately on selection (memoized rows + `content-visibility` for large selections) and shows per-file progress (Ready → Uploading → Uploaded → Processing → Done/Failed) with a global percentage/phase summary, driven by XHR upload progress.
 
 ## Multi-instance configurations, presets and history
 
