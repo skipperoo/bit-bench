@@ -46,9 +46,11 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed fro
 BitBench helps researchers answer the question: _"Which lossless compressor performs best on my data?"_
 
 1. **Upload** a file containing integer sequences (`.bin`, `.csv`, `.zip`, or `.tar`).
-2. **Select** compressors and tune their parameters (e.g., compression level, block size, mode).
-3. **Wait** while the benchmark binary runs each compressor against your data.
-4. **Analyse** the results: ranked tables, grouped bar charts, Pareto scatter plots, and a composite Top-5 summary.
+2. **Configure** compressor instances and tune their parameters (e.g., compression level, BPC bound, precision). The same compressor can be added several times with different options to compare its configurations directly.
+3. **Wait** while the benchmark binary runs each configured instance against your data.
+4. **Analyse** the results: ranked tables, grouped bar charts, Pareto scatter plots, and a composite Top-5 summary. Each instance carries a brief configuration label (`Gzip · level 9`).
+
+Save configurations as **presets** (private or shared with your research group) and reload recent configurations from the **history**; every role can create benchmarks and presets.
 
 Metrics measured for every compressor:
 
@@ -108,6 +110,7 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 
 - **Staff-created accounts only**: admins manage everything; professors manage users of their own group; `phd` users can upload compressors; `student` users run benchmarks.
 - **PostgreSQL as task queue**: each benchmark owns `benchmark_tasks` rows (`FOR UPDATE SKIP LOCKED`); a single scheduler spreads them over one CPU worker budget with group priority and per-benchmark fair share. No separate job broker.
+- **Multi-instance configurations**: a benchmark is an ordered list of configured compressor instances (up to 64); exact duplicates are rejected, and results are labelled with the instance's brief configuration. Presets (private or group-shared) and a per-user configuration history make setups reusable.
 - **Ephemeral files**: uploaded files are deleted once the benchmark finishes. Re-running requires re-upload. Built compressor-package workspaces persist.
 - **Sandboxed user compressors**: uploaded packages are built once, offline, in the runner image and executed in network-isolated containers with CPU/memory/pid limits.
 - **Multi-stage Docker build**: the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
@@ -150,17 +153,17 @@ Each compressor exposes its tunable parameters (inferred from the C++ source). E
   "gzip": {
     "level": { "type": "number", "min": 1, "max": 9, "default": 6, "step": 1 }
   },
+  "neats": {
+    "max_bpc": { "type": "number", "min": 0, "max": 64, "default": 32, "step": 1 },
+    "lossy": { "type": "boolean", "default": false }
+  },
   "falcon": {
-    "mode": {
-      "type": "select",
-      "options": ["fast", "optimal"],
-      "default": "fast"
-    }
+    "decimals": { "type": "number", "min": -1, "max": 18, "default": -1, "step": 1 }
   }
 }
 ```
 
-The frontend renders the appropriate widget (slider, number input, switch, or dropdown) based on the option schema.
+The configuration builder renders the appropriate widget (slider, number input, switch, or dropdown) based on the option schema. Every configured instance gets an automatic brief label from its non-default options (`gzip · level 9`, `neats · lossy · max_bpc 16`), which appears beside the compressor name in results, charts and LaTeX exports. Compressors with no effective options can only be configured once.
 
 ### User-provided Compressors
 

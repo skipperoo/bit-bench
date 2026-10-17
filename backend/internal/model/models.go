@@ -152,6 +152,31 @@ type CompressorPackage struct {
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
+const (
+	PresetVisibilityPrivate = "private"
+	PresetVisibilityGroup   = "group"
+)
+
+// BenchmarkPreset is a saved, reusable compressor configuration.
+type BenchmarkPreset struct {
+	ID          uuid.UUID             `json:"id"`
+	OwnerID     uuid.UUID             `json:"owner_id"`
+	GroupID     *uuid.UUID            `json:"group_id,omitempty"`
+	Name        string                `json:"name"`
+	Visibility  string                `json:"visibility"`
+	Compressors []compressor.Instance `json:"compressors"`
+	CreatedAt   time.Time             `json:"created_at"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+}
+
+// BenchmarkConfigHistory is one recently used configuration of a user.
+type BenchmarkConfigHistory struct {
+	ID          uuid.UUID             `json:"id"`
+	UserID      uuid.UUID             `json:"user_id"`
+	Compressors []compressor.Instance `json:"compressors"`
+	LastUsedAt  time.Time             `json:"last_used_at"`
+}
+
 type EmailOutbox struct {
 	ID           uuid.UUID `json:"id"`
 	ToAddress    string    `json:"to_address"`
