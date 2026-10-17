@@ -90,6 +90,11 @@ func main() {
 		AddHandler("GET   /compressors/packages",  handler.ListCompressorPackages).
 		AddHandler("GET   /compressors/packages/{id}", handler.GetCompressorPackage).
 		AddHandler("DELETE /compressors/packages/{id}", handler.DeleteCompressorPackage).
+		AddHandler("GET   /presets",               handler.ListPresets).
+		AddHandler("POST  /presets",               handler.CreatePreset).
+		AddHandler("PUT   /presets/{id}",          handler.UpdatePreset).
+		AddHandler("DELETE /presets/{id}",         handler.DeletePreset).
+		AddHandler("GET   /config-history",        handler.ListConfigHistory).
 		AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
 		AddHandler("POST  /benchmarks",            handler.CreateBenchmark).
 		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).

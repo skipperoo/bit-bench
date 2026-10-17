@@ -5,10 +5,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Loader2, FileUp, AlertCircle, CheckCircle2, X, Plus, Trash2, Search } from 'lucide-react'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor } from '@/lib/compressors'
+import { canManagePreset, summarizeInstances } from '@/lib/presets'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   MAX_INSTANCES_PER_BENCHMARK,
   buildLabel,
@@ -18,7 +22,13 @@ import {
   validateInstances,
 } from '@/lib/instances'
 import type { InstanceDraft } from '@/lib/instances'
-import type { CompressorRegistry, CompressorOption, CompressorInstance } from '@/types'
+import type {
+  CompressorRegistry,
+  CompressorOption,
+  CompressorInstance,
+  BenchmarkPreset,
+  ConfigHistoryEntry,
+} from '@/types'
 
 interface CompressorFamily {
   name: string
@@ -65,6 +75,16 @@ export default function UploadPage() {
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const restoredRef = useRef(false)
+
+  const role = useAuthStore((s) => s.getRole)()
+  const userId = useAuthStore((s) => s.getUserID)()
+  const groupId = useAuthStore((s) => s.getGroupID)()
+  const [presets, setPresets] = useState<BenchmarkPreset[]>([])
+  const [history, setHistory] = useState<ConfigHistoryEntry[]>([])
+  const [presetName, setPresetName] = useState('')
+  const [presetVisibility, setPresetVisibility] = useState<'private' | 'group'>('private')
+  const [presetError, setPresetError] = useState('')
+  const [savingPreset, setSavingPreset] = useState(false)
 
   const loadCompressors = useCallback(async () => {
     try {
@@ -139,6 +159,83 @@ export default function UploadPage() {
       i === index ? { ...inst, options: { ...inst.options, [key]: value } } : inst
     ))
   }, [])
+
+  const loadPresets = useCallback(() => {
+    apiFetch<BenchmarkPreset[]>('/presets')
+      .then((data) => setPresets(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
+
+  const loadHistory = useCallback(() => {
+    apiFetch<ConfigHistoryEntry[]>('/config-history')
+      .then((data) => setHistory(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { loadPresets(); loadHistory() }, [loadPresets, loadHistory])
+
+  const applyInstances = useCallback((incoming: CompressorInstance[]) => {
+    const drafts: InstanceDraft[] = []
+    for (const item of incoming) {
+      const schema = compressors[item.name]
+      if (!schema) continue
+      drafts.push({ name: item.name, options: canonicalOptions(schema, item.options || {}) })
+    }
+    setInstances(drafts.slice(0, MAX_INSTANCES_PER_BENCHMARK))
+    setExpandedInstance(null)
+    setError('')
+  }, [compressors])
+
+  const handleLoadPreset = useCallback((preset: BenchmarkPreset) => {
+    if (instances.length > 0 && !confirm(`Replace the current configuration with "${preset.name}"?`)) return
+    applyInstances(preset.compressors)
+  }, [instances.length, applyInstances])
+
+  const handleDeletePreset = useCallback(async (preset: BenchmarkPreset) => {
+    if (!confirm(`Delete preset "${preset.name}"?`)) return
+    try {
+      await apiFetch(`/presets/${preset.id}`, { method: 'DELETE' })
+      loadPresets()
+    } catch (err) {
+      setPresetError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }, [loadPresets])
+
+  const handleSavePreset = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!presetName.trim() || instances.length === 0) return
+    setSavingPreset(true)
+    setPresetError('')
+    try {
+      await apiFetch('/presets', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: presetName.trim(),
+          visibility: presetVisibility,
+          compressors: instances.map((inst) => ({ name: inst.name, options: inst.options })),
+        }),
+      })
+      setPresetName('')
+      loadPresets()
+    } catch (err) {
+      setPresetError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSavingPreset(false)
+    }
+  }, [presetName, presetVisibility, instances, loadPresets])
+
+  const handleHistoryLoad = useCallback((entry: ConfigHistoryEntry) => {
+    if (instances.length > 0 && !confirm('Replace the current configuration with this saved one?')) return
+    applyInstances(entry.compressors)
+  }, [instances.length, applyInstances])
+
+  const handleHistoryToPreset = useCallback((entry: ConfigHistoryEntry) => {
+    applyInstances(entry.compressors)
+    setPresetError('')
+    requestAnimationFrame(() => {
+      document.getElementById('preset-name')?.focus()
+    })
+  }, [applyInstances])
 
   const handleFileChange = useCallback((newFiles: File[]) => {
     setFiles(newFiles)
@@ -425,7 +522,124 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* Zone 3: Configuration builder */}
+        {/* Zone 3: Presets and configuration history */}
+        <div className="mb-10">
+          <h2 className="text-sm font-medium text-foreground mb-3">Presets &amp; History</h2>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Presets</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {presets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No presets yet. Configure the compressors below and save them for later.
+                  </p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto space-y-0.5">
+                    {presets.map((preset) => (
+                      <div key={preset.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">
+                            {preset.name}{' '}
+                            <Badge variant={preset.visibility === 'group' ? 'secondary' : 'outline'} className="text-xs">
+                              {preset.visibility === 'group' ? 'group' : 'private'}
+                            </Badge>
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">{summarizeInstances(preset.compressors)}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleLoadPreset(preset)}>
+                            Load
+                          </Button>
+                          {canManagePreset(role, userId, groupId, preset) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              aria-label={`Delete ${preset.name}`}
+                              onClick={() => handleDeletePreset(preset)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={handleSavePreset} className="flex items-end gap-2 pt-3 border-t border-border">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="preset-name" className="text-xs">Save current configuration</Label>
+                    <Input
+                      id="preset-name"
+                      value={presetName}
+                      onChange={(e) => setPresetName(e.target.value)}
+                      placeholder="Preset name"
+                      className="h-8"
+                      maxLength={100}
+                    />
+                  </div>
+                  <select
+                    className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                    value={presetVisibility}
+                    onChange={(e) => setPresetVisibility(e.target.value as 'private' | 'group')}
+                    title="Preset visibility"
+                  >
+                    <option value="private">Private</option>
+                    <option value="group" disabled={!groupId}>Group</option>
+                  </select>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-8"
+                    disabled={!presetName.trim() || instances.length === 0 || savingPreset}
+                  >
+                    {savingPreset ? 'Saving…' : 'Save'}
+                  </Button>
+                </form>
+                {presetError && <p className="text-xs text-destructive">{presetError}</p>}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Recent Configurations</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {history.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Configurations used in previous benchmarks appear here and can be promoted to presets.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-0.5">
+                    {history.map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
+                        <div className="min-w-0">
+                          <p className="text-xs font-mono truncate">{summarizeInstances(entry.compressors)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Last used {new Date(entry.last_used_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleHistoryLoad(entry)}>
+                            Load
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleHistoryToPreset(entry)}>
+                            Save as preset
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Zone 4: Configuration builder */}
         <div className="mb-10">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium text-foreground">Compressor Configuration</h2>
