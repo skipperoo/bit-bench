@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
+#include <memory>
+#include <type_traits>
 #include <utility>
 
 #include "benchmark_common.hpp"
+#include "compressor_options.hpp"
 
 // SDSL includes
 #include <sdsl/bit_vectors.hpp>
@@ -147,8 +150,8 @@ const auto to_bytes = [](auto &&x) -> std::array<uint8_t, sizeof(T)> {
 // ============================================================================
 
 template<typename T, typename T1_coeff>
-void run_neats(const std::vector<T> &processed_data, uint8_t max_bpc) {
-    pfa::neats::compressor<uint64_t, T, double, T1_coeff, double> compressor(max_bpc);
+void run_neats(const std::vector<T> &processed_data, uint8_t max_bpc, bool lossy = false) {
+    pfa::neats::compressor<uint64_t, T, double, T1_coeff, double> compressor(max_bpc, lossy);
     compressor.partitioning(processed_data.begin(), processed_data.end());
     do_not_optimize(compressor);
 }
@@ -169,7 +172,8 @@ void run_dac(const std::vector<T> &data) {
 }
 
 template<typename Compressor, typename T>
-void run_bitstream_compressor(const std::vector<T> &data, size_t block_size) {
+void run_bitstream_compressor(const std::vector<T> &data, size_t block_size,
+                              int camel_max_precision = INT_MIN) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = n / block_size + (n % block_size != 0);
@@ -179,12 +183,17 @@ void run_bitstream_compressor(const std::vector<T> &data, size_t block_size) {
         size_t end = std::min(start + block_size, n);
         if (start >= end) continue;
         
-        Compressor cmpr(data[start]);
-        for (size_t i = start + 1; i < end; ++i) {
-            cmpr.addValue(data[i]);
+        std::unique_ptr<Compressor> cmpr;
+        if constexpr (std::is_same_v<Compressor, CompressorCamel<T>>) {
+            cmpr = std::make_unique<Compressor>(data[start], camel_max_precision);
+        } else {
+            cmpr = std::make_unique<Compressor>(data[start]);
         }
-        cmpr.close();
-        do_not_optimize(cmpr);
+        for (size_t i = start + 1; i < end; ++i) {
+            cmpr->addValue(data[i]);
+        }
+        cmpr->close();
+        do_not_optimize(*cmpr);
     }
 }
 
@@ -209,7 +218,7 @@ void run_tsxor(const std::vector<T> &data, size_t block_size) {
 }
 
 template<typename T>
-void run_falcon(const std::vector<T> &data, size_t block_size) {
+void run_falcon(const std::vector<T> &data, size_t block_size, int decimals = -1) {
     const size_t n = data.size();
     if (n == 0) return;
     const size_t num_blocks = n / block_size + (n % block_size != 0);
@@ -219,7 +228,7 @@ void run_falcon(const std::vector<T> &data, size_t block_size) {
         size_t end = std::min(start + block_size, n);
         if (start >= end) continue;
         
-        CompressorFalcon<T> cmpr(data[start], end - start);
+        CompressorFalcon<T> cmpr(data[start], end - start, decimals);
         for (size_t i = start + 1; i < end; ++i) {
             cmpr.addValue(data[i]);
         }
@@ -400,16 +409,17 @@ int main(int argc, char** argv) {
     bench_data.decimals = loaded.decimals;
     bench_data.uncompressed_bits = n * sizeof(int64_t) * 8;
     
-    // Parse =LEVEL suffix from compressor name
-    std::string base_name = compressor_name;
-    int level = -1;  // -1 = library default (no options for Squash)
-    {
-        auto eq_pos = compressor_name.find('=');
-        if (eq_pos != std::string::npos) {
-            base_name = compressor_name.substr(0, eq_pos);
-            level = std::stoi(compressor_name.substr(eq_pos + 1));
-        }
-    }
+    // Parse the entry into base name + per-compressor options.
+    const bench::CompressorSpec spec = bench::parse_compressor_spec(compressor_name);
+    const std::string &base_name = spec.name;
+    const int level = spec.level;
+    const uint8_t effective_bpc = spec.max_bpc_set ? static_cast<uint8_t>(spec.max_bpc) : max_bpc;
+    const int camel_precision = spec.has_max_precision()
+        ? spec.max_precision
+        : static_cast<int>(bench_data.decimals);
+    const int falcon_decimals = spec.has_decimals()
+        ? spec.decimals
+        : static_cast<int>(bench_data.decimals);
     
     // Identify needed data format
     bool needs_shifted = false;
@@ -476,9 +486,9 @@ int main(int argc, char** argv) {
     } else if (base_name == "neats") {
         int64_t max_val = *std::max_element(bench_data.shifted_data.begin(), bench_data.shifted_data.end());
         if (max_val > 1000000) {
-            run_neats<int64_t, double>(bench_data.shifted_data, max_bpc);
+            run_neats<int64_t, double>(bench_data.shifted_data, effective_bpc, spec.lossy);
         } else {
-            run_neats<int64_t, float>(bench_data.shifted_data, max_bpc);
+            run_neats<int64_t, float>(bench_data.shifted_data, effective_bpc, spec.lossy);
         }
     } else if (base_name == "dac") {
         run_dac<int64_t>(bench_data.shifted_data);
@@ -507,9 +517,9 @@ int main(int argc, char** argv) {
     } else if (base_name == "elf") {
         run_bitstream_compressor<CompressorElf<double>, double>(bench_data.double_data, block_size);
     } else if (base_name == "camel") {
-        run_bitstream_compressor<CompressorCamel<double>, double>(bench_data.double_data, block_size);
+        run_bitstream_compressor<CompressorCamel<double>, double>(bench_data.double_data, block_size, camel_precision);
     } else if (base_name == "falcon") {
-        run_falcon<double>(bench_data.double_data, block_size);
+        run_falcon<double>(bench_data.double_data, block_size, falcon_decimals);
     } else if (base_name == "alp") {
         benchmark_alp(bench_data, {});
     } else if (base_name == "pfordelta" || base_name.find("pfordelta_") == 0) {

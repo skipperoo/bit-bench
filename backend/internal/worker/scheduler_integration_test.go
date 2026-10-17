@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"bitbench/internal/compressor"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
 )
@@ -42,7 +43,7 @@ func createBenchmarkWithTasks(t *testing.T, ctx context.Context, userID uuid.UUI
 		FileCount:        1,
 		FileChecksum:     "00000000000000000000000000000000",
 		FileExt:          ".bin",
-		Compressors:      map[string]interface{}{"gzip": map[string]interface{}{}},
+		Compressors:      []compressor.Instance{{Name: "gzip", Options: map[string]interface{}{}, Label: "gzip"}},
 	}
 	if err := benchRepo.Create(ctx, benchmark); err != nil {
 		t.Fatalf("create benchmark: %v", err)

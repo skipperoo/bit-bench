@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"bitbench/internal/compressor"
 )
 
 // MemoryResult holds memory measurement for one compressor on one dataset.
@@ -263,8 +265,8 @@ func RunMemoryHarnessWithBaseline(binaryPath, compressor, binPath, massifDir str
 }
 
 // getDataFormatForCompressor mirrors MemoryHarness' input format selection logic.
-func getDataFormatForCompressor(compressor string) string {
-	c := strings.ToLower(compressor)
+func getDataFormatForCompressor(invocation string) string {
+	c := strings.ToLower(compressor.BaseName(invocation))
 	if c == "baseline_shifted" || c == "baseline_double" || c == "baseline_raw" {
 		parts := strings.SplitN(c, "_", 2)
 		if len(parts) == 2 {

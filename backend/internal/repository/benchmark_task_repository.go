@@ -19,12 +19,12 @@ func NewBenchmarkTaskRepository(db *pgxpool.Pool) *BenchmarkTaskRepository {
 	return &BenchmarkTaskRepository{db: db}
 }
 
-const taskColumns = `id, benchmark_id, seq, kind, compressor, input_path, workers, status, result, error, started_at, finished_at, created_at`
+const taskColumns = `id, benchmark_id, seq, kind, compressor, instance_label, input_path, workers, status, result, error, started_at, finished_at, created_at`
 
 func scanTask(row pgx.Row) (*model.BenchmarkTask, error) {
 	t := &model.BenchmarkTask{}
 	err := row.Scan(
-		&t.ID, &t.BenchmarkID, &t.Seq, &t.Kind, &t.Compressor, &t.InputPath,
+		&t.ID, &t.BenchmarkID, &t.Seq, &t.Kind, &t.Compressor, &t.InstanceLabel, &t.InputPath,
 		&t.Workers, &t.Status, &t.Result, &t.Error, &t.StartedAt, &t.FinishedAt, &t.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -61,9 +61,9 @@ func (r *BenchmarkTaskRepository) CreateBatch(ctx context.Context, tasks []*mode
 		}
 		batch.Queue(`
 			INSERT INTO benchmark_tasks
-				(id, benchmark_id, seq, kind, compressor, input_path, workers, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, t.ID, t.BenchmarkID, t.Seq, t.Kind, t.Compressor, t.InputPath, t.Workers, t.Status)
+				(id, benchmark_id, seq, kind, compressor, instance_label, input_path, workers, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, t.ID, t.BenchmarkID, t.Seq, t.Kind, t.Compressor, t.InstanceLabel, t.InputPath, t.Workers, t.Status)
 	}
 
 	results := tx.SendBatch(ctx, batch)
@@ -98,7 +98,7 @@ func (r *BenchmarkTaskRepository) ClaimNext(ctx context.Context, freeWorkers int
 	// deadlocks between claiming and aggregation.
 	task := &model.BenchmarkTask{}
 	err = tx.QueryRow(ctx, `
-		SELECT t.id, t.benchmark_id, t.seq, t.kind, t.compressor, t.input_path, t.workers
+		SELECT t.id, t.benchmark_id, t.seq, t.kind, t.compressor, t.instance_label, t.input_path, t.workers
 		FROM benchmark_tasks t
 		JOIN benchmarks b ON b.id = t.benchmark_id
 		LEFT JOIN users u ON u.id = b.user_id
@@ -112,7 +112,7 @@ func (r *BenchmarkTaskRepository) ClaimNext(ctx context.Context, freeWorkers int
 		         t.created_at ASC, t.seq ASC
 		LIMIT 1
 	`, freeWorkers).Scan(
-		&task.ID, &task.BenchmarkID, &task.Seq, &task.Kind, &task.Compressor,
+		&task.ID, &task.BenchmarkID, &task.Seq, &task.Kind, &task.Compressor, &task.InstanceLabel,
 		&task.InputPath, &task.Workers,
 	)
 	if err == pgx.ErrNoRows {
