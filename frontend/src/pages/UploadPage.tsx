@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,10 +8,13 @@ import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Loader2, FileUp, AlertCircle, CheckCircle2, X, Plus, Trash2, Search } from 'lucide-react'
-import { apiFetch, apiUpload } from '@/lib/api'
+import { apiFetch, apiUploadWithProgress } from '@/lib/api'
+import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor } from '@/lib/compressors'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
+import { batchFileStatuses, sequentialFileStatuses } from '@/lib/upload-progress'
+import type { FileUploadStatus, UploadPhase } from '@/lib/upload-progress'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   MAX_INSTANCES_PER_BENCHMARK,
@@ -63,6 +66,87 @@ const FAMILIES: CompressorFamily[] = [
   },
 ]
 
+/** Per-file status shown in the upload list. */
+function FileStatusBadge({ status }: { status: FileUploadStatus }) {
+  switch (status) {
+    case 'uploading':
+      return (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Uploading
+        </span>
+      )
+    case 'sent':
+      return (
+        <span className="flex items-center gap-1 text-xs text-emerald-600">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Uploaded
+        </span>
+      )
+    case 'processing':
+      return (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Processing
+        </span>
+      )
+    case 'done':
+      return (
+        <span className="flex items-center gap-1 text-xs text-emerald-600">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Done
+        </span>
+      )
+    case 'error':
+      return (
+        <span className="flex items-center gap-1 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5" />
+          Failed
+        </span>
+      )
+    default:
+      return <span className="text-xs text-muted-foreground">Ready</span>
+  }
+}
+
+interface FileRowProps {
+  file: File
+  index: number
+  status: FileUploadStatus
+  removable: boolean
+  onRemove: (index: number) => void
+}
+
+/**
+ * One row of the selected-files list. Memoized so large selections only pay
+ * for rows whose status actually changed.
+ */
+const FileRow = memo(function FileRow({ file, index, status, removable, onRemove }: FileRowProps) {
+  return (
+    <div data-status={status} className="file-row flex items-center justify-between gap-3 mb-2 last:mb-0">
+      <div className="flex items-center gap-3 min-w-0">
+        <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{file.name}</p>
+          <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <FileStatusBadge status={status} />
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          disabled={!removable}
+          onClick={() => onRemove(index)}
+          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+})
+
 export default function UploadPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -75,6 +159,10 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle')
+  const [uploadLoaded, setUploadLoaded] = useState(0)
+  const [uploadTotal, setUploadTotal] = useState(0)
+  const [uploadIndex, setUploadIndex] = useState(0)
   const restoredRef = useRef(false)
 
   const role = useAuthStore((s) => s.getRole)()
@@ -243,7 +331,13 @@ export default function UploadPage() {
   }, [applyInstances])
 
   const handleFileChange = useCallback((newFiles: File[]) => {
+    // Update the list synchronously so it appears as soon as the selection
+    // returns, before any other work.
     setFiles(newFiles)
+    setUploadPhase('idle')
+    setUploadLoaded(0)
+    setUploadTotal(0)
+    setUploadIndex(0)
     if (newFiles.length === 0) return
     // Autocomplete benchmark name from first filename (without extension)
     if (!name) {
@@ -252,6 +346,37 @@ export default function UploadPage() {
     }
     setError('')
   }, [name])
+
+  const removeFile = useCallback((index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+    setUploadPhase('idle')
+    setUploadLoaded(0)
+    setUploadTotal(0)
+    setUploadIndex(0)
+  }, [])
+
+  const fileStatuses = useMemo(() => {
+    if (files.length === 0) return []
+    if (multiMode === 'sequential' && files.length > 1) {
+      return sequentialFileStatuses(files.length, uploadIndex, uploadPhase)
+    }
+    return batchFileStatuses(files, uploadPhase, uploadLoaded, uploadTotal)
+  }, [files, multiMode, uploadIndex, uploadPhase, uploadLoaded, uploadTotal])
+
+  const uploadPercent = uploadTotal > 0 ? Math.round((uploadLoaded / uploadTotal) * 100) : null
+
+  const fileListSummary = useMemo(() => {
+    if (!loading) return `${files.length} files`
+    if (uploadPhase === 'processing') return 'Upload complete — processing on the server…'
+    if (uploadPhase === 'done') return 'Uploaded'
+    if (uploadPhase === 'uploading') {
+      const prefix = multiMode === 'sequential' && files.length > 1
+        ? `Uploading file ${uploadIndex + 1} of ${files.length}`
+        : 'Uploading'
+      return uploadPercent !== null ? `${prefix} — ${uploadPercent}%` : `${prefix}…`
+    }
+    return 'Submitting…'
+  }, [loading, files.length, uploadPhase, multiMode, uploadIndex, uploadPercent])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -267,9 +392,12 @@ export default function UploadPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name || files.length === 0 || validationError) return
+    if (!name || files.length === 0 || validationError || loading) return
     setLoading(true)
     setError('')
+    setUploadLoaded(0)
+    setUploadTotal(0)
+    setUploadIndex(0)
     try {
       const compressorsPayload = instances.map((inst) => ({ name: inst.name, options: inst.options }))
 
@@ -279,8 +407,19 @@ export default function UploadPage() {
         body: JSON.stringify({ compressors: compressorsPayload }),
       }).catch(() => {})
 
+      const reportProgress = (progress: UploadProgress) => {
+        setUploadLoaded(progress.loaded)
+        setUploadTotal(progress.total)
+        // All bytes are handed to the socket: the server is now normalizing
+        // the files and creating the task rows.
+        if (progress.total > 0 && progress.loaded >= progress.total) {
+          setUploadPhase('processing')
+        }
+      }
+
       if (files.length === 1 || multiMode === 'average') {
         // One benchmark; all files are processed in parallel and averaged.
+        setUploadPhase('uploading')
         const formData = new FormData()
         formData.append('name', multiMode === 'average' && files.length > 1
           ? `${name} (avg ${files.length})` : name)
@@ -288,24 +427,31 @@ export default function UploadPage() {
           formData.append('files', f)
         }
         formData.append('compressors', JSON.stringify(compressorsPayload))
-        await apiUpload<{ id: string }>('/benchmarks', formData)
+        await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
+        setUploadPhase('done')
         navigate(`/results`)
       } else {
         // Sequential mode: enqueue each file as a separate benchmark
         for (let i = 0; i < files.length; i++) {
           const f = files[i]
+          setUploadIndex(i)
+          setUploadLoaded(0)
+          setUploadTotal(0)
+          setUploadPhase('uploading')
           const fname = f.name.replace(/\.[^.]+$/, '')
           const formData = new FormData()
           formData.append('name', `${name} (${fname})`)
           formData.append('files', f)
           formData.append('compressors', JSON.stringify(compressorsPayload))
-          await apiUpload<{ id: string }>('/benchmarks', formData)
+          await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
+          setUploadPhase('done')
           if (i === files.length - 1) {
             navigate(`/results`)
           }
         }
       }
     } catch (err) {
+      setUploadPhase('error')
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
       setLoading(false)
@@ -437,45 +583,26 @@ export default function UploadPage() {
                 {/* Show at most five files; longer selections scroll. */}
                 <div data-testid="file-list" className="max-h-[13rem] overflow-y-auto pr-1">
                   {files.map((f, idx) => (
-                    <div key={`${f.name}-${idx}`} className="flex items-center justify-between gap-3 mb-2 last:mb-0">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{f.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {(f.size / 1024).toFixed(1)} KB
-                            {idx === 0 && ' · Ready'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {idx === 0 && (
-                          <span className="flex items-center gap-1 text-xs text-emerald-600">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Ready
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          aria-label={`Remove ${f.name}`}
-                          onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
+                    <FileRow
+                      key={`${f.name}-${idx}`}
+                      file={f}
+                      index={idx}
+                      status={fileStatuses[idx] ?? 'ready'}
+                      removable={!loading}
+                      onRemove={removeFile}
+                    />
                   ))}
                 </div>
                 <div className="mt-2 flex items-center justify-between">
                   <button
                     type="button"
-                    onClick={() => { setFiles([]); setError('') }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={loading}
+                    onClick={() => { setFiles([]); setError(''); setUploadPhase('idle') }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
                   >
                     Remove all files
                   </button>
-                  <span className="text-xs text-muted-foreground">{files.length} files</span>
+                  <span data-testid="file-summary" className="text-xs text-muted-foreground">{fileListSummary}</span>
                 </div>
                 {files.length > 1 && (
                   <div className="mt-3 flex items-center gap-4 text-sm">
@@ -693,6 +820,7 @@ export default function UploadPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 px-2 shrink-0"
+                                aria-label={`Add ${renameCompressor(c)}`}
                                 disabled={disabled}
                                 title={!customNames.has(c) && !hasVariableOptions(compressors[c] || {}) && instanceCount(c) > 0
                                   ? 'This compressor has no configurable options'
@@ -793,7 +921,7 @@ export default function UploadPage() {
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Submitting…
+                {uploadPhase === 'processing' ? 'Processing…' : 'Uploading…'}
               </span>
             ) : (
               'Run Benchmark'
