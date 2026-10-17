@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import {
   MAX_INSTANCES_PER_BENCHMARK,
   buildLabel,
+  canAddInstance,
   canonicalOptions,
   defaultOptions,
   hasVariableOptions,
