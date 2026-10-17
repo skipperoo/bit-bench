@@ -109,6 +109,22 @@ export function hasVariableOptions(schema: Record<string, CompressorOption>): bo
   return Object.keys(schema).some((key) => NATIVE_OPTIONS.has(key))
 }
 
+/**
+ * Whether another instance of a compressor may be added. Custom packages
+ * always expose effective options; built-ins without effective options can
+ * only be configured once.
+ */
+export function canAddInstance(
+  schema: Record<string, CompressorOption>,
+  isCustom: boolean,
+  currentCount: number,
+  totalCount: number
+): boolean {
+  if (totalCount >= MAX_INSTANCES_PER_BENCHMARK) return false
+  if (!isCustom && !hasVariableOptions(schema) && currentCount > 0) return false
+  return true
+}
+
 /** Validates the configured instances; returns an error message or null. */
 export function validateInstances(
   instances: InstanceDraft[],

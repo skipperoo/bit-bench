@@ -175,6 +175,10 @@ export default function UploadPage() {
   useEffect(() => { loadPresets(); loadHistory() }, [loadPresets, loadHistory])
 
   const applyInstances = useCallback((incoming: CompressorInstance[]) => {
+    if (Object.keys(compressors).length === 0) {
+      setPresetError('The compressor list is still loading — try again in a moment.')
+      return
+    }
     const drafts: InstanceDraft[] = []
     for (const item of incoming) {
       const schema = compressors[item.name]
@@ -679,9 +683,7 @@ export default function UploadPage() {
                       <div className="space-y-0.5">
                         {family.compressors.map((c) => {
                           const schema = compressors[c] || {}
-                          const variable = hasVariableOptions(schema)
-                          const already = instanceCount(c) > 0
-                          const disabled = instances.length >= MAX_INSTANCES_PER_BENCHMARK || (!variable && already)
+                          const disabled = !canAddInstance(schema, customNames.has(c), instanceCount(c), instances.length)
                           return (
                             <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
                               <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
@@ -691,7 +693,9 @@ export default function UploadPage() {
                                 size="sm"
                                 className="h-6 px-2 shrink-0"
                                 disabled={disabled}
-                                title={!variable && already ? 'This compressor has no configurable options' : undefined}
+                                title={!customNames.has(c) && !hasVariableOptions(compressors[c] || {}) && instanceCount(c) > 0
+                                  ? 'This compressor has no configurable options'
+                                  : undefined}
                                 onClick={() => addInstance(c)}
                               >
                                 <Plus className="w-3.5 h-3.5" />
