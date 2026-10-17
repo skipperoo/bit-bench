@@ -31,9 +31,19 @@ export const COMPRESSOR_RENAMES: Record<string, string> = {
 }
 
 export function renameCompressor(name: string): string {
-  const lower = name.toLowerCase()
-  if (COMPRESSOR_RENAMES[lower]) return COMPRESSOR_RENAMES[lower]
-  return name
+  const { base, config } = splitCompressorLabel(name)
+  const renamed = COMPRESSOR_RENAMES[base.toLowerCase()] || base
+  return config ? `${renamed}${LABEL_SEPARATOR}${config}` : renamed
+}
+
+/** Separator between a compressor name and its brief configuration label. */
+export const LABEL_SEPARATOR = ' · '
+
+/** Splits "gzip · level 9" into its base name and configuration suffix. */
+export function splitCompressorLabel(name: string): { base: string; config: string } {
+  const idx = name.indexOf(LABEL_SEPARATOR)
+  if (idx === -1) return { base: name, config: '' }
+  return { base: name.slice(0, idx), config: name.slice(idx + LABEL_SEPARATOR.length) }
 }
 
 // Per-compressor hex colors (same as COMPRESSOR_COLORS in the Python script)
@@ -107,13 +117,13 @@ export const FAMILY_SHAPES: Record<string, string> = {
 }
 
 export function getCompressorColor(name: string): string {
-  const display = renameCompressor(name)
+  const display = renameCompressor(splitCompressorLabel(name).base)
   if (COMPRESSOR_COLORS[display]) return COMPRESSOR_COLORS[display]
   return '#64748b'
 }
 
 export function getCompressorShape(name: string): string {
-  const display = renameCompressor(name)
+  const display = renameCompressor(splitCompressorLabel(name).base)
   const family = COMPRESSOR_FAMILIES[display]
   if (family && FAMILY_SHAPES[family]) return FAMILY_SHAPES[family]
   return 'circle'

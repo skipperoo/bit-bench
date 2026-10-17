@@ -196,22 +196,22 @@ export default function ResultsPage() {
                         Finished {new Date(b.finished_at).toLocaleString()}
                       </p>
                     )}
-                    {Object.keys(b.compressors).length > 0 && (
+                    {b.compressors.length > 0 && (
                       <div className="flex flex-wrap gap-1 pt-2">
-                        {Object.keys(b.compressors).slice(0, 5).map((c) => (
-                          <Badge key={c} variant="outline" className="text-xs">
-                            {renameCompressor(c)}
+                        {b.compressors.slice(0, 5).map((inst, i) => (
+                          <Badge key={`${inst.name}-${i}`} variant="outline" className="text-xs">
+                            {renameCompressor(inst.label)}
                           </Badge>
                         ))}
-                        {Object.keys(b.compressors).length > 5 && (
+                        {b.compressors.length > 5 && (
                           <div className="relative group">
                             <Badge variant="outline" className="text-xs cursor-default">
-                              +{Object.keys(b.compressors).length - 5}
+                              +{b.compressors.length - 5}
                             </Badge>
                             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
                               <div className="bg-popover border border-border text-popover-foreground rounded-lg shadow-lg p-2 text-xs overflow-y-auto" style={{ maxHeight: '200px', minWidth: '120px' }}>
-                                {Object.keys(b.compressors).map((c) => (
-                                  <div key={c} className="py-0.5">{renameCompressor(c)}</div>
+                                {b.compressors.map((inst, i) => (
+                                  <div key={`${inst.name}-${i}`} className="py-0.5">{renameCompressor(inst.label)}</div>
                                 ))}
                               </div>
                               <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-popover-foreground/20" />

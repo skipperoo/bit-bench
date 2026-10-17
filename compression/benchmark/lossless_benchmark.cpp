@@ -60,6 +60,7 @@
 #include "Camel/DecompressorCamel.hpp"
 #include "Falcon/CompressorFalcon.hpp"
 #include "Falcon/DecompressorFalcon.hpp"
+#include "compressor_options.hpp"
 
 // ALP and LeCo benchmarks are in separate translation units (alp_benchmark.cpp, leco_benchmark.cpp)
 // compiled with different compilers for compatibility. Declarations are in benchmark_common.hpp.
@@ -277,6 +278,7 @@ BenchmarkResult benchmark_neats_impl(const std::vector<T> &processed_data,
                                       const std::vector<size_t> &random_indices,
                                       const std::map<size_t, std::vector<size_t>> &range_query_indices,
                                       uint8_t max_bpc,
+                                      bool lossy,
                                       const std::string &dataset_name,
                                       size_t uncompressed_bits) {
     BenchmarkResult result;
@@ -288,7 +290,7 @@ BenchmarkResult benchmark_neats_impl(const std::vector<T> &processed_data,
     
     // Use uint64_t for x_t to prevent overflow of bit offsets for large datasets
     // T1_coeff is either float (for small values) or double (for large values)
-    pfa::neats::compressor<uint64_t, T, double, T1_coeff, double> compressor(max_bpc);
+    pfa::neats::compressor<uint64_t, T, double, T1_coeff, double> compressor(max_bpc, lossy);
     
     auto t1 = std::chrono::high_resolution_clock::now();
     compressor.partitioning(processed_data.begin(), processed_data.end());
@@ -367,7 +369,8 @@ BenchmarkResult benchmark_neats_impl(const std::vector<T> &processed_data,
 template<typename T = int64_t>
 BenchmarkResult benchmark_neats(const BenchmarkData &bench_data, 
                                 const std::vector<size_t> &range_sizes,
-                                uint8_t max_bpc = 32) {
+                                uint8_t max_bpc = 32,
+                                bool lossy = false) {
     // Use shifted data
     const auto& processed_data = bench_data.shifted_data;
     
@@ -383,12 +386,12 @@ BenchmarkResult benchmark_neats(const BenchmarkData &bench_data,
         // Use double precision for coefficients when values are large
         return benchmark_neats_impl<T, double>(processed_data, range_sizes, 
                                                 bench_data.random_indices, bench_data.range_query_indices,
-                                                max_bpc, bench_data.filename, bench_data.uncompressed_bits);
+                                                max_bpc, lossy, bench_data.filename, bench_data.uncompressed_bits);
     } else {
         // Use float precision for coefficients when values are small (better compression)
         return benchmark_neats_impl<T, float>(processed_data, range_sizes,
                                                bench_data.random_indices, bench_data.range_query_indices,
-                                               max_bpc, bench_data.filename, bench_data.uncompressed_bits);
+                                               max_bpc, lossy, bench_data.filename, bench_data.uncompressed_bits);
     }
 }
 // ============================================================================
@@ -594,7 +597,8 @@ template<typename Compressor, typename Decompressor, typename T = double>
 BenchmarkResult benchmark_bitstream_compressor(const std::string &compressor_name,
                                                 const BenchmarkData &bench_data,
                                                 const std::vector<size_t> &range_sizes,
-                                                size_t block_size = 1000) {
+                                                size_t block_size = 1000,
+                                                int camel_max_precision = INT_MIN) {
     BenchmarkResult result;
     result.compressor = compressor_name;
     result.dataset = bench_data.filename;
@@ -621,7 +625,10 @@ BenchmarkResult benchmark_bitstream_compressor(const std::string &compressor_nam
         
         std::unique_ptr<Compressor> cmpr;
         if constexpr (std::is_same_v<Compressor, CompressorCamel<T>>) {
-            cmpr = std::make_unique<Compressor>(*start_it, static_cast<int64_t>(bench_data.decimals));
+            const int max_precision = (camel_max_precision != INT_MIN)
+                ? camel_max_precision
+                : static_cast<int>(bench_data.decimals);
+            cmpr = std::make_unique<Compressor>(*start_it, max_precision);
         } else {
             cmpr = std::make_unique<Compressor>(*start_it);
         }
@@ -938,7 +945,8 @@ BenchmarkResult benchmark_tsxor(const BenchmarkData &bench_data,
 template<typename T = double>
 BenchmarkResult benchmark_falcon(const BenchmarkData &bench_data,
                                  const std::vector<size_t> &range_sizes,
-                                 size_t block_size = 1000) { // Default to 1000 to match your proposal
+                                 size_t block_size = 1000,
+                                 int decimals_override = INT_MIN) { // Default to 1000 to match your proposal
     BenchmarkResult result;
     result.compressor = "Falcon";
     result.dataset = bench_data.filename;
@@ -969,7 +977,10 @@ BenchmarkResult benchmark_falcon(const BenchmarkData &bench_data,
         // Initialize Compressor for JUST this block
         // Note: We pass current_bs so Falcon writes the correct header count
         // We also pass decimals to help Falcon avoid raw fallback on tricky values
-        CompressorFalcon<T> cmpr(data[start_idx], current_bs, static_cast<int>(bench_data.decimals));
+        const int decimals = (decimals_override != INT_MIN)
+            ? decimals_override
+            : static_cast<int>(bench_data.decimals);
+        CompressorFalcon<T> cmpr(data[start_idx], current_bs, decimals);
         
         for (size_t k = 1; k < current_bs; ++k) {
             cmpr.addValue(data[start_idx + k]);
@@ -2062,13 +2073,7 @@ int main(int argc, char *argv[]) {
         std::vector<std::string> double_data_compressors;  // gorilla, chimp, etc.
         
         for (const auto &comp : compressors) {
-            // Extract base name (strip any =LEVEL suffix)
-            std::string comp_name = comp;
-            {
-                auto eq_pos = comp.find('=');
-                if (eq_pos != std::string::npos)
-                    comp_name = comp.substr(0, eq_pos);
-            }
+            const std::string comp_name = bench::parse_compressor_spec(comp, default_level).name;
 #if HAS_SQUASH
             if (comp_name == "lz4" || comp_name == "zstd" || comp_name == "brotli" || 
                 comp_name == "xz" || comp_name == "snappy" || comp_name == "bzip2" || comp_name == "bzip3" || comp_name == "gzip") {
@@ -2094,21 +2099,14 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        // Helper: parse level from compressor entry (returns default_level if no =LEVEL)
-        auto parse_level = [&](const std::string &entry) -> int {
-            auto eq_pos = entry.find('=');
-            if (eq_pos != std::string::npos)
-                return std::stoi(entry.substr(eq_pos + 1));
-            return default_level;
-        };
-        
         // Phase 0: Run compressors that need raw_data (gzip, bzip3, SQUASH)
         for (const auto &comp : raw_data_compressors) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
-            int comp_level = parse_level(comp);
-            std::string comp_name = comp.substr(0, comp.find('='));
+            const bench::CompressorSpec spec = bench::parse_compressor_spec(comp, default_level);
+            const int comp_level = spec.level;
+            const std::string &comp_name = spec.name;
             
             try {
                 if (comp_name == "gzip") {
@@ -2136,6 +2134,9 @@ int main(int argc, char *argv[]) {
                 }
 #endif
                 result.original_size = bench_data.original_size;
+                if (comp.find('=') != std::string::npos) {
+                    result.compressor = comp;
+                }
                 
                 if (!header_printed) {
                     result.print_header(*out, range_sizes);
@@ -2169,12 +2170,14 @@ int main(int argc, char *argv[]) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
-            std::string comp_name = comp.substr(0, comp.find('='));
+            const bench::CompressorSpec spec = bench::parse_compressor_spec(comp, default_level);
+            const std::string &comp_name = spec.name;
             
             try {
                 if (comp_name == "neats") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
-                        return benchmark_neats<int64_t>(bench_data, range_sizes, max_bpc);
+                        const uint8_t bpc = spec.max_bpc_set ? static_cast<uint8_t>(spec.max_bpc) : max_bpc;
+                        return benchmark_neats<int64_t>(bench_data, range_sizes, bpc, spec.lossy);
                     });
                 } else if (comp_name == "dac") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
@@ -2236,6 +2239,9 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
                 result.original_size = bench_data.original_size;
+                if (comp.find('=') != std::string::npos) {
+                    result.compressor = comp;
+                }
                 
                 if (!header_printed) {
                     result.print_header(*out, range_sizes);
@@ -2261,7 +2267,8 @@ int main(int argc, char *argv[]) {
             std::cerr << "  Running " << comp << "..." << std::flush;
             
             BenchmarkResult result;
-            std::string comp_name = comp.substr(0, comp.find('='));
+            const bench::CompressorSpec spec = bench::parse_compressor_spec(comp, default_level);
+            const std::string &comp_name = spec.name;
             
             try {
                 if (comp_name == "gorilla") {
@@ -2291,11 +2298,11 @@ int main(int argc, char *argv[]) {
                 } else if (comp_name == "camel") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
                         return benchmark_bitstream_compressor<CompressorCamel<double>, DecompressorCamel<double>, double>(
-                            "Camel", bench_data, range_sizes, block_size);
+                            "Camel", bench_data, range_sizes, block_size, spec.max_precision);
                     });
                 } else if (comp_name == "falcon") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
-                        return benchmark_falcon<double>(bench_data, range_sizes);
+                        return benchmark_falcon<double>(bench_data, range_sizes, block_size, spec.decimals);
                     });
                 } else if (comp_name == "alp") {
                     std::tie(result, result.memory_usage) = run_with_peak_memory_usage([&]() {
@@ -2306,6 +2313,9 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
                 result.original_size = bench_data.original_size;
+                if (comp.find('=') != std::string::npos) {
+                    result.compressor = comp;
+                }
 
                 if (!header_printed) {
                     result.print_header(*out, range_sizes);

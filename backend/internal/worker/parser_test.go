@@ -93,47 +93,6 @@ func TestAverageRows(t *testing.T) {
 	}
 }
 
-func TestBuildCompressorList(t *testing.T) {
-	compressors := map[string]interface{}{
-		"gzip":   map[string]interface{}{"level": float64(6)},
-		"neats":  map[string]interface{}{"max_bpc": float64(32), "lossy": false},
-	}
-	list := BuildCompressorList(compressors)
-	if !strings.Contains(list, "gzip") || !strings.Contains(list, "neats") {
-		t.Errorf("compressor list = %q, should contain gzip and neats", list)
-	}
-}
-
-func TestBuildCompressorListLevel(t *testing.T) {
-	compressors := map[string]interface{}{
-		"gzip":   map[string]interface{}{"level": float64(3)},
-	}
-	list := BuildCompressorList(compressors)
-	if list != "gzip=3" {
-		t.Errorf("gzip with level=3 should map to gzip=3, got %q", list)
-	}
-}
-
-func TestBuildCompressorListPForDelta(t *testing.T) {
-	compressors := map[string]interface{}{
-		"pfordelta": map[string]interface{}{"codec": "simdpfor"},
-	}
-	list := BuildCompressorList(compressors)
-	if list != "pfordelta_simdpfor" {
-		t.Errorf("pfordelta with codec=simdpfor should map to pfordelta_simdpfor, got %q", list)
-	}
-}
-
-func TestBuildCompressorListPForDeltaDefault(t *testing.T) {
-	compressors := map[string]interface{}{
-		"pfordelta": map[string]interface{}{"codec": "simdnewpfor"},
-	}
-	list := BuildCompressorList(compressors)
-	if list != "pfordelta" {
-		t.Errorf("pfordelta with default codec should stay as pfordelta, got %q", list)
-	}
-}
-
 func TestParseCSVLenient(t *testing.T) {
 	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs
 custom,test,1000,8000,,64000,32000,0.5,500,600,,

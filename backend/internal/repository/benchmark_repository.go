@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"bitbench/internal/compressor"
 	"bitbench/internal/model"
 )
 
@@ -22,7 +22,7 @@ func NewBenchmarkRepository(db *pgxpool.Pool) *BenchmarkRepository {
 }
 
 func (r *BenchmarkRepository) Create(ctx context.Context, b *model.Benchmark) error {
-	compressorsJSON, err := json.Marshal(b.Compressors)
+	compressorsJSON, err := compressor.MarshalInstances(b.Compressors)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,11 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal(compressorsJSON, &b.Compressors)
+	instances, err := compressor.ParseInstances(compressorsJSON)
+	if err != nil {
+		return nil, err
+	}
+	b.Compressors = instances
 	return b, nil
 }
 
@@ -152,7 +156,11 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		if err != nil {
 			return nil, err
 		}
-		json.Unmarshal(compressorsJSON, &b.Compressors)
+		instances, err := compressor.ParseInstances(compressorsJSON)
+		if err != nil {
+			return nil, err
+		}
+		b.Compressors = instances
 		result.Benchmarks = append(result.Benchmarks, b)
 	}
 

@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -79,7 +79,7 @@ func ValidateFileExt(ext string) bool {
 	return allowedExts[strings.ToLower(ext)]
 }
 
-func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, files []UploadedFile, compressors map[string]interface{}) (*model.Benchmark, error) {
+func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, files []UploadedFile, compressorsJSON []byte) (*model.Benchmark, error) {
 	if actor == nil {
 		return nil, fmt.Errorf("unauthorized")
 	}
@@ -107,27 +107,23 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		totalSize += size
 	}
 
-	// Split compressors into built-ins and visible ready custom packages.
-	builtinCompressors := make(map[string]interface{})
-	customPackages := make(map[string]*model.CompressorPackage)
-	for compName := range compressors {
-		if compressor.IsValid(compName) {
-			builtinCompressors[compName] = compressors[compName]
-			continue
-		}
-		pkg, err := s.pkgRepo.FindVisibleReadyByName(ctx, compName, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
-		if err != nil {
-			return nil, fmt.Errorf("validate compressor %s: %w", compName, err)
-		}
-		if pkg == nil {
-			return nil, fmt.Errorf("unknown compressor: %s", compName)
-		}
-		if pkg.Workers > s.cfg.MaxParallelism {
-			return nil, fmt.Errorf("compressor %s requires %d workers, more than the %d available", compName, pkg.Workers, s.cfg.MaxParallelism)
-		}
-		customPackages[compName] = pkg
+	// Resolve, canonicalize and validate every configured instance.
+	resolved, err := s.resolveInstances(ctx, actor, compressorsJSON)
+	if err != nil {
+		return nil, err
 	}
-	if len(builtinCompressors) == 0 && len(customPackages) == 0 {
+	instances := make([]compressor.Instance, 0, len(resolved))
+	builtinCount := 0
+	customCount := 0
+	for _, r := range resolved {
+		instances = append(instances, r.Instance)
+		if r.Package == nil {
+			builtinCount++
+		} else {
+			customCount++
+		}
+	}
+	if builtinCount == 0 && customCount == 0 {
 		return nil, fmt.Errorf("no compressors selected")
 	}
 
@@ -177,14 +173,8 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 	}
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 
-	// One built-in task per .bin (all built-ins batched) plus one task per
-	// (custom package x .bin), each costing its declared worker count.
-	customNames := make([]string, 0, len(customPackages))
-	for compName := range customPackages {
-		customNames = append(customNames, compName)
-	}
-	sort.Strings(customNames)
-
+	// One built-in task per .bin (all built-in instances batched) plus one task
+	// per (custom package instance x .bin), each costing its worker count.
 	var tasks []*model.BenchmarkTask
 	seq := 0
 	for _, binPath := range binPaths {
@@ -193,7 +183,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 			cleanup()
 			return nil, fmt.Errorf("resolve task input: %w", err)
 		}
-		if len(builtinCompressors) > 0 {
+		if builtinCount > 0 {
 			seq++
 			tasks = append(tasks, &model.BenchmarkTask{
 				BenchmarkID: benchmarkID,
@@ -203,16 +193,21 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 				Workers:     1,
 			})
 		}
-		for _, compName := range customNames {
+		for _, r := range resolved {
+			if r.Package == nil {
+				continue
+			}
 			seq++
-			pkgName := compName
+			pkgName := r.Instance.Name
+			label := r.Instance.Label
 			tasks = append(tasks, &model.BenchmarkTask{
-				BenchmarkID: benchmarkID,
-				Seq:         seq,
-				Kind:        model.TaskKindCustom,
-				Compressor:  &pkgName,
-				InputPath:   rel,
-				Workers:     customPackages[compName].Workers,
+				BenchmarkID:   benchmarkID,
+				Seq:           seq,
+				Kind:          model.TaskKindCustom,
+				Compressor:    &pkgName,
+				InstanceLabel: &label,
+				InputPath:     rel,
+				Workers:       r.Package.Workers,
 			})
 		}
 	}
@@ -233,7 +228,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		FileCount:        len(files),
 		FileChecksum:     checksum,
 		FileExt:          strings.ToLower(filepath.Ext(files[0].Filename)),
-		Compressors:      compressors,
+		Compressors:      instances,
 	}
 
 	if err := s.benchRepo.Create(ctx, benchmark); err != nil {
@@ -247,6 +242,94 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 	}
 
 	return benchmark, nil
+}
+
+// resolvedInstance pairs a validated instance with its option schema and, for
+// user packages, the resolved package row.
+type resolvedInstance struct {
+	Instance compressor.Instance
+	Schema   map[string]compressor.Option
+	Package  *model.CompressorPackage
+}
+
+// resolveInstances parses, canonicalizes and validates the configured
+// compressor instances, rejecting duplicate configurations.
+func (s *BenchmarkService) resolveInstances(ctx context.Context, actor *model.User, compressorsJSON []byte) ([]resolvedInstance, error) {
+	instances, err := compressor.ParseInstances(compressorsJSON)
+	if err != nil {
+		return nil, err
+	}
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no compressors selected")
+	}
+	if len(instances) > compressor.MaxInstancesPerBenchmark {
+		return nil, fmt.Errorf("at most %d compressor configurations are allowed per benchmark", compressor.MaxInstancesPerBenchmark)
+	}
+
+	takenLabels := make(map[string]bool, len(instances))
+	seenBuiltin := make(map[string]bool, len(instances))
+	seenCustom := make(map[string]bool, len(instances))
+	resolved := make([]resolvedInstance, 0, len(instances))
+
+	for _, inst := range instances {
+		name := strings.ToLower(strings.TrimSpace(inst.Name))
+		if name == "" {
+			return nil, fmt.Errorf("compressor name is required")
+		}
+
+		var schema map[string]compressor.Option
+		var pkg *model.CompressorPackage
+		if compressor.IsValid(name) {
+			schema = compressor.Registry[name]
+		} else {
+			pkg, err = s.pkgRepo.FindVisibleReadyByName(ctx, name, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+			if err != nil {
+				return nil, fmt.Errorf("validate compressor %s: %w", name, err)
+			}
+			if pkg == nil {
+				return nil, fmt.Errorf("unknown compressor: %s", name)
+			}
+			if pkg.Workers > s.cfg.MaxParallelism {
+				return nil, fmt.Errorf("compressor %s requires %d workers, more than the %d available", name, pkg.Workers, s.cfg.MaxParallelism)
+			}
+			var spec compressor.PackageSpec
+			if err := json.Unmarshal(pkg.Spec, &spec); err != nil {
+				return nil, fmt.Errorf("decode package spec %s: %w", name, err)
+			}
+			schema = spec.Options
+			if schema == nil {
+				schema = map[string]compressor.Option{}
+			}
+		}
+
+		values, err := compressor.CanonicalizeOptions(schema, inst.Options)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+
+		if pkg == nil {
+			invocation := compressor.BuildInvocation(name, schema, values)
+			if seenBuiltin[invocation] {
+				return nil, fmt.Errorf("duplicate configuration for compressor %s", name)
+			}
+			seenBuiltin[invocation] = true
+		} else {
+			canonical, _ := json.Marshal(values)
+			key := name + "\x00" + string(canonical)
+			if seenCustom[key] {
+				return nil, fmt.Errorf("duplicate configuration for compressor %s", name)
+			}
+			seenCustom[key] = true
+		}
+
+		label := compressor.WithUniqueLabel(compressor.BuildLabel(name, schema, values), takenLabels)
+		resolved = append(resolved, resolvedInstance{
+			Instance: compressor.Instance{Name: name, Options: values, Label: label},
+			Schema:   schema,
+			Package:  pkg,
+		})
+	}
+	return resolved, nil
 }
 
 func (s *BenchmarkService) ListBenchmarks(ctx context.Context, userID *uuid.UUID, cursor *time.Time, search, status string, limit int) (*repository.ListBenchmarksResult, error) {

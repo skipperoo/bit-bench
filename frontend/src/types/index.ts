@@ -48,6 +48,12 @@ export interface CompressorOption {
 
 export type CompressorRegistry = Record<string, Record<string, CompressorOption>>
 
+export interface CompressorInstance {
+  name: string
+  options: Record<string, unknown>
+  label: string
+}
+
 export interface Benchmark {
   id: string
   user_id: string
@@ -58,7 +64,7 @@ export interface Benchmark {
   file_checksum: string
   file_ext: string
   status: 'queued' | 'in_progress' | 'ready' | 'failed' | 'timed_out' | 'cancelled'
-  compressors: Record<string, Record<string, unknown>>
+  compressors: CompressorInstance[]
   error?: string
   progress?: number
   created_at: string

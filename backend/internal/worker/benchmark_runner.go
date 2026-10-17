@@ -424,16 +424,27 @@ func (r *BenchmarkRunner) runTask(ctx context.Context, benchmark *model.Benchmar
 	}
 }
 
-// runBuiltinTask runs every built-in compressor for one .bin plus the memory
-// measurements for that .bin.
+// compressorInvocation is one configured built-in compressor of a task.
+type compressorInvocation struct {
+	Entry string // native `-c` entry, e.g. "gzip=level:9"
+	Label string // brief configuration label shown in results
+}
+
+// runBuiltinTask runs every configured built-in instance for one .bin plus the
+// memory measurements for that .bin.
 func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.Benchmark, binPath, taskDir string) ([]BenchmarkRow, error) {
-	builtin := make(map[string]interface{})
-	for name, opts := range benchmark.Compressors {
-		if compressor.IsValid(name) {
-			builtin[name] = opts
+	var invocations []compressorInvocation
+	for _, inst := range benchmark.Compressors {
+		if !compressor.IsValid(inst.Name) {
+			continue
 		}
+		schema := compressor.Registry[inst.Name]
+		invocations = append(invocations, compressorInvocation{
+			Entry: compressor.BuildInvocation(inst.Name, schema, inst.Options),
+			Label: inst.Label,
+		})
 	}
-	if len(builtin) == 0 {
+	if len(invocations) == 0 {
 		return nil, fmt.Errorf("no built-in compressors selected")
 	}
 
@@ -441,7 +452,11 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 	if err != nil {
 		return nil, err
 	}
-	compressorList := BuildCompressorList(builtin)
+	entries := make([]string, 0, len(invocations))
+	for _, inv := range invocations {
+		entries = append(entries, inv.Entry)
+	}
+	compressorList := strings.Join(entries, ",")
 
 	var rows []BenchmarkRow
 	for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
@@ -479,13 +494,25 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 		break
 	}
 
-	r.attachMemoryResults(rows, builtin, binPath, taskDir)
+	// Memory results are keyed by the native entry; rows are then relabelled to
+	// the configured instance labels (row names may differ in case for plain
+	// entries, e.g. "NeaTS").
+	r.attachMemoryResults(rows, invocations, binPath, taskDir)
+	labels := make(map[string]string, len(invocations))
+	for _, inv := range invocations {
+		labels[strings.ToLower(inv.Entry)] = inv.Label
+	}
+	for i := range rows {
+		if label, ok := labels[strings.ToLower(rows[i].Compressor)]; ok {
+			rows[i].Compressor = label
+		}
+	}
 	return rows, nil
 }
 
-// attachMemoryResults runs the Massif-based memory harness for one .bin and
-// merges its measurements into the parsed rows.
-func (r *BenchmarkRunner) attachMemoryResults(rows []BenchmarkRow, builtin map[string]interface{}, binPath, taskDir string) {
+// attachMemoryResults runs the Massif-based memory harness for every configured
+// instance of one .bin and merges its measurements into the parsed rows.
+func (r *BenchmarkRunner) attachMemoryResults(rows []BenchmarkRow, invocations []compressorInvocation, binPath, taskDir string) {
 	memBinary, err := r.resolveMemoryBinary()
 	if err != nil {
 		for i := range rows {
@@ -506,19 +533,13 @@ func (r *BenchmarkRunner) attachMemoryResults(rows []BenchmarkRow, builtin map[s
 
 	baselineCache := make(map[string]int64)
 	results := make(map[string]*MemoryResult)
-	for name, opts := range builtin {
-		optMap, _ := opts.(map[string]interface{})
-		invocation := mapCompressorName(name, optMap)
-		result, err := RunMemoryHarnessWithBaseline(memBinary, invocation, binPath, massifDir, r.cfg.BenchTimeout, baselineCache)
+	for _, inv := range invocations {
+		result, err := RunMemoryHarnessWithBaseline(memBinary, inv.Entry, binPath, massifDir, r.cfg.BenchTimeout, baselineCache)
 		if err != nil {
-			logger.Warn("memory measurement failed", "compressor", invocation, "error", err)
+			logger.Warn("memory measurement failed", "compressor", inv.Entry, "error", err)
 			continue
 		}
-		base := invocation
-		if idx := strings.IndexByte(base, '='); idx >= 0 {
-			base = base[:idx]
-		}
-		results[strings.ToLower(base)] = result
+		results[strings.ToLower(inv.Entry)] = result
 	}
 
 	for i := range rows {
@@ -574,7 +595,21 @@ func (r *BenchmarkRunner) runCustomTask(ctx context.Context, benchmark *model.Be
 	if err := json.Unmarshal(pkg.Spec, &spec); err != nil {
 		return nil, fmt.Errorf("decode package spec: %w", err)
 	}
-	provided, _ := benchmark.Compressors[name].(map[string]interface{})
+
+	// The configured instance carries the option set for this task.
+	instanceLabel := name
+	if task.InstanceLabel != nil {
+		instanceLabel = *task.InstanceLabel
+	}
+	provided := map[string]interface{}{}
+	for i := range benchmark.Compressors {
+		inst := benchmark.Compressors[i]
+		if inst.Label == instanceLabel || (task.InstanceLabel == nil && inst.Name == name) {
+			provided = inst.Options
+			instanceLabel = inst.Label
+			break
+		}
+	}
 	options := mergeOptions(spec.Options, provided)
 
 	customDir := filepath.Join(taskDir, "custom")
@@ -646,7 +681,7 @@ func (r *BenchmarkRunner) runCustomTask(ctx context.Context, benchmark *model.Be
 			return nil, fmt.Errorf("parse output csv: %w", parseErr)
 		}
 		for i := range rows {
-			rows[i].Compressor = name
+			rows[i].Compressor = instanceLabel
 		}
 		return rows, nil
 	}

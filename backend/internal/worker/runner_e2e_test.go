@@ -268,7 +268,7 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 			}
 			benchmark, err := service.App.Benchmark.CreateBenchmark(ctx, owner, "e2e "+example.name,
 				[]service.UploadedFile{{Reader: file, Filename: "e2e.bin"}},
-				map[string]interface{}{example.name: map[string]interface{}{}})
+				[]byte(`[{"name":"`+example.name+`","options":{}}]`))
 			file.Close()
 			if err != nil {
 				t.Fatalf("create benchmark: %v", err)
@@ -349,7 +349,7 @@ func TestMultiFileAveragingE2E(t *testing.T) {
 			{Reader: fileA, Filename: "a.bin"},
 			{Reader: fileB, Filename: "b.bin"},
 		},
-		map[string]interface{}{"example_delta_py": map[string]interface{}{}})
+		[]byte(`[{"name":"example_delta_py","options":{}}]`))
 	fileA.Close()
 	fileB.Close()
 	if err != nil {
@@ -370,5 +370,93 @@ func TestMultiFileAveragingE2E(t *testing.T) {
 	}
 	if results[0].CompressionRatio == nil || *results[0].CompressionRatio != 0.1875 {
 		t.Errorf("averaged compression_ratio = %v, want 0.1875", results[0].CompressionRatio)
+	}
+}
+
+// TestMultiInstanceCustomE2E runs the same package twice with different
+// options in one benchmark and verifies distinct labelled results.
+func TestMultiInstanceCustomE2E(t *testing.T) {
+	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
+	if err != nil {
+		t.Skipf("docker unavailable, skipping E2E: %v", err)
+	}
+	defer dockerRunner.Close()
+	buildImageIfMissing(t, dockerRunner)
+
+	ctx := context.Background()
+	cfg := &config.Config{
+		DataDir:         t.TempDir(),
+		CompressorDir:   t.TempDir(),
+		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		BenchTimeout:    180 * time.Second,
+		BenchMaxRetries: 0,
+		MaxParallelism:  4,
+		BuildTimeout:    5 * time.Minute,
+	}
+	service.InitServices(cfg, testDB, nil)
+	service.App.Compressor.SetRunner(dockerRunner)
+	owner := e2eUser(t)
+
+	stop := startScheduler(t, cfg, dockerRunner)
+	defer stop()
+
+	uploadExamplePackage(t, ctx, owner, "python", "example_delta_py")
+	benchRepo := repository.NewBenchmarkRepository(testDB)
+	resultRepo := repository.NewBenchmarkResultRepository(testDB)
+
+	values := make([]int64, 128)
+	for i := range values {
+		values[i] = int64(i)
+	}
+	binPath, _ := writeSampleBin(t, t.TempDir(), "multi.bin", values)
+	file, err := os.Open(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	benchmark, err := service.App.Benchmark.CreateBenchmark(ctx, owner, "two instances",
+		[]service.UploadedFile{{Reader: file, Filename: "multi.bin"}},
+		[]byte(`[{"name":"example_delta_py","options":{"mode":"delta"}},
+		         {"name":"example_delta_py","options":{"mode":"raw"}}]`))
+	file.Close()
+	if err != nil {
+		t.Fatalf("create benchmark: %v", err)
+	}
+	if len(benchmark.Compressors) != 2 {
+		t.Fatalf("instances = %d, want 2", len(benchmark.Compressors))
+	}
+	if benchmark.Compressors[0].Label != "example_delta_py" ||
+		benchmark.Compressors[1].Label != "example_delta_py · mode raw" {
+		t.Fatalf("labels = %q, %q", benchmark.Compressors[0].Label, benchmark.Compressors[1].Label)
+	}
+
+	got := waitForBenchmark(t, ctx, benchRepo, benchmark.ID)
+	if got.Status != "ready" {
+		t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
+	}
+
+	results, err := resultRepo.FindByBenchmarkID(ctx, benchmark.ID)
+	if err != nil {
+		t.Fatalf("list results: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+	byLabel := map[string]*model.BenchmarkResult{}
+	for _, res := range results {
+		byLabel[res.Compressor] = res
+	}
+	delta, ok := byLabel["example_delta_py"]
+	if !ok {
+		t.Fatalf("missing delta result: %v", byLabel)
+	}
+	raw, ok := byLabel["example_delta_py · mode raw"]
+	if !ok {
+		t.Fatalf("missing raw result: %v", byLabel)
+	}
+	if delta.CompressionRatio == nil || *delta.CompressionRatio != 0.125 {
+		t.Errorf("delta ratio = %v, want 0.125", delta.CompressionRatio)
+	}
+	if raw.CompressionRatio == nil || *raw.CompressionRatio != 0.1875 {
+		t.Errorf("raw ratio = %v, want 0.1875", raw.CompressionRatio)
 	}
 }

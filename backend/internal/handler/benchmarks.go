@@ -54,13 +54,7 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 	}
 
 	compressorsStr := r.FormValue("compressors")
-	var compressors map[string]interface{}
-	if compressorsStr != "" {
-		if err := json.Unmarshal([]byte(compressorsStr), &compressors); err != nil {
-			writeError(w, "invalid compressors JSON", http.StatusBadRequest)
-			return
-		}
-	} else {
+	if strings.TrimSpace(compressorsStr) == "" {
 		writeError(w, "compressors are required", http.StatusBadRequest)
 		return
 	}
@@ -96,7 +90,7 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 		uploads = append(uploads, service.UploadedFile{Reader: file, Filename: header.Filename})
 	}
 
-	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, uploads, compressors)
+	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, uploads, []byte(compressorsStr))
 	if err != nil {
 		msg := err.Error()
 		// Detect stale JWT after DB reset

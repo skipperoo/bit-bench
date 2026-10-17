@@ -58,11 +58,11 @@ func sampleBinBytes(t *testing.T, count int) []byte {
 	return data
 }
 
-func doCreateBenchmark(handler http.Handler, token, name string, files map[string][]byte) *httptest.ResponseRecorder {
+func doCreateBenchmarkWithCompressors(handler http.Handler, token, name string, files map[string][]byte, compressorsJSON string) *httptest.ResponseRecorder {
 	body := new(bytes.Buffer)
 	mw := multipart.NewWriter(body)
 	mw.WriteField("name", name)
-	mw.WriteField("compressors", `{"gzip":{"level":6}}`)
+	mw.WriteField("compressors", compressorsJSON)
 	// Deterministic order helps assertions.
 	for filename, content := range files {
 		fw, _ := mw.CreateFormFile("files", filename)
@@ -78,6 +78,10 @@ func doCreateBenchmark(handler http.Handler, token, name string, files map[strin
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	return w
+}
+
+func doCreateBenchmark(handler http.Handler, token, name string, files map[string][]byte) *httptest.ResponseRecorder {
+	return doCreateBenchmarkWithCompressors(handler, token, name, files, `{"gzip":{"level":6}}`)
 }
 
 func TestCreateBenchmarkMultipleFiles(t *testing.T) {
@@ -121,5 +125,58 @@ func TestCreateBenchmarkRejectsNoFiles(t *testing.T) {
 	w := doCreateBenchmark(handler, token, "empty", map[string][]byte{})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("no-files create = %d, want 400: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateBenchmarkInstancesArray(t *testing.T) {
+	handler := setupBenchmarkTest(t)
+	token := tokenFor(t, "user@test.com")
+
+	w := doCreateBenchmarkWithCompressors(handler, token, "instances", map[string][]byte{
+		"a.bin": sampleBinBytes(t, 32),
+	}, `[{"name":"gzip","options":{"level":1}},{"name":"gzip","options":{"level":9}}]`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d: %s", w.Code, w.Body.String())
+	}
+
+	var benchmark model.Benchmark
+	if err := json.Unmarshal(w.Body.Bytes(), &benchmark); err != nil {
+		t.Fatalf("decode benchmark: %v", err)
+	}
+	if len(benchmark.Compressors) != 2 {
+		t.Fatalf("instances = %d, want 2", len(benchmark.Compressors))
+	}
+	if benchmark.Compressors[0].Label != "gzip · level 1" || benchmark.Compressors[1].Label != "gzip · level 9" {
+		t.Errorf("labels = %q, %q", benchmark.Compressors[0].Label, benchmark.Compressors[1].Label)
+	}
+}
+
+func TestCreateBenchmarkRejectsDuplicateInstance(t *testing.T) {
+	handler := setupBenchmarkTest(t)
+	token := tokenFor(t, "user@test.com")
+
+	w := doCreateBenchmarkWithCompressors(handler, token, "dupes", map[string][]byte{
+		"a.bin": sampleBinBytes(t, 16),
+	}, `[{"name":"gzip","options":{"level":9}},{"name":"gzip","options":{"level":9}}]`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate create = %d, want 400: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateBenchmarkRejectsTooManyInstances(t *testing.T) {
+	handler := setupBenchmarkTest(t)
+	token := tokenFor(t, "user@test.com")
+
+	instances := make([]map[string]any, 65)
+	for i := range instances {
+		instances[i] = map[string]any{"name": "zstd", "options": map[string]any{"level": 1 + i%4}}
+	}
+	payload, _ := json.Marshal(instances)
+
+	w := doCreateBenchmarkWithCompressors(handler, token, "too many", map[string][]byte{
+		"a.bin": sampleBinBytes(t, 16),
+	}, string(payload))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("too many create = %d, want 400: %s", w.Code, w.Body.String())
 	}
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"bitbench/internal/compressor"
 )
 
 const (
@@ -68,7 +70,7 @@ type Benchmark struct {
 	FileChecksum     string                 `json:"file_checksum"`
 	FileExt          string                 `json:"file_ext"`
 	Status           string                 `json:"status"`
-	Compressors      map[string]interface{} `json:"compressors"`
+	Compressors      []compressor.Instance  `json:"compressors"`
 	Error            *string                `json:"error,omitempty"`
 	Progress         *int                   `json:"progress,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
@@ -94,10 +96,11 @@ const (
 type BenchmarkTask struct {
 	ID          uuid.UUID  `json:"id"`
 	BenchmarkID uuid.UUID  `json:"benchmark_id"`
-	Seq         int        `json:"seq"`
-	Kind        string     `json:"kind"`
-	Compressor  *string    `json:"compressor,omitempty"`
-	InputPath   string     `json:"input_path"`
+	Seq          int        `json:"seq"`
+	Kind         string     `json:"kind"`
+	Compressor   *string    `json:"compressor,omitempty"`
+	InstanceLabel *string   `json:"instance_label,omitempty"`
+	InputPath    string     `json:"input_path"`
 	Workers     int        `json:"workers"`
 	Status      string     `json:"status"`
 	Result      []byte     `json:"result,omitempty"`
