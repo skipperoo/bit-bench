@@ -63,3 +63,66 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   }
   return res.json()
 }
+
+export interface UploadProgress {
+  /** Bytes handed to the socket so far. */
+  loaded: number
+  /** Total request body size, or 0 when the browser cannot compute it. */
+  total: number
+}
+
+/**
+ * Uploads a multipart body with progress reporting. `fetch` cannot observe
+ * request upload progress, so this uses XMLHttpRequest; the request semantics
+ * (auth, error handling) match `apiUpload`.
+ */
+export function apiUploadWithProgress<T>(
+  path: string,
+  formData: FormData,
+  onProgress?: (progress: UploadProgress) => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const token = useAuthStore.getState().token
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}${path}`)
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+
+    xhr.upload.onprogress = (event) => {
+      onProgress?.({ loaded: event.loaded, total: event.lengthComputable ? event.total : 0 })
+    }
+
+    xhr.onload = () => {
+      if (xhr.status === 401) {
+        useAuthStore.getState().logout()
+        window.location.href = '/login'
+        reject(new Error('unauthorized'))
+        return
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (xhr.status === 204 || !xhr.responseText) {
+          resolve(undefined as T)
+          return
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText) as T)
+        } catch {
+          resolve(undefined as T)
+        }
+        return
+      }
+      let message = xhr.statusText
+      try {
+        message = JSON.parse(xhr.responseText).error || message
+      } catch {
+        // keep the status text
+      }
+      reject(new Error(message))
+    }
+    xhr.onerror = () => reject(new Error('Upload failed'))
+    xhr.onabort = () => reject(new Error('Upload cancelled'))
+
+    xhr.send(formData)
+  })
+}
