@@ -17,6 +17,7 @@ import (
 
 	"bitbench/internal/compressor"
 	"bitbench/internal/config"
+	"bitbench/internal/logger"
 	"bitbench/internal/model"
 	"bitbench/internal/repository"
 	"bitbench/internal/seqfile"
@@ -29,12 +30,13 @@ type BenchmarkService struct {
 	resultRepo  *repository.BenchmarkResultRepository
 	pkgRepo     *repository.CompressorPackageRepository
 	taskRepo    *repository.BenchmarkTaskRepository
+	presets     *PresetService
 	cfg         *config.Config
 	runningFunc func() int
 }
 
-func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, pr *repository.CompressorPackageRepository, tr *repository.BenchmarkTaskRepository, cfg *config.Config) *BenchmarkService {
-	return &BenchmarkService{benchRepo: br, resultRepo: rr, pkgRepo: pr, taskRepo: tr, cfg: cfg}
+func NewBenchmarkService(br *repository.BenchmarkRepository, rr *repository.BenchmarkResultRepository, pr *repository.CompressorPackageRepository, tr *repository.BenchmarkTaskRepository, presets *PresetService, cfg *config.Config) *BenchmarkService {
+	return &BenchmarkService{benchRepo: br, resultRepo: rr, pkgRepo: pr, taskRepo: tr, presets: presets, cfg: cfg}
 }
 
 // UploadedFile is one file of a (possibly multi-file) benchmark upload.
@@ -108,7 +110,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 	}
 
 	// Resolve, canonicalize and validate every configured instance.
-	resolved, err := s.resolveInstances(ctx, actor, compressorsJSON)
+	resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, actor, compressorsJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +243,13 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		return nil, fmt.Errorf("create tasks: %w", err)
 	}
 
+	// Record the configuration in the user's history (best effort).
+	if s.presets != nil {
+		if err := s.presets.RecordHistory(ctx, actor.ID, instances); err != nil {
+			logger.Warn("record config history", "user", actor.ID, "error", err)
+		}
+	}
+
 	return benchmark, nil
 }
 
@@ -252,9 +261,9 @@ type resolvedInstance struct {
 	Package  *model.CompressorPackage
 }
 
-// resolveInstances parses, canonicalizes and validates the configured
-// compressor instances, rejecting duplicate configurations.
-func (s *BenchmarkService) resolveInstances(ctx context.Context, actor *model.User, compressorsJSON []byte) ([]resolvedInstance, error) {
+// resolveInstances parses, canonicalizes and validates configured compressor
+// instances, rejecting duplicate configurations.
+func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackageRepository, maxParallelism int, actor *model.User, compressorsJSON []byte) ([]resolvedInstance, error) {
 	instances, err := compressor.ParseInstances(compressorsJSON)
 	if err != nil {
 		return nil, err
@@ -282,15 +291,15 @@ func (s *BenchmarkService) resolveInstances(ctx context.Context, actor *model.Us
 		if compressor.IsValid(name) {
 			schema = compressor.Registry[name]
 		} else {
-			pkg, err = s.pkgRepo.FindVisibleReadyByName(ctx, name, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+			pkg, err = pkgRepo.FindVisibleReadyByName(ctx, name, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
 			if err != nil {
 				return nil, fmt.Errorf("validate compressor %s: %w", name, err)
 			}
 			if pkg == nil {
 				return nil, fmt.Errorf("unknown compressor: %s", name)
 			}
-			if pkg.Workers > s.cfg.MaxParallelism {
-				return nil, fmt.Errorf("compressor %s requires %d workers, more than the %d available", name, pkg.Workers, s.cfg.MaxParallelism)
+			if pkg.Workers > maxParallelism {
+				return nil, fmt.Errorf("compressor %s requires %d workers, more than the %d available", name, pkg.Workers, maxParallelism)
 			}
 			var spec compressor.PackageSpec
 			if err := json.Unmarshal(pkg.Spec, &spec); err != nil {

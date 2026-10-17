@@ -35,6 +35,16 @@
 - [x] Average mode: multiple selected files become one benchmark, normalized to `.bin` at upload and fanned out as per-`.bin` tasks over a unified CPU worker budget (`MAX_PARALLELISM`, default allocatable cores). Custom `(bin × package)` tasks cost their declared `workers`. Claim order: group priority, then fewest running worker units per benchmark, best-fitting task; no preemption; per-task retries; crash recovery; graceful cancellation. `MAX_RUNNER_WORKERS` removed.
 - [x] Upload page: file list shows at most five rows with scrolling and per-file remove.
 
+## Multi-instance configurations, presets and history
+
+- [x] A benchmark is an ordered list of compressor instances (`{name, options, label}`); the same compressor or package can be configured several times with different options, up to 64 instances. Exact duplicates are rejected client- and server-side (built-ins by native invocation, packages by canonical options).
+- [x] Automatic brief labels (`gzip · level 9`, `neats · lossy · max_bpc 16`) shown beside the compressor name in results, charts, tables and LaTeX exports; colours/shapes/families are derived from the base compressor.
+- [x] Native C++ harness: per-entry options `name=key:value;key:value` (legacy `name=<level>` kept) wiring NeaTS `max_bpc`/`lossy`, Camel `max_precision`, Falcon `decimals`, level options and the pfordelta codec; configured entries are emitted in the CSV `compressor` column, plain entries keep their historical labels. `MemoryHarness` parses the same syntax so memory results reflect the configuration.
+- [x] Upload page redesigned as a two-pane configuration builder: searchable algorithm picker grouped by family (custom packages first) on the left, configured instances with expandable option editors and auto labels on the right.
+- [x] Presets: `benchmark_presets` table, `GET/POST/PUT/DELETE /api/v1/presets`. Private or group-shared (bound to the owner's group at creation); every role can create/load/use; owner, admin, or a professor of the preset's group (shared presets) can edit/delete; only owner/admin change visibility; names unique per owner.
+- [x] Configuration history: `benchmark_config_history`, recorded on benchmark creation, deduplicated per user, capped at 20, promotable to a preset; panel with Load / Save as preset.
+- [x] Tests: instance canonicalization/labels/invocations, duplicate and cap rejection, multi-instance E2E through the real runner image, preset permission matrix, history dedup, frontend helper suites.
+
 ## Remaining (future)
 
 - [ ] E2E tests (Playwright)

@@ -11,6 +11,7 @@ type Services struct {
 	Auth       *AuthService
 	Benchmark  *BenchmarkService
 	Compressor *CompressorService
+	Preset     *PresetService
 }
 
 var App *Services
@@ -21,11 +22,14 @@ func InitServices(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) {
 	resultRepo := repository.NewBenchmarkResultRepository(db)
 	pkgRepo := repository.NewCompressorPackageRepository(db)
 	taskRepo := repository.NewBenchmarkTaskRepository(db)
+	presetRepo := repository.NewPresetRepository(db)
+	presetSvc := NewPresetService(presetRepo, pkgRepo, cfg)
 
 	App = &Services{
 		Auth:       NewAuthService(userRepo, rdb, cfg),
-		Benchmark:  NewBenchmarkService(benchRepo, resultRepo, pkgRepo, taskRepo, cfg),
+		Benchmark:  NewBenchmarkService(benchRepo, resultRepo, pkgRepo, taskRepo, presetSvc, cfg),
 		Compressor: NewCompressorService(pkgRepo, cfg),
+		Preset:     presetSvc,
 	}
 }
 
