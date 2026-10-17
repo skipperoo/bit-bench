@@ -233,6 +233,7 @@ Metrics (in order) and their ranking direction:
 | Metric | Chart | Ranking |
 |:--|:--|:--|
 | `compression_ratio` | grouped bar (×100, %) | **lower is better** |
+| `bits_per_element` (derived: `compressed_bits / num_values`; uncompressed container shown as a reference line and column) | grouped bar (b/e) | **lower is better** |
 | `compression_throughput_mbs` | scatter vs ratio | higher is better |
 | `decompression_throughput_mbs` | scatter vs ratio | higher is better |
 | `memory_usage` | grouped bar (MB) | **lower is better** |
@@ -255,7 +256,7 @@ For a benchmark's result rows, compute per compressor `c`:
 2. **Domination**: compressor `a` **dominates** `b` iff `(ratio_a ≤ ratio_b AND tp_a ≥ tp_b)` AND at least one inequality is strict. If `tp` is NULL/NaN for all compressors, fall back to single-objective: `a` dominates `b` iff `ratio_a < ratio_b`.
 3. `domination_count_c` = number of compressors that dominate `c`.
 4. Sort by `(domination_count_c ASC, ratio_c ASC)`.
-5. **Top 5** = the first 5 compressors in that order. Display compressor name, `compression_ratio` (%), `compression_throughput_mbs`, and a "Pareto-optimal" badge for those with `domination_count == 0`.
+5. **Top 5** = the first 5 compressors in that order. Display compressor name, `compression_ratio` (%), `compression_throughput_mbs`, the derived `bits_per_element` (with the uncompressed container width in the tooltip), and a "Pareto-optimal" badge for those with `domination_count == 0`.
 
 ### 3.6 Frontend routing convention
 
@@ -780,7 +781,7 @@ random_access_ns,random_access_mbs[,range_query_<N>...]
 
 ### 6.5 Metric ranking rules (parity with `is_min_best`)
 
-Lower is better: `compression_ratio`, `compressed_bits`, `uncompressed_bits`, `original_size`, `memory_usage`, `compressor_internal`, `internal_memory_ratio`, `relative_memory_usage`, `random_access_ns`, any `*_ns`, any `*_bits`.
+Lower is better: `compression_ratio`, `compressed_bits`, `uncompressed_bits`, `original_size`, `memory_usage`, `compressor_internal`, `internal_memory_ratio`, `relative_memory_usage`, `random_access_ns`, `bits_per_element` (derived client-side as `compressed_bits / num_values`), any `*_ns`, any `*_bits`.
 Higher is better: everything else (throughputs `*_mbs`, range queries).
 
 ### 6.6 User-provided compressor packages (D20-D24)

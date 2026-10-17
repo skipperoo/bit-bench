@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
+import { withDerivedMetrics } from '@/lib/metrics'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, CompareResponse, BenchmarkResult } from '@/types'
@@ -17,6 +18,7 @@ const EXCLUDED_METRICS = new Set([
   'num_values', 'original_size', 'dataset_size', 'dataset_base',
   'dataset_type', 'source_results_csv', 'input_buffer',
   'relative_memory_usage', 'internal_memory_ratio',
+  'uncompressed_bits_per_element',
 ])
 
 const BENCHMARK_COLORS = [
@@ -47,7 +49,7 @@ function useCompareData(searchParams: URLSearchParams) {
         setBenchmarks(data.benchmarks || [])
         const map = new Map<string, BenchmarkResult[]>()
         for (const [id, res] of Object.entries(data.results || {})) {
-          map.set(id, res)
+          map.set(id, withDerivedMetrics(res))
         }
         setResults(map)
       })
@@ -66,7 +68,7 @@ function getMetricDefs(results: BenchmarkResult[]): MetricDef[] {
     }
   }
   const order = [
-    'compression_ratio', 'compression_throughput_mbs', 'decompression_throughput_mbs',
+    'compression_ratio', 'bits_per_element', 'compression_throughput_mbs', 'decompression_throughput_mbs',
     'memory_usage', 'compressor_internal', 'random_access_ns', 'random_access_mbs',
   ]
   return [...keys]
@@ -224,9 +226,12 @@ export default function ComparePage() {
     'compression_ratio', 'compressed_bits', 'uncompressed_bits',
     'original_size', 'memory_usage', 'compressor_internal',
     'random_access_ns', 'internal_memory_ratio', 'relative_memory_usage',
+    'bits_per_element',
   ])
 
   const metrics = getMetricDefs(allResults)
+  const uncompressedReference = allResults.find((r) => r.uncompressed_bits_per_element != null)
+    ?.uncompressed_bits_per_element ?? null
 
   return (
     <div className="space-y-6 p-6">
@@ -255,6 +260,11 @@ export default function ComparePage() {
             <CardTitle className="text-base">{metric.label}</CardTitle>
           </CardHeader>
           <CardContent>
+            {metric.key === 'bits_per_element' && uncompressedReference != null && (
+              <p className="text-xs text-muted-foreground mb-2">
+                Uncompressed input container: {uncompressedReference.toFixed(2)} b/e
+              </p>
+            )}
             <MetricComparisonTable
               metric={metric.key}
               benchmarks={benchmarks}

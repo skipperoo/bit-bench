@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
   ScatterChart, Scatter, ResponsiveContainer, Cell, type LabelProps
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
 import { formatMetricValue } from '@/lib/format'
+import { withDerivedMetrics } from '@/lib/metrics'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
@@ -78,6 +79,7 @@ function CompressorShape(scatterProps: any) {
 const LOWER_IS_BETTER = new Set([
   'compression_ratio', 'compressed_bits', 'uncompressed_bits',
   'original_size', 'memory_usage', 'compressor_internal', 'random_access_ns',
+  'bits_per_element',
 ])
 
 function metricLabel(key: string): string {
@@ -89,6 +91,8 @@ function metricLabel(key: string): string {
     compressor_internal: 'Compressor Memory',
     random_access_ns: 'Random Access (ns)',
     random_access_mbs: 'Random Access (MB/s)',
+    bits_per_element: 'Bits per Element (b/e)',
+    uncompressed_bits_per_element: 'Uncompressed Container (b/e)',
   }
   return labels[key] || key
 }
@@ -183,7 +187,12 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   )
 }
 
-function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metric: string }) {
+function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
+  results: BenchmarkResult[]
+  metric: string
+  referenceY?: number | null
+  referenceLabel?: string
+}) {
   const data = results
     .filter((r) => (r as any)[metric] != null)
     .map((r) => ({
@@ -207,6 +216,14 @@ function MetricBarChart({ results, metric }: { results: BenchmarkResult[]; metri
             label={getYLabel(label)}
           />
           <Tooltip formatter={(v: any) => formatMetricValue(v, metric)} />
+          {referenceY != null && (
+            <ReferenceLine
+              y={referenceY}
+              stroke="#64748b"
+              strokeDasharray="4 4"
+              label={{ value: referenceLabel, position: 'insideTopRight', fontSize: 11, fill: '#64748b' }}
+            />
+          )}
           <Bar dataKey={metric} fill="#16a34a">
             {data.map((d) => (
               <Cell key={d.name} fill={getCompressorColor(d.compressor)} />
@@ -287,15 +304,31 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
   )
 }
 
-function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: string }) {
+function RankedTable({ results, metric, referenceMetric }: {
+  results: BenchmarkResult[]
+  metric: string
+  referenceMetric?: string
+}) {
   const ranked = rankResults(results, metric)
   if (ranked.length === 0) return null
+
+  const referenceValue = (compressor: string): number | undefined => {
+    if (!referenceMetric) return undefined
+    const r = results.find((res) => res.compressor === compressor)
+    return r ? ((r as any)[referenceMetric] as number | undefined) : undefined
+  }
+  const hasReference = referenceMetric != null && ranked.some((r) => referenceValue(r.compressor) != null)
 
   // Build latex table data
   const latexRows: LatexTableRow[] = ranked.map((r) => ({
     label: renameCompressor(r.compressor),
-    values: [r.value],
+    values: hasReference
+      ? [r.value, referenceValue(r.compressor) ?? null]
+      : [r.value],
   }))
+  const latexColumns = hasReference
+    ? [metricLabel(metric), metricLabel(referenceMetric!)]
+    : [metricLabel(metric)]
   const lowerIsBetter = isLowerBetter(metric)
   const rankLabel = lowerIsBetter ? 'Lower is better' : 'Higher is better'
 
@@ -308,6 +341,7 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
               <th className="text-left py-2">Rank</th>
               <th className="text-left py-2">Compressor</th>
               <th className="text-right py-2">{metricLabel(metric)}</th>
+              {hasReference && <th className="text-right py-2">{metricLabel(referenceMetric!)}</th>}
             </tr>
           </thead>
           <tbody>
@@ -322,6 +356,13 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
                 <td className="text-right py-1">
                   {formatMetricValue(r.value, metric)}
                 </td>
+                {hasReference && (
+                  <td className="text-right py-1 text-muted-foreground">
+                    {referenceValue(r.compressor) != null
+                      ? formatMetricValue(referenceValue(r.compressor)!, referenceMetric!)
+                      : '-'}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -332,7 +373,7 @@ function RankedTable({ results, metric }: { results: BenchmarkResult[]; metric: 
           variant="outline"
           size="sm"
           onClick={async () => {
-            const latex = buildLatexTable(latexRows, [metricLabel(metric)], `${metricLabel(metric)} — ${rankLabel}`, lowerIsBetter)
+            const latex = buildLatexTable(latexRows, latexColumns, `${metricLabel(metric)} — ${rankLabel}`, lowerIsBetter)
             await copyToClipboard(latex)
           }}
         >
@@ -355,7 +396,7 @@ export default function DetailPage() {
     apiFetch<BenchmarkDetailResponse>(`/benchmarks/${id}`)
       .then((data) => {
         setBenchmark(data.benchmark)
-        setResults(data.results || [])
+        setResults(withDerivedMetrics(data.results || []))
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -375,9 +416,13 @@ export default function DetailPage() {
   const hasCompressorInternal = results.some((r) => r.compressor_internal != null)
   const hasRandomNS = results.some((r) => r.random_access_ns != null)
   const hasRandomMBS = results.some((r) => r.random_access_mbs != null)
+  const hasBitsPerElement = results.some((r) => r.bits_per_element != null)
+  const uncompressedBitsReference = results.find((r) => r.uncompressed_bits_per_element != null)
+    ?.uncompressed_bits_per_element ?? null
 
   const metricSections = [
     { key: 'compression_ratio', label: 'Compression Ratio', chart: 'bar' as const, show: true },
+    { key: 'bits_per_element', label: 'Bits per Element', chart: 'bar' as const, show: hasBitsPerElement },
     { key: 'compression_throughput_mbs', label: 'Compression Throughput', chart: 'scatter' as const, show: hasThroughput },
     { key: 'decompression_throughput_mbs', label: 'Decompression Throughput', chart: 'scatter' as const, show: hasDecompression },
     { key: 'memory_usage', label: 'Memory Usage', chart: 'bar' as const, show: hasMemory },
@@ -413,6 +458,9 @@ export default function DetailPage() {
                     <th className="text-left py-2">Compressor</th>
                     <th className="text-right py-2">Ratio (%)</th>
                     <th className="text-right py-2">Throughput (MB/s)</th>
+                    <th className="text-right py-2" title="Compressed bits per element; hover a value for the input container width">
+                      Bits/Element
+                    </th>
                     <th className="text-center py-2">Pareto</th>
                   </tr>
                 </thead>
@@ -428,6 +476,14 @@ export default function DetailPage() {
                         </td>
                         <td className="text-right py-2">
                           {r?.compression_throughput_mbs != null ? r.compression_throughput_mbs.toFixed(2) : '-'}
+                        </td>
+                        <td
+                          className="text-right py-2"
+                          title={r?.uncompressed_bits_per_element != null
+                            ? `input container: ${r.uncompressed_bits_per_element.toFixed(2)} b/e`
+                            : undefined}
+                        >
+                          {r?.bits_per_element != null ? r.bits_per_element.toFixed(2) : '-'}
                         </td>
                         <td className="text-center py-2">
                           <ParetoBadge dominationCount={count} />
@@ -468,11 +524,22 @@ export default function DetailPage() {
           {expandedMetric === section.key && (
             <CardContent className="space-y-4">
               {section.chart === 'bar' ? (
-                <MetricBarChart results={results} metric={section.key} />
+                <MetricBarChart
+                  results={results}
+                  metric={section.key}
+                  referenceY={section.key === 'bits_per_element' ? uncompressedBitsReference : null}
+                  referenceLabel={section.key === 'bits_per_element' && uncompressedBitsReference != null
+                    ? `input container ${uncompressedBitsReference.toFixed(0)} b/e`
+                    : undefined}
+                />
               ) : (
                 <ScatterChartMetric results={results} metric={section.key} />
               )}
-              <RankedTable results={results} metric={section.key} />
+              <RankedTable
+                results={results}
+                metric={section.key}
+                referenceMetric={section.key === 'bits_per_element' ? 'uncompressed_bits_per_element' : undefined}
+              />
             </CardContent>
           )}
         </Card>

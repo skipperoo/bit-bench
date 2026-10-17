@@ -86,6 +86,9 @@ export interface BenchmarkResult {
   random_access_ns?: number
   random_access_mbs?: number
   range_queries?: Record<string, number>
+  // Derived client-side by `withDerivedMetrics` (lib/metrics.ts).
+  bits_per_element?: number
+  uncompressed_bits_per_element?: number
 }
 
 export interface BenchmarkStatus {
