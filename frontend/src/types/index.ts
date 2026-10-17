@@ -28,6 +28,24 @@ export interface GroupRef {
   name: string
 }
 
+export interface BenchmarkPreset {
+  id: string
+  owner_id: string
+  group_id?: string
+  name: string
+  visibility: 'private' | 'group'
+  compressors: CompressorInstance[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ConfigHistoryEntry {
+  id: string
+  user_id: string
+  compressors: CompressorInstance[]
+  last_used_at: string
+}
+
 export interface LoginRequest {
   email: string
   password: string

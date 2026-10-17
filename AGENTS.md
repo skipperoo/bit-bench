@@ -1,5 +1,7 @@
 # BitBench — Technical Specifications
 
+> **Revision 5** — Supersedes Revision 4. Adds **multi-instance benchmark configurations**: one benchmark may combine several configurations of the same compressor with different options (auto-labelled brief configs in results, duplicate configurations rejected, up to 64 instances), the native harness gains per-entry options (NeaTS `max_bpc`/`lossy`, Camel `max_precision`, Falcon `decimals`) and emits the configured entry in its CSV, and users gain **presets** (private or group-shared) plus a **configuration history** that can be promoted to a preset. All design decisions are recorded inline (marked **[DECISION]**).
+>
 > **Revision 4** — Supersedes Revision 3. Replaces the benchmark-per-goroutine runner with a **task-based scheduler over a single CPU worker budget** (`MAX_PARALLELISM` = allocatable cores): one benchmark can fan its `.bin` files and custom packages across the whole pool with priority + fair-share claiming, multi-file uploads are averaged into one benchmark, normalization happens at upload, and crash recovery re-queues interrupted tasks. All design decisions are recorded inline (marked **[DECISION]**).
 >
 > **Revision 3** — Supersedes Revision 2. Adds the role hierarchy (`admin`/`professor`/`phd`/`student`) with DB-resolved permissions, the CPU section on the status endpoint/page, and **user-provided compressor packages**: package format (`spec.yaml`), package API, offline builds, sandboxed runner containers, worker-slot scheduling, group-scoped visibility, management UI, examples and documentation. All design decisions are recorded inline (marked **[DECISION]**).
@@ -46,6 +48,9 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D22 | **Unified CPU worker budget.** `MAX_PARALLELISM` is the total budget and defaults to the cores allocatable to the process (`runtime.GOMAXPROCS(0)`, cgroup-aware), overridable by env. Work is split into claimable `benchmark_tasks`: a built-in `.bin` task costs 1 unit and a custom `(bin × package)` task costs the package's declared `workers`. The scheduler never lets the sum of running task costs exceed the budget and never spawns more task goroutines than the budget. Containers get `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the run and fails the benchmark. `MAX_RUNNER_WORKERS` is removed; `spec.yaml:workers` is validated against the budget at upload and run time. | Prevents CPU oversubscription and enforces declared parallelism with one accounting model. |
 | D26 | **One benchmark per averaging upload, fanned out as tasks.** Multiple selected files are normalized to `.bin` **at upload** (`POST /benchmarks` accepts repeated `files`), stored under `DATA_DIR/<benchmark_id>/inputs/`, and fanned out as one built-in task per `.bin` plus one task per `(custom package × .bin)`. When all tasks complete, the scheduler averages their rows into one row per compressor. The source uploads are deleted right after normalization. | Parallelizes averaging without changing the "one averaged row per compressor" result model. |
 | D27 | **Scheduling policy: strict priority, fair share, no preemption.** Claim order is group `priority` DESC, then the benchmark with the fewest **running worker units** (fair share), then FIFO. The scheduler claims the best-fitting task that fits in the free budget, so a large custom task waits while smaller tasks keep the pool busy. Higher-priority work never interrupts running tasks; it takes the next freed units. Retries are per task (`BENCH_MAX_RETRIES`); cancellation marks queued tasks cancelled and lets running tasks finish with their results discarded. | Predictable priority with per-benchmark fairness and no disruptive preemption. |
+| D28 | **A benchmark configuration is an ordered list of instances** (`{name, options, label}`), so the same compressor or package may appear several times with different options. Up to `64` instances; exact duplicates are rejected server-side (built-ins by native invocation, packages by canonical options); labels are auto-generated from non-default options (`gzip · level 9`) and shown beside the compressor name in results, charts, tables and LaTeX exports. | Directly compares configurations of one algorithm; container-independent and unambiguous results. |
+| D29 | **Native per-entry options.** The C++ harness parses `-c` entries as `name`, `name=<int>` (legacy level) or `name=key:value;key:value` (`level`, `max_bpc`, `lossy`, `max_precision`, `decimals`; the pfordelta codec is encoded in the name). Configured entries are emitted verbatim in the CSV `compressor` column, while plain entries keep their historical labels (e.g. `NeaTS`); the backend matches entries case-insensitively and relabels rows with the configured instance label. `MemoryHarness` parses and applies the same entry syntax so memory results reflect the configured options. | Configurations are measurable per instance without breaking the standalone report pipeline. |
+| D30 | **Presets and configuration history.** Presets store an instance list, are named uniquely per owner, and are either `private` or `group`-shared (bound to the owner's group at creation, like packages). Every role may create, load and use presets; only the owner, an administrator, or a professor of the preset's group (for shared presets) may edit or delete them; only the owner or an administrator may change a preset's visibility. Each user keeps a deduplicated history of their last 20 configurations (`benchmark_config_history`), recorded on benchmark creation, which can be loaded or promoted to a preset. | Reusable experiment setups for a research group with clear ownership. |
 | D23 | **Visibility is group-tied at upload time.** A package is visible to its owner, the owner's group (so group members can select professor/phd packages), and admins. Moving a user to another group does not move the package. `GET /compressors` returns the flat `{name: options}` map with built-ins and visible ready packages merged. | Matches the "research group" visibility model and keeps the frontend contract unchanged. |
 | D24 | **Custom compressor CSV is parsed leniently**: `memory_usage`, `random_access_ns`, `random_access_mbs` and `range_query_*` may be empty and are stored as `NULL`; the platform does not run the Massif/MemoryHarness measurement on user programs. | "Leave NULL unless self-reported" avoids misleading zeros in rankings. |
 | D25 | **CPU information on `GET /status`** via `gopsutil` (cached static fields, live load per request): model, physical/logical cores, MHz, load 1/5/15, derived utilization, instruction-set flags. Shown on the Status page so users can pick safe `-march=native`/SIMD targets. | Needed by the compressor-package documentation and useful operationally. |
@@ -152,12 +157,9 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - **Benchmark name** input.
 - **Upload / drag-and-drop area** with client-side validation (extension + size from `GET /api/v1/config.maxFileSizeMb`). Multiple files allowed; the list shows at most five rows and scrolls beyond that, with a per-file remove button and a "remove all" action.
 - **Multi-file mode**: *Average* sends all files in one request as repeated `files` fields (one benchmark, tasks fan out, results averaged into one row per compressor); *Run separate benchmarks* enqueues one benchmark per file.
-- **Run button** (disabled until name + valid file + compressors selected).
-- **Advanced Options accordion**: for each compressor from `GET /api/v1/compressors`, render its option fields. Rule:
-  - Range option with **≤ 20** steps → **slider**.
-  - Range option with **> 20** steps → **number input** (min/max enforced).
-  - `boolean` → switch. `select` → dropdown.
-  - User-provided packages (merged into the same response) are grouped in a **Custom** family at the top of the compressor list.
+- **Run button** (disabled until name + valid file + at least one valid instance).
+- **Presets & History panel**: lists the visible presets (own + group-shared, `private`/`group` badge, load, delete when permitted) with a "save current configuration" form (name + visibility; group requires membership); lists the 20 most recent configurations of the user with load and "save as preset" actions. Loading replaces the current instance list (confirmation when non-empty).
+- **Two-pane configuration builder**: the left pane is a searchable algorithm picker grouped by family (Custom packages first) with an **Add** action per compressor; the right pane lists the configured instances (auto label, expandable options, remove). Option widgets follow the standard rules (slider for ≤ 20 steps, otherwise number input, switch for booleans, dropdown for selects). Compressors with no effective options can be added once; identical configurations are rejected client- and server-side; a counter enforces the 64-instance cap.
 - Duplicate checksums are allowed (D6); no client-side duplicate blocking. `GET /api/v1/benchmarks/checksums` is retained for backwards compatibility.
 
 #### 3.1.3 Results page
@@ -494,8 +496,13 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `GET`  | `/api/v1/compressors/packages` | Packages visible to the caller (own + own group + all for admin). |
 | `GET`  | `/api/v1/compressors/packages/{id}` | Package details incl. status, error and build log. |
 | `DELETE` | `/api/v1/compressors/packages/{id}` | Delete a package (owner, admin, or professor of the same group). |
+| `GET`  | `/api/v1/presets` | Presets visible to the caller (own + group-shared + all for admin). |
+| `POST` | `/api/v1/presets` | Body `{name, visibility: "private"\|"group", compressors: [...]}`. Any authenticated role. |
+| `PUT`  | `/api/v1/presets/{id}` | Body `{name?, visibility?, compressors?}`. Owner/admin; a group professor for shared presets (visibility changes require owner/admin). |
+| `DELETE` | `/api/v1/presets/{id}` | Delete a preset (same permission rule as `PUT`). |
+| `GET`  | `/api/v1/config-history` | The caller's 20 most recently used configurations, deduplicated and most-recent-first. |
 | `GET`  | `/api/v1/benchmarks/checksums` | `[{"checksum":"<md5>"}, ...]` retained for backwards compatibility (duplicates are allowed, D6). |
-| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), `compressors` (JSON: `{"<name>": {<option>: <value>}, ...}`). Validates type/size, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows. Compressor names must be built-ins or ready packages visible to the user. |
+| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
 | `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
 | `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
@@ -524,8 +531,8 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 One scheduler loop plus one goroutine per running task, with an in-process counter of running worker units. Each iteration:
 1. Compute `free = MAX_PARALLELISM - running_units`; claim the best-fitting queued task via `internal/repository.BenchmarkTaskRepository.ClaimNext` (priority DESC, fewest running units per benchmark, FIFO, `t.workers <= free`). The transaction locks the benchmark row **before** the task row to match `finalize`.
 2. Launch the task with `runTask`; release the units and signal the scheduler when it finishes.
-3. Built-in task: `timeout $BENCH_TIMEOUT_SECONDS $BENCH_BINARY -c <builtins> -o <out.csv> <file.bin>` plus `MemoryHarness` for that same `.bin`; parse strictly; store rows JSONB on the task.
-4. Custom task: merge options, run the package entrypoint in a runner container (offline, non-root, `--cpus=workers`, throttling above the quota kills + fails); parse leniently; store rows JSONB on the task.
+3. Built-in task: for each `.bin`, run every configured built-in instance in one invocation — `timeout $BENCH_TIMEOUT_SECONDS $BENCH_BINARY -c <entries> -o <out.csv> <file.bin>` where each entry is the canonical invocation (`gzip=level:9`, `neats=lossy:true;max_bpc:16`, plain names unchanged). `MemoryHarness` is run per entry with the same option syntax, rows are matched to entries case-insensitively, and then relabelled with the configured instance labels; parse strictly; store rows JSONB on the task.
+4. Custom task: one task per `(instance × .bin)`, with the instance label stored on the task (`benchmark_tasks.instance_label`); merge the instance options, run the package entrypoint in a runner container (offline, non-root, `--cpus=workers`, throttling above the quota kills + fails); parse leniently; relabel rows with the instance label; store rows JSONB on the task.
 5. `finalize` runs after every terminal task: under the benchmark row lock, if no queued/running tasks remain it averages every task's rows, inserts `benchmark_results`, sets `ready`/`finished_at`, deletes the task rows and `DATA_DIR/<benchmark_id>/`. A failed task sets the benchmark `failed` and cancels queued siblings; a container/binary timeout sets `timed_out`.
 6. On startup: `ResetRunning` re-queues interrupted tasks; `ListStrandedInProgress` finalizes benchmarks that crashed between the last task and aggregation.
 
@@ -560,7 +567,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue).
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -646,6 +653,7 @@ CREATE TABLE benchmark_tasks (
     seq          INT NOT NULL,
     kind         VARCHAR(16) NOT NULL CHECK (kind IN ('builtin', 'custom')),
     compressor   VARCHAR(64),               -- custom package name; NULL for builtin
+    instance_label VARCHAR(64),             -- configured instance label (custom tasks)
     input_path   TEXT NOT NULL,             -- .bin path relative to DATA_DIR
     workers      INT NOT NULL DEFAULT 1 CHECK (workers >= 1),
     status       VARCHAR(12) NOT NULL DEFAULT 'queued'
@@ -683,6 +691,34 @@ CREATE TABLE compressor_packages (
 );
 
 -- ============================================================
+-- BENCHMARK PRESETS  (saved configurations, D28/D30)
+-- ============================================================
+CREATE TABLE benchmark_presets (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    owner_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id    UUID REFERENCES groups(id) ON DELETE SET NULL,  -- creation group for group-shared presets
+    name        VARCHAR(100) NOT NULL,
+    visibility  VARCHAR(10) NOT NULL DEFAULT 'private'
+                CHECK (visibility IN ('private', 'group')),
+    compressors JSONB NOT NULL,             -- ordered [CompressorInstance]
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- CONFIGURATION HISTORY  (per-user, deduplicated, D30)
+-- ============================================================
+CREATE TABLE benchmark_config_history (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    compressors  JSONB NOT NULL,            -- ordered [CompressorInstance]
+    fingerprint  CHAR(64) NOT NULL,         -- sha256 of canonical config
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, fingerprint)
+);
+
+-- ============================================================
 -- EMAIL OUTBOX  (only used when SMTP enabled)
 -- ============================================================
 CREATE TABLE email_outbox (
@@ -710,6 +746,9 @@ CREATE INDEX ON benchmark_tasks (status, created_at) WHERE status = 'queued';
 CREATE INDEX ON compressor_packages (owner_id);
 CREATE INDEX ON compressor_packages (group_id);
 CREATE INDEX ON compressor_packages (status) WHERE status = 'ready';
+CREATE UNIQUE INDEX ON benchmark_presets (owner_id, LOWER(name));
+CREATE INDEX ON benchmark_presets (group_id) WHERE visibility = 'group';
+CREATE INDEX ON benchmark_config_history (user_id, last_used_at DESC);
 ```
 
 ### Migration workflow
@@ -749,7 +788,18 @@ With `LD_LIBRARY_PATH` pointing at the bundled Squash libraries when running Ful
 1. Read `compression/benchmark/lossless_benchmark.cpp` and every `compression/benchmark/<Name>/*.hpp` to find each compressor's configurable parameters (block sizes, levels, modes, thresholds).
 2. For each parameter, record `type` (`number`/`boolean`/`select`), `min`, `max`, `default`, `step` (for numbers), or `options` (for `select`).
 3. Encode the result in `registry.go`. `GET /api/v1/compressors` serializes this map, merged with the options of ready user packages visible to the caller (D23).
-4. If a compressor exposes no tunable parameters, it maps to an empty option set and the frontend renders no option fields for it (just an enable checkbox).
+4. If a compressor exposes no tunable parameters, it maps to an empty option set; the upload page then allows exactly one instance of it (there is no configuration to vary, D28).
+
+**Native options (D29).** Only `level`, `max_bpc`, `lossy`, `max_precision`, `decimals` (plus the pfordelta codec encoded in the name) are passed to the native harness per entry; every other registry entry is documentation-only. The mapping used by `compressor.BuildInvocation`:
+
+| Compressor | Options honored |
+|:--|:--|
+| gzip, bzip2, bzip3, lz4, zstd, brotli, xz | `level` (via `name=level:<n>` or legacy `name=<n>`) |
+| neats | `max_bpc`, `lossy` |
+| camel | `max_precision` (falls back to the `.bin` decimals) |
+| falcon | `decimals` (falls back to the `.bin` decimals) |
+| pfordelta | `codec` (maps to `pfordelta_<codec>` except the default `simdnewpfor`) |
+| user packages | every `spec.yaml` option (flags + `--options <json>`) |
 
 ### 6.3 Benchmark result CSV schema (the exact columns the backend parses)
 
@@ -764,6 +814,7 @@ random_access_ns,random_access_mbs[,range_query_<N>...]
 - The trailing `range_query_<N>` columns are **dynamic** (one per range size the binary probes). The parser MUST treat any column starting with `range_query_` as a range-query throughput (`mbs`, higher is better) and store them in `benchmark_results.range_queries` as `{"<N>": <value>}`.
 - `compression_ratio = compressed_bits / uncompressed_bits` (lower is better). The frontend displays it as `%` (×100).
 - Rows are grouped by `compressor`; when a benchmark produces multiple `.bin` files (CSV columns / zip contents), all rows for a compressor are **averaged** (numeric columns) into one stored row (D6). The `dataset` column of the stored row = the normalized benchmark label (original filename stem).
+- **The `compressor` column carries the configured entry** for instances that set options (`gzip=level:9`, `neats=lossy:true;max_bpc:16`); plain entries keep the harness' historical labels (`gzip`, `NeaTS`, `Gorilla` — D29). The backend matches entries to configured instances case-insensitively and stores the instance's brief label in `benchmark_results.compressor` (≤ 64 chars).
 - **Built-in output is parsed strictly.** User-provided compressor output is parsed **leniently** (D24): all 12 columns must exist, but `memory_usage`, `random_access_ns`, `random_access_mbs` and unparseable/empty `range_query_*` cells are stored as `NULL`; when a metric is empty in *all* rows of a compressor it stays `NULL` after averaging.
 
 ### 6.4 Compressor families (for chart coloring/shaping, parity with the HTML report)
@@ -1099,8 +1150,8 @@ Every PR introducing behavior MUST ship tests in the same commit.
 
 | Layer | Tool | What to cover |
 |:--|:--|:--|
-| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging incl. memory fields), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
-| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; multi-file upload creates one benchmark + one task per `.bin`; login → logout + JWT blocklist eviction; role/scope matrix (professor group scoping, student 403, deleted-user token rejection); compressor package API (upload/list/visibility/replace/delete) with a fake runner; task claim ordering (priority, fewest-running fair share, worker fit, cancelled benchmarks); benchmark scheduler end-to-end with the **real runner image** (normalize → task fan-out → build/run → parse → average → `ready` → files deleted), including all `examples/user-compressors` packages and a multi-file averaging case |
+| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging incl. memory fields), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, instance canonicalization/labels/invocations, config fingerprints, preset permission matrix, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
+| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; multi-file upload creates one benchmark + one task per `.bin`; multi-instance uploads (duplicate rejection, instance cap, auto labels); login → logout + JWT blocklist eviction; role/scope matrix (professor group scoping, student 403, deleted-user token rejection); preset CRUD + visibility/management matrix and config-history dedup; compressor package API (upload/list/visibility/replace/delete) with a fake runner; task claim ordering (priority, fewest-running fair share, worker fit, cancelled benchmarks); benchmark scheduler end-to-end with the **real runner image** (normalize → task fan-out → build/run → parse → average → `ready` → files deleted), including all `examples/user-compressors` packages, a multi-file averaging case and a multi-instance case |
 
 Minimum per PR: new handler → ≥1 happy + ≥1 error integration test; new worker → unit test for the scheduling/claim predicate + integration test for the DB interaction; new migration → integration test against a fresh schema.
 
@@ -1108,8 +1159,8 @@ Minimum per PR: new handler → ≥1 happy + ≥1 error integration test; new wo
 
 | Layer | Tool | What to cover |
 |:--|:--|:--|
-| Unit | Vitest | File-validation logic (type + size), option-form rendering rules (slider vs number input by step count), Pareto-score helper, ranking-direction helper, package status/manage helpers, CPU formatting/flags helpers |
-| Component | React Testing Library | Upload form (valid/invalid/loading states), status pill states (`queued`/`in_progress`/`ready`), error states, advanced-options accordion, Compressors page (student-disabled upload, statuses, build log) |
+| Unit | Vitest | File-validation logic (type + size), option-form rendering rules (slider vs number input by step count), instance helpers (canonicalization, labels, invocations, duplicate detection, cap), labelled-name renaming/colors/shapes, preset permission + summary helpers, Pareto-score helper, ranking-direction helper, package status/manage helpers, CPU formatting/flags helpers |
+| Component | React Testing Library | Upload form (valid/invalid/loading states), status pill states (`queued`/`in_progress`/`ready`), error states, configuration builder (add/remove instances, duplicate warning), presets/history panel states, Compressors page (student-disabled upload, statuses, build log) |
 | E2E | Playwright | Login, upload a benchmark, view detail charts, compare two benchmarks |
 
 Minimum per PR: new UI component → component tests for its interactive states; new pure logic → unit tests with known input/output vectors; new user journey → happy-path Playwright test.
