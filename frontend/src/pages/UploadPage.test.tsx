@@ -169,3 +169,42 @@ describe('UploadPage emulation warning', () => {
     expect(screen.queryByTestId('emulated-native_pkg')).not.toBeInTheDocument()
   })
 })
+
+describe('UploadPage save preset', () => {
+  it('saves a preset without submitting the benchmark form', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = []
+    mockedFetch.mockImplementation((path: string, options?: RequestInit) => {
+      calls.push([path, options])
+      if (path === '/compressors') {
+        return Promise.resolve({
+          gzip: { level: { type: 'number', min: 1, max: 9, default: 6, step: 1 } },
+        } as never)
+      }
+      if (path === '/compressors/packages' || path === '/presets' || path === '/config-history') {
+        return Promise.resolve([] as never)
+      }
+      if (path === '/config') {
+        return Promise.resolve({ hostPlatform: 'linux/amd64' } as never)
+      }
+      return Promise.resolve({} as never)
+    })
+
+    const { container } = renderPage()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [new File(['xxxx'], 'one.bin')])
+    await screen.findByText('1 files')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add Gzip' }))
+    await userEvent.type(screen.getByLabelText('Save current configuration'), 'my preset')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const post = calls.find(([path, options]) => path === '/presets' && options?.method === 'POST')
+      expect(post).toBeTruthy()
+    })
+
+    // The benchmark must not be submitted as a side effect of saving a preset.
+    expect(mockedUpload).not.toHaveBeenCalled()
+    expect(calls.some(([path]) => path === '/benchmarks')).toBe(false)
+  })
+})
