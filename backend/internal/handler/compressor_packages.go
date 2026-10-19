@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -26,6 +27,11 @@ func UploadCompressorPackage(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		writeError(w, "failed to parse form", http.StatusBadRequest)
 		return
+	}
+
+	// Platform probes can take a while on a cold foreign-architecture image.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Minute))
 	}
 
 	var groupID *uuid.UUID

@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,12 +26,19 @@ import (
 )
 
 type fakeRunner struct {
-	result *runner.Result
-	err    error
+	result    *runner.Result
+	err       error
+	ensureErr error
+	platforms []string
 }
 
 func (f *fakeRunner) Run(_ context.Context, _ runner.Spec) (*runner.Result, error) {
 	return f.result, f.err
+}
+
+func (f *fakeRunner) EnsurePlatform(_ context.Context, platform string) error {
+	f.platforms = append(f.platforms, platform)
+	return f.ensureErr
 }
 
 func setupPackageTest(t *testing.T) (http.Handler, *fakeRunner) {
@@ -69,11 +78,20 @@ func setupPackageTest(t *testing.T) (http.Handler, *fakeRunner) {
 
 func makePackageZip(t *testing.T, name, entrypoint string) []byte {
 	t.Helper()
+	return makePackageZipWithPlatform(t, name, entrypoint, "")
+}
+
+func makePackageZipWithPlatform(t *testing.T, name, entrypoint, platform string) []byte {
+	t.Helper()
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
-	spec := fmt.Sprintf("name: %s\nversion: \"1.0.0\"\nentrypoint: %s\noptions:\n  level:\n    type: number\n    min: 1\n    max: 9\n    default: 6\n", name, entrypoint)
+	spec := fmt.Sprintf("name: %s\nversion: \"1.0.0\"\nentrypoint: %s\n", name, entrypoint)
+	if platform != "" {
+		spec += fmt.Sprintf("platform: %s\n", platform)
+	}
+	spec += "options:\n  level:\n    type: number\n    min: 1\n    max: 9\n    default: 6\n"
 	specHdr := &zip.FileHeader{Name: "spec.yaml", Method: zip.Deflate}
 	specHdr.SetMode(0644)
 	w, _ := zw.CreateHeader(specHdr)
@@ -163,6 +181,46 @@ func TestUploadPackageRejectsBuiltinName(t *testing.T) {
 	w := doMultipart(handler, "/api/v1/compressors/packages", token, "codec.zip", makePackageZip(t, "gzip", "./run.sh"))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("builtin name upload = %d, want 400: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUploadPackageRejectsUnavailablePlatform(t *testing.T) {
+	handler, fake := setupPackageTest(t)
+	fake.ensureErr = errors.New("cannot run linux/arm64 containers on this linux/amd64 host")
+	token := tokenFor(t, "professor@test.com")
+
+	w := doMultipart(handler, "/api/v1/compressors/packages", token, "codec-arm.zip",
+		makePackageZipWithPlatform(t, "codec_arm", "./run.sh", "linux/arm64"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unavailable platform upload = %d, want 400: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "linux/arm64") {
+		t.Errorf("error should mention the platform: %s", w.Body.String())
+	}
+}
+
+func TestUploadPackageReportsResolvedPlatform(t *testing.T) {
+	handler, fake := setupPackageTest(t)
+	token := tokenFor(t, "professor@test.com")
+
+	w := doMultipart(handler, "/api/v1/compressors/packages", token, "codec-native.zip",
+		makePackageZip(t, "codec_native", "./run.sh"))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("upload = %d: %s", w.Code, w.Body.String())
+	}
+
+	var pkg model.CompressorPackage
+	if err := json.Unmarshal(w.Body.Bytes(), &pkg); err != nil {
+		t.Fatalf("decode package: %v", err)
+	}
+	if pkg.Platform == "" {
+		t.Error("platform should be resolved to the host platform")
+	}
+	if pkg.Emulated {
+		t.Error("native package must not be marked as emulated")
+	}
+	if len(fake.platforms) == 0 || fake.platforms[len(fake.platforms)-1] != pkg.Platform {
+		t.Errorf("EnsurePlatform calls = %v, want %q", fake.platforms, pkg.Platform)
 	}
 }
 

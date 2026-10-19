@@ -9,8 +9,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"bitbench/internal/compressor"
 	"bitbench/internal/config"
 	"bitbench/internal/logger"
 	"bitbench/internal/model"
@@ -27,6 +30,21 @@ import (
 )
 
 const e2eRunnerImage = "bitbench-runner:e2e"
+
+// newE2ERunner builds a runner whose platform map points at the native E2E
+// image; tests that need a foreign platform construct their own runner.
+func newE2ERunner(t *testing.T, memoryMB, pidsLimit int64) *runner.DockerRunner {
+	t.Helper()
+	images := map[string]string{
+		compressor.PlatformAMD64: e2eRunnerImage,
+		compressor.PlatformARM64: e2eRunnerImage,
+	}
+	r, err := runner.NewDockerRunner(images, memoryMB, pidsLimit)
+	if err != nil {
+		t.Skipf("docker unavailable, skipping E2E: %v", err)
+	}
+	return r
+}
 
 var testDB *pgxpool.Pool
 
@@ -213,10 +231,7 @@ func startScheduler(t *testing.T, cfg *config.Config, dockerRunner *runner.Docke
 // TestBenchmarkRunnerExamplesE2E uploads, builds and runs every example package
 // (one per supported language) through the real runner image and scheduler.
 func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
-	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
-	if err != nil {
-		t.Skipf("docker unavailable, skipping E2E: %v", err)
-	}
+	dockerRunner := newE2ERunner(t, 2048, 512)
 	defer dockerRunner.Close()
 	buildImageIfMissing(t, dockerRunner)
 
@@ -225,6 +240,7 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 		DataDir:         t.TempDir(),
 		CompressorDir:   t.TempDir(),
 		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		HostPlatform:    dockerRunner.HostPlatform(),
 		BenchTimeout:    180 * time.Second,
 		BenchMaxRetries: 0,
 		MaxParallelism:  4,
@@ -303,10 +319,7 @@ func TestBenchmarkRunnerExamplesE2E(t *testing.T) {
 // TestMultiFileAveragingE2E uploads two files in one benchmark and verifies the
 // parallel tasks are averaged into a single row per compressor.
 func TestMultiFileAveragingE2E(t *testing.T) {
-	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
-	if err != nil {
-		t.Skipf("docker unavailable, skipping E2E: %v", err)
-	}
+	dockerRunner := newE2ERunner(t, 2048, 512)
 	defer dockerRunner.Close()
 	buildImageIfMissing(t, dockerRunner)
 
@@ -315,6 +328,7 @@ func TestMultiFileAveragingE2E(t *testing.T) {
 		DataDir:         t.TempDir(),
 		CompressorDir:   t.TempDir(),
 		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		HostPlatform:    dockerRunner.HostPlatform(),
 		BenchTimeout:    180 * time.Second,
 		BenchMaxRetries: 0,
 		MaxParallelism:  4,
@@ -376,10 +390,7 @@ func TestMultiFileAveragingE2E(t *testing.T) {
 // TestMultiInstanceCustomE2E runs the same package twice with different
 // options in one benchmark and verifies distinct labelled results.
 func TestMultiInstanceCustomE2E(t *testing.T) {
-	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 512)
-	if err != nil {
-		t.Skipf("docker unavailable, skipping E2E: %v", err)
-	}
+	dockerRunner := newE2ERunner(t, 2048, 512)
 	defer dockerRunner.Close()
 	buildImageIfMissing(t, dockerRunner)
 
@@ -388,6 +399,7 @@ func TestMultiInstanceCustomE2E(t *testing.T) {
 		DataDir:         t.TempDir(),
 		CompressorDir:   t.TempDir(),
 		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		HostPlatform:    dockerRunner.HostPlatform(),
 		BenchTimeout:    180 * time.Second,
 		BenchMaxRetries: 0,
 		MaxParallelism:  4,
@@ -458,5 +470,144 @@ func TestMultiInstanceCustomE2E(t *testing.T) {
 	}
 	if raw.CompressionRatio == nil || *raw.CompressionRatio != 0.1875 {
 		t.Errorf("raw ratio = %v, want 0.1875", raw.CompressionRatio)
+	}
+}
+
+// copyExampleWithPlatform copies an example package to a temp directory and
+// prepends a platform declaration to its spec.yaml.
+func copyExampleWithPlatform(t *testing.T, src, platform string) string {
+	t.Helper()
+	dst := t.TempDir()
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if d.Name() == "spec.yaml" {
+			data = append([]byte(fmt.Sprintf("platform: %s\n", platform)), data...)
+		}
+		if err := os.WriteFile(target, data, info.Mode()); err != nil {
+			return err
+		}
+		return os.Chmod(target, info.Mode())
+	})
+	if err != nil {
+		t.Fatalf("copy example %s: %v", src, err)
+	}
+	return dst
+}
+
+// TestEmulatedARM64E2E uploads and runs a package targeting linux/arm64 on an
+// amd64 host, exercising the platform probe, the emulated build and the
+// emulated benchmark run. It is skipped unless E2E_RUNNER_IMAGE_ARM64 points
+// at an arm64 runner image (the CI integration job builds one with QEMU).
+func TestEmulatedARM64E2E(t *testing.T) {
+	armImage := os.Getenv("E2E_RUNNER_IMAGE_ARM64")
+	if armImage == "" {
+		t.Skip("E2E_RUNNER_IMAGE_ARM64 is not set; skipping emulated-platform E2E")
+	}
+	if runtime.GOARCH == "arm64" {
+		t.Skip("host is arm64; no emulation involved")
+	}
+
+	dockerRunner, err := runner.NewDockerRunner(map[string]string{
+		compressor.PlatformAMD64: e2eRunnerImage,
+		compressor.PlatformARM64: armImage,
+	}, 2048, 512)
+	if err != nil {
+		t.Skipf("docker unavailable, skipping E2E: %v", err)
+	}
+	defer dockerRunner.Close()
+
+	ctx := context.Background()
+	cfg := &config.Config{
+		DataDir:         t.TempDir(),
+		CompressorDir:   t.TempDir(),
+		BenchBinaryPath: "/nonexistent/LosslessBenchmarkFull",
+		BenchTimeout:    300 * time.Second,
+		BenchMaxRetries: 0,
+		MaxParallelism:  4,
+		BuildTimeout:    5 * time.Minute,
+		HostPlatform:    dockerRunner.HostPlatform(),
+	}
+	service.InitServices(cfg, testDB, nil)
+	service.App.Compressor.SetRunner(dockerRunner)
+	owner := e2eUser(t)
+
+	stop := startScheduler(t, cfg, dockerRunner)
+	defer stop()
+
+	dir := copyExampleWithPlatform(t, filepath.Join("..", "..", "..", "examples", "user-compressors", "c"), compressor.PlatformARM64)
+	archive := zipDirectory(t, dir)
+	file, err := os.Open(archive)
+	if err != nil {
+		t.Fatalf("open archive: %v", err)
+	}
+	pkg, err := service.App.Compressor.UploadPackage(ctx, owner, owner.GroupID, file, "arm64.zip")
+	file.Close()
+	if err != nil {
+		t.Fatalf("upload arm64 package: %v", err)
+	}
+	if pkg.Platform != compressor.PlatformARM64 || !pkg.Emulated {
+		t.Fatalf("package platform = %q emulated=%v, want linux/arm64 emulated", pkg.Platform, pkg.Emulated)
+	}
+	if err := service.App.Compressor.Build(ctx, pkg.ID); err != nil {
+		t.Fatalf("build arm64 package: %v", err)
+	}
+
+	benchRepo := repository.NewBenchmarkRepository(testDB)
+	resultRepo := repository.NewBenchmarkResultRepository(testDB)
+
+	values := make([]int64, 512)
+	for i := range values {
+		values[i] = int64(i * 3)
+	}
+	binPath, _ := writeSampleBin(t, t.TempDir(), "arm.bin", values)
+	bin, err := os.Open(binPath)
+	if err != nil {
+		t.Fatalf("open bin: %v", err)
+	}
+	benchmark, err := service.App.Benchmark.CreateBenchmark(ctx, owner, "emulated arm64",
+		[]service.UploadedFile{{Reader: bin, Filename: "arm.bin"}},
+		[]byte(`[{"name":"example_delta_c","options":{}}]`))
+	bin.Close()
+	if err != nil {
+		t.Fatalf("create benchmark: %v", err)
+	}
+	if len(benchmark.Compressors) != 1 ||
+		benchmark.Compressors[0].Platform != compressor.PlatformARM64 ||
+		!benchmark.Compressors[0].Emulated {
+		t.Fatalf("instances = %+v", benchmark.Compressors)
+	}
+
+	got := waitForBenchmark(t, ctx, benchRepo, benchmark.ID)
+	if got.Status != "ready" {
+		t.Fatalf("benchmark status = %q (error: %v), want ready", got.Status, got.Error)
+	}
+
+	results, err := resultRepo.FindByBenchmarkID(ctx, benchmark.ID)
+	if err != nil {
+		t.Fatalf("list results: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if results[0].CompressionRatio == nil || *results[0].CompressionRatio <= 0 {
+		t.Errorf("unexpected result: %+v", results[0])
 	}
 }

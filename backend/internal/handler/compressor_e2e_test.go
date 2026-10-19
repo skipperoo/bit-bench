@@ -48,7 +48,10 @@ func e2eCCompilerPackage(t *testing.T) []byte {
 // TestCompressorPackageE2E builds the real runner image (if needed) and
 // compiles a C package inside a sandboxed container.
 func TestCompressorPackageE2E(t *testing.T) {
-	dockerRunner, err := runner.NewDockerRunner(e2eRunnerImage, 2048, 256)
+	dockerRunner, err := runner.NewDockerRunner(map[string]string{
+		"linux/amd64": e2eRunnerImage,
+		"linux/arm64": e2eRunnerImage,
+	}, 2048, 256)
 	if err != nil {
 		t.Skipf("docker unavailable, skipping E2E: %v", err)
 	}

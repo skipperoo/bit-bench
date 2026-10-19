@@ -110,7 +110,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 	}
 
 	// Resolve, canonicalize and validate every configured instance.
-	resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, actor, compressorsJSON)
+	resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, s.cfg.HostPlatform, actor, compressorsJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +263,7 @@ type resolvedInstance struct {
 
 // resolveInstances parses, canonicalizes and validates configured compressor
 // instances, rejecting duplicate configurations.
-func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackageRepository, maxParallelism int, actor *model.User, compressorsJSON []byte) ([]resolvedInstance, error) {
+func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackageRepository, maxParallelism int, hostPlatform string, actor *model.User, compressorsJSON []byte) ([]resolvedInstance, error) {
 	instances, err := compressor.ParseInstances(compressorsJSON)
 	if err != nil {
 		return nil, err
@@ -288,6 +288,7 @@ func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackage
 
 		var schema map[string]compressor.Option
 		var pkg *model.CompressorPackage
+		platform := hostPlatform
 		if compressor.IsValid(name) {
 			schema = compressor.Registry[name]
 		} else {
@@ -309,6 +310,7 @@ func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackage
 			if schema == nil {
 				schema = map[string]compressor.Option{}
 			}
+			platform = compressor.ResolvePlatform(spec.Platform, hostPlatform)
 		}
 
 		values, err := compressor.CanonicalizeOptions(schema, inst.Options)
@@ -332,8 +334,13 @@ func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackage
 		}
 
 		label := compressor.WithUniqueLabel(compressor.BuildLabel(name, schema, values), takenLabels)
+		instance := compressor.Instance{Name: name, Options: values, Label: label}
+		if pkg != nil {
+			instance.Platform = platform
+			instance.Emulated = platform != hostPlatform
+		}
 		resolved = append(resolved, resolvedInstance{
-			Instance: compressor.Instance{Name: name, Options: values, Label: label},
+			Instance: instance,
 			Schema:   schema,
 			Package:  pkg,
 		})

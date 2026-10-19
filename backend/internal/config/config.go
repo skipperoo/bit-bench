@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+
+	"bitbench/internal/compressor"
 )
 
 type Config struct {
@@ -36,7 +38,9 @@ type Config struct {
 
 	CompressorDir    string
 	MaxPackageSizeMB int64
-	RunnerImage      string
+	RunnerImageAMD64 string
+	RunnerImageARM64 string
+	HostPlatform     string
 	RunnerMemoryMB   int64
 	RunnerPidsLimit  int64
 	BuildTimeout     time.Duration
@@ -75,7 +79,9 @@ func LoadConfig() *Config {
 
 		CompressorDir:    getEnv("COMPRESSOR_DIR", "/data/compressors"),
 		MaxPackageSizeMB: int64(getInt("MAX_PACKAGE_SIZE_MB", 50)),
-		RunnerImage:      getEnv("RUNNER_IMAGE", "bitbench-runner:latest"),
+		RunnerImageAMD64: getEnv("RUNNER_IMAGE_AMD64", "bitbench-runner:amd64"),
+		RunnerImageARM64: getEnv("RUNNER_IMAGE_ARM64", "bitbench-runner:arm64"),
+		HostPlatform:     compressor.HostPlatform(runtime.GOOS, runtime.GOARCH),
 		RunnerMemoryMB:   int64(getInt("RUNNER_MEMORY_MB", 4096)),
 		RunnerPidsLimit:  int64(getInt("RUNNER_PIDS_LIMIT", 512)),
 		BuildTimeout:     getDuration("BUILD_TIMEOUT_SECONDS", 600*time.Second),
@@ -92,6 +98,20 @@ func LoadConfig() *Config {
 
 func (c *Config) SMTPEnabled() bool {
 	return c.SMTPHost != ""
+}
+
+// RunnerImages maps every supported platform to its runner image tag.
+func (c *Config) RunnerImages() map[string]string {
+	return map[string]string{
+		compressor.PlatformAMD64: c.RunnerImageAMD64,
+		compressor.PlatformARM64: c.RunnerImageARM64,
+	}
+}
+
+// RunnerImageFor returns the configured runner image for a platform.
+func (c *Config) RunnerImageFor(platform string) (string, bool) {
+	image, ok := c.RunnerImages()[platform]
+	return image, ok && image != ""
 }
 
 func ConnectDB(ctx context.Context, cfg *Config) (*pgxpool.Pool, error) {

@@ -142,6 +142,8 @@ type CompressorPackage struct {
 	Language        string          `json:"language"`
 	Entrypoint      string          `json:"entrypoint"`
 	Workers         int             `json:"workers"`
+	Platform        string          `json:"platform,omitempty"` // resolved target platform (custom packages)
+	Emulated        bool            `json:"emulated,omitempty"` // platform differs from the benchmark host
 	Spec            json.RawMessage `json:"spec"`
 	Status          string          `json:"status"`
 	Error           *string         `json:"error,omitempty"`
@@ -202,9 +204,10 @@ type ErrorResponse struct {
 }
 
 type ConfigResponse struct {
-	MaxFileSizeMB      int64 `json:"maxFileSizeMb"`
-	MaxCompare         int   `json:"maxCompare"`
-	SMTPEnabled        bool  `json:"smtpEnabled"`
+	MaxFileSizeMB int64  `json:"maxFileSizeMb"`
+	MaxCompare    int    `json:"maxCompare"`
+	SMTPEnabled   bool   `json:"smtpEnabled"`
+	HostPlatform  string `json:"hostPlatform"`
 }
 
 type StatusStats struct {
