@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"bitbench/internal/compressor"
 )
 
 // Mount describes a mount for a runner container.
@@ -37,6 +41,9 @@ type Spec struct {
 	Env        []string
 	User       string // "0" for build, non-root for runs
 	Workers    int    // CPU quota; <= 0 means unlimited
+	// Platform selects the runner image and the container platform. Empty
+	// means the host platform.
+	Platform string
 	// KillOnThrottle kills the container and returns ErrWorkerQuota when the
 	// process exceeds its declared CPU quota by more than the tolerated margin.
 	KillOnThrottle bool
@@ -57,18 +64,104 @@ var (
 
 // DockerRunner spawns sandboxed containers using the Docker daemon.
 type DockerRunner struct {
-	cli       *client.Client
-	image     string
-	memoryMB  int64
-	pidsLimit int64
+	cli            *client.Client
+	image          string
+	nativePlatform string
+	platformImages map[string]string
+	memoryMB       int64
+	pidsLimit      int64
+	probeMu        sync.Mutex
+	probes         map[string]bool
 }
 
-func NewDockerRunner(image string, memoryMB, pidsLimit int64) (*DockerRunner, error) {
+// NewDockerRunner creates a runner for the given platform→image map. The host
+// platform is read from the Docker daemon; the image for that platform is the
+// default for containers without an explicit platform.
+func NewDockerRunner(images map[string]string, memoryMB, pidsLimit int64) (*DockerRunner, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &DockerRunner{cli: cli, image: image, memoryMB: memoryMB, pidsLimit: pidsLimit}, nil
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	info, err := cli.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("docker daemon unreachable: %w", err)
+	}
+
+	nativePlatform := compressor.HostPlatform(info.Info.OSType, info.Info.Architecture)
+	nativeImage := images[nativePlatform]
+	if nativeImage == "" {
+		cli.Close()
+		return nil, fmt.Errorf("no runner image configured for host platform %s", nativePlatform)
+	}
+
+	return &DockerRunner{
+		cli:            cli,
+		image:          nativeImage,
+		nativePlatform: nativePlatform,
+		platformImages: images,
+		memoryMB:       memoryMB,
+		pidsLimit:      pidsLimit,
+		probes:         make(map[string]bool),
+	}, nil
+}
+
+// HostPlatform returns the platform the Docker daemon runs on.
+func (d *DockerRunner) HostPlatform() string {
+	return d.nativePlatform
+}
+
+// EnsurePlatform verifies that the runner image for a platform exists and that
+// foreign platforms can actually execute through binfmt/QEMU emulation.
+func (d *DockerRunner) EnsurePlatform(ctx context.Context, platform string) error {
+	normalized, err := compressor.NormalizePlatform(platform)
+	if err != nil {
+		return err
+	}
+
+	image := d.platformImages[normalized]
+	if image == "" {
+		return fmt.Errorf("no runner image configured for %s (set RUNNER_IMAGE_%s)",
+			normalized, strings.ToUpper(compressor.PlatformArch(normalized)))
+	}
+	if _, err := d.cli.ImageInspect(ctx, image); err != nil {
+		return fmt.Errorf("runner image %q for %s is not available locally: %w", image, normalized, err)
+	}
+
+	if normalized == d.nativePlatform || d.probeSucceeded(normalized) {
+		return nil
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	result, err := d.Run(probeCtx, Spec{Platform: normalized, Command: "true", User: "0"})
+	if err != nil {
+		return fmt.Errorf("cannot run %s containers on this %s host: %w — install binfmt/QEMU emulation "+
+			"(docker run --privileged --rm tonistiigi/binfmt --install all) and make sure image %q is fully available",
+			normalized, d.nativePlatform, err, image)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("cannot run %s containers on this %s host: probe exited with code %d",
+			normalized, d.nativePlatform, result.ExitCode)
+	}
+
+	d.markProbeSucceeded(normalized)
+	return nil
+}
+
+func (d *DockerRunner) probeSucceeded(platform string) bool {
+	d.probeMu.Lock()
+	defer d.probeMu.Unlock()
+	return d.probes[platform]
+}
+
+func (d *DockerRunner) markProbeSucceeded(platform string) {
+	d.probeMu.Lock()
+	defer d.probeMu.Unlock()
+	d.probes[platform] = true
 }
 
 func (d *DockerRunner) Close() error {
@@ -95,6 +188,20 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 		return nil, fmt.Errorf("empty command")
 	}
 
+	platform := spec.Platform
+	if platform == "" {
+		platform = d.nativePlatform
+	}
+	platform, err := compressor.NormalizePlatform(platform)
+	if err != nil {
+		return nil, err
+	}
+	image := d.platformImages[platform]
+	if image == "" {
+		return nil, fmt.Errorf("no runner image configured for platform %s", platform)
+	}
+	platformOS, platformArch, _ := strings.Cut(platform, "/")
+
 	mounts := make([]mount.Mount, 0, len(spec.Mounts))
 	for _, m := range spec.Mounts {
 		mt := mount.TypeVolume
@@ -115,7 +222,7 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 	}
 
 	cfg := &container.Config{
-		Image:           d.image,
+		Image:           image,
 		Cmd:             []string{"/bin/sh", "-c", spec.Command},
 		WorkingDir:      spec.WorkingDir,
 		Env:             spec.Env,
@@ -149,6 +256,10 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 		Config:           cfg,
 		HostConfig:       hostCfg,
 		NetworkingConfig: &network.NetworkingConfig{},
+		Platform: &ocispec.Platform{
+			OS:           platformOS,
+			Architecture: platformArch,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create container: %w", err)

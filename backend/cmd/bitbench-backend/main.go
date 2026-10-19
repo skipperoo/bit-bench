@@ -46,17 +46,22 @@ func main() {
 		logger.Fatal("failed to seed database", "error", err)
 	}
 
+	dockerRunner, dockerErr := runner.NewDockerRunner(cfg.RunnerImages(), cfg.RunnerMemoryMB, cfg.RunnerPidsLimit)
+	if dockerErr != nil {
+		logger.Warn("docker runner unavailable; compressor packages will not build or run", "error", dockerErr)
+	} else {
+		defer dockerRunner.Close()
+		// The Docker daemon is authoritative for the platform containers run on.
+		cfg.HostPlatform = dockerRunner.HostPlatform()
+	}
+
 	service.InitServices(cfg, db, rdb)
 	service.InitRepos(db)
 	handler.InitHandlers(cfg)
 	middleware.InitAuthMiddleware(rdb)
 	middleware.InitUserResolver(service.UserRepo)
 
-	dockerRunner, dockerErr := runner.NewDockerRunner(cfg.RunnerImage, cfg.RunnerMemoryMB, cfg.RunnerPidsLimit)
-	if dockerErr != nil {
-		logger.Warn("docker runner unavailable; compressor packages will not build or run", "error", dockerErr)
-	} else {
-		defer dockerRunner.Close()
+	if dockerRunner != nil {
 		service.App.Compressor.SetRunner(dockerRunner)
 		if err := dockerRunner.Ping(ctx); err != nil {
 			logger.Warn("compressor runner not ready", "error", err)

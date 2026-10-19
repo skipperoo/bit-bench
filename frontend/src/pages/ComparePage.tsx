@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import EmulationNotice from '@/components/EmulationNotice'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
@@ -239,6 +240,12 @@ export default function ComparePage() {
       <p className="text-sm text-muted-foreground">
         Comparing {benchmarks.length} benchmarks: {benchmarks.map((b) => b.name).join(', ')}
       </p>
+
+      <EmulationNotice
+        instances={Array.from(
+          new Map(benchmarks.flatMap((b) => b.compressors ?? []).map((instance) => [instance.label, instance])).values()
+        )}
+      />
 
       {/* Grouped compression ratio bar chart */}
       <Card>

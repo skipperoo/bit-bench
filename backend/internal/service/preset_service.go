@@ -43,13 +43,19 @@ func (s *PresetService) Create(ctx context.Context, actor *model.User, name, vis
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 
-	resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, actor, compressorsJSON)
+	resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, s.cfg.HostPlatform, actor, compressorsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	instances := make([]compressor.Instance, 0, len(resolved))
 	for _, r := range resolved {
-		instances = append(instances, r.Instance)
+		// Presets describe configurations, not the environment a package was
+		// built for; platform metadata is resolved again on each benchmark.
+		instances = append(instances, compressor.Instance{
+			Name:    r.Instance.Name,
+			Options: r.Instance.Options,
+			Label:   r.Instance.Label,
+		})
 	}
 
 	preset := &model.BenchmarkPreset{
@@ -117,13 +123,17 @@ func (s *PresetService) Update(ctx context.Context, actor *model.User, id uuid.U
 
 	instances := preset.Compressors
 	if len(update.Compressors) > 0 {
-		resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, actor, update.Compressors)
+		resolved, err := resolveInstances(ctx, s.pkgRepo, s.cfg.MaxParallelism, s.cfg.HostPlatform, actor, update.Compressors)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
 		}
 		instances = make([]compressor.Instance, 0, len(resolved))
 		for _, r := range resolved {
-			instances = append(instances, r.Instance)
+			instances = append(instances, compressor.Instance{
+				Name:    r.Instance.Name,
+				Options: r.Instance.Options,
+				Label:   r.Instance.Label,
+			})
 		}
 	}
 

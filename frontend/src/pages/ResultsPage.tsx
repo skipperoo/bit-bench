@@ -218,6 +218,17 @@ export default function ResultsPage() {
                             </div>
                           </div>
                         )}
+                        {b.compressors.some((inst) => inst.emulated) && (
+                          <Badge
+                            className="text-xs bg-amber-100 text-amber-800 border-amber-200 cursor-default"
+                            title={`Runs under CPU emulation: ${b.compressors
+                              .filter((inst) => inst.emulated)
+                              .map((inst) => inst.label)
+                              .join(', ')} — throughput is distorted`}
+                          >
+                            emulated
+                          </Badge>
+                        )}
                       </div>
                     )}
                   </CardContent>

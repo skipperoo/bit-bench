@@ -32,6 +32,7 @@ name: my_codec              # required: [a-z0-9_]{1,64}, unique, no built-in col
 version: "1.0.0"            # required
 description: My codec       # optional
 language: cpp               # optional: c | cpp | python | go | rust | other
+platform: linux/arm64       # optional: linux/amd64 or linux/arm64 (default: host platform)
 entrypoint: ./codec         # required: command executed from the package root
 workers: 1                  # optional: CPU slots needed (default 1)
 build:                      # optional; "make" is used when a Makefile exists
@@ -60,6 +61,65 @@ Option fields follow the compressor-options widget schema:
 | `number` | `min`, `max`, `default`, optional `step` | slider when `(max-min)/step <= 20`, otherwise number input |
 | `boolean` | `default` | switch |
 | `select` | `options`, `default` | dropdown |
+
+## Target platform and emulation
+
+`platform` declares the CPU architecture the package is built and run on. It
+accepts `linux/amd64` and `linux/arm64` (the `arm64/v8` variant is normalized);
+leaving it out means "the platform of the benchmark host" — the common case.
+
+When `platform` differs from the host platform, the container runs through
+**binfmt/QEMU emulation**. Consequences:
+
+- **Throughput, latency and random-access metrics are distorted** and must not
+  be compared directly with native runs. Compression ratio, memory and
+  reconstruction results remain trustworthy.
+- **Builds are much slower**: `make -j` runs emulated. Raise
+  `build.timeout_seconds` if needed; the package build itself also costs
+  upload time when the file is large.
+- The platform is applied to **both** the offline build container and the
+  benchmark run container, so the produced executable matches the run
+  environment.
+
+Whenever a package that targets a foreign platform is selected, the upload
+page shows an amber **"CPU emulation"** warning with the affected packages, and
+each configured instance carries an `arm64 emulated` badge. The results,
+benchmark-detail and compare pages repeat the warning because the target
+platform is stored with each benchmark, and the Compressors page lists the
+platform of every package.
+
+### Making a foreign platform available on the host
+
+The platform must be runnable before a package for it can be uploaded;
+otherwise the upload is rejected with a clear error. Two prerequisites:
+
+1. **A runner image for the target platform.** The compose stack builds
+   `bitbench-runner:amd64` and `bitbench-runner:arm64`:
+
+   ```bash
+   docker compose build runner-amd64 runner-arm64
+   ```
+
+   Without compose, build one manually (requires buildx plus binfmt, see
+   below):
+
+   ```bash
+   docker buildx build --platform linux/arm64 --load -t bitbench-runner:arm64 runner/
+   ```
+
+   The backend reads the image tags from `RUNNER_IMAGE_AMD64` and
+   `RUNNER_IMAGE_ARM64` (defaults `bitbench-runner:amd64` and
+   `bitbench-runner:arm64`).
+
+2. **Emulation (binfmt/QEMU) for the target architecture.** Docker Desktop
+   includes it; on plain Linux hosts register it once:
+
+   ```bash
+   docker run --privileged --rm tonistiigi/binfmt --install arm64   # or: --install all
+   ```
+
+   The backend probes a foreign platform with a one-off `/bin/true` container
+   on the first package upload and caches the result for the running process.
 
 ## Invocation contract
 
@@ -132,6 +192,10 @@ Compile for the benchmark host with `-march=native` (or `-C target-cpu=native`
 for Rust). Before emitting specific SIMD instructions (AVX2, AVX-512, ...),
 check the instruction sets actually available on the **Status** page: the CPU
 section lists the detected extensions (AVX2, AVX-512, FMA, ...).
+
+> These flags apply to the **target platform**: with `platform: linux/arm64`
+> on an x86 host, `-march=native` compiles for the emulated arm64 CPU, not for
+> the physical host CPU.
 
 ### Go
 

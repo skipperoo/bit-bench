@@ -15,6 +15,7 @@ type PackageSpec struct {
 	Version     string            `yaml:"version" json:"version"`
 	Description string            `yaml:"description" json:"description"`
 	Language    string            `yaml:"language" json:"language"`
+	Platform    string            `yaml:"platform" json:"platform,omitempty"`
 	Entrypoint  string            `yaml:"entrypoint" json:"entrypoint"`
 	Workers     int               `yaml:"workers" json:"workers"`
 	Build       *PackageBuildSpec `yaml:"build" json:"build,omitempty"`
@@ -81,6 +82,15 @@ func (s *PackageSpec) Validate() error {
 		if strings.Contains(token, "..") {
 			return fmt.Errorf("entrypoint must not contain parent directory references")
 		}
+	}
+
+	// An empty platform means "native to the benchmark host".
+	if strings.TrimSpace(s.Platform) != "" {
+		platform, err := NormalizePlatform(s.Platform)
+		if err != nil {
+			return err
+		}
+		s.Platform = platform
 	}
 
 	if s.Workers < 1 {

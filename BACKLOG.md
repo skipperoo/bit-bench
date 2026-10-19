@@ -46,6 +46,15 @@
 - [x] Configuration history: `benchmark_config_history`, recorded on benchmark creation, deduplicated per user, capped at 20, promotable to a preset; panel with Load / Save as preset.
 - [x] Tests: instance canonicalization/labels/invocations, duplicate and cap rejection, multi-instance E2E through the real runner image, preset permission matrix, history dedup, frontend helper suites.
 
+## Cross-architecture compressor packages
+
+- [x] `spec.yaml: platform` (`linux/amd64` | `linux/arm64`, variants normalized; empty = host). The same platform is used for the offline build and the benchmark run; allowed values are validated at upload.
+- [x] Per-arch runner images `bitbench-runner:amd64` / `bitbench-runner:arm64`; `RUNNER_IMAGE_AMD64` / `RUNNER_IMAGE_ARM64`; compose builds both (`runner-amd64` + `runner-arm64` services). The Docker daemon's architecture is the host platform.
+- [x] Upload-time validation: the target runner image must exist and a foreign platform additionally passes a cached `--platform ... /bin/true` probe; failures reject the upload with binfmt/build guidance.
+- [x] Resolved platform + `emulated` flag are decorated on package API responses, stored on every benchmark instance (historical), and excluded from presets (re-resolved per benchmark).
+- [x] UI: amber warnings on the upload page (alert + per-instance/picker badges), Compressors page platform column with emulated badge, results cards, benchmark detail and compare pages; `GET /config.hostPlatform` exposes the host platform.
+- [x] Tests: platform normalization/`spec.yaml` validation unit tests, upload rejection and resolved-platform handler tests, frontend helper/component tests, and an emulated arm64 E2E (QEMU-built runner image) in CI.
+
 ## Remaining (future)
 
 - [ ] E2E tests (Playwright)

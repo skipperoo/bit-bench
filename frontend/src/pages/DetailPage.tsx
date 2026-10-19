@@ -7,6 +7,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import EmulationNotice from '@/components/EmulationNotice'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
 import { formatMetricValue } from '@/lib/format'
@@ -443,6 +444,8 @@ export default function DetailPage() {
           </span>
         </div>
       </div>
+
+      {benchmark.status === 'ready' && <EmulationNotice instances={benchmark.compressors} />}
 
       {paretoSorted.length > 0 && (
         <Card>
