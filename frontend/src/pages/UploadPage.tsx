@@ -418,8 +418,7 @@ export default function UploadPage() {
     if (newFiles.length > 0) handleFileChange(newFiles)
   }, [handleFileChange])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
     if (!name || files.length === 0 || validationError || loading) return
     setLoading(true)
     setError('')
@@ -565,7 +564,7 @@ export default function UploadPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <form onSubmit={handleSubmit}>
+      <div>
         {/* Zone 1: Title + Benchmark Name */}
         <div className="mb-10">
           <h1 className="text-2xl font-semibold tracking-tight mb-1">New Benchmark</h1>
@@ -578,8 +577,13 @@ export default function UploadPage() {
               id="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void handleSubmit()
+                }
+              }}
               placeholder="My benchmark"
-              required
               className="max-w-md"
             />
           </div>
@@ -987,7 +991,7 @@ export default function UploadPage() {
 
         {/* Submit */}
         <div className="flex items-center gap-3">
-          <Button type="submit" disabled={!canSubmit || loading} className="min-w-[180px]">
+          <Button type="button" onClick={handleSubmit} disabled={!canSubmit || loading} className="min-w-[180px]">
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1006,7 +1010,7 @@ export default function UploadPage() {
             </p>
           )}
         </div>
-      </form>
+      </div>
     </div>
   )
 }
