@@ -20,5 +20,6 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 		MaxFileSizeMB: AppConfig.MaxFileSizeMB,
 		MaxCompare:    AppConfig.MaxCompare,
 		SMTPEnabled:   AppConfig.SMTPEnabled(),
+		HostPlatform:  AppConfig.HostPlatform,
 	})
 }

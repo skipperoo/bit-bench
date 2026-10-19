@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { apiFetch, apiUpload } from '@/lib/api'
 import { canManagePackage, PACKAGE_STATUS_CLASSES, PACKAGE_STATUS_DOT, packageStatusLabel } from '@/lib/packages'
+import { platformArch } from '@/lib/platforms'
 import { useAuthStore } from '@/stores/auth-store'
 import { Upload, Trash2, FileArchive, Loader2 } from 'lucide-react'
 import type { CompressorPackage, GroupRef } from '@/types'
@@ -132,7 +133,9 @@ export default function CompressorsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Archive root must contain <code>spec.yaml</code> and the sources. Dependencies must be
-                  vendored: the build runs offline.
+                  vendored: the build runs offline. Add <code>platform: linux/arm64</code> to{' '}
+                  <code>spec.yaml</code> to target ARM64 (runs under emulation on x86 hosts; throughput is
+                  distorted).
                 </p>
               </div>
               {isAdmin && (
@@ -181,6 +184,7 @@ export default function CompressorsPage() {
                 <th className="text-left p-3 font-medium">Version</th>
                 <th className="text-left p-3 font-medium">Language</th>
                 <th className="text-left p-3 font-medium">Workers</th>
+                <th className="text-left p-3 font-medium">Platform</th>
                 <th className="text-left p-3 font-medium">Status</th>
                 <th className="text-left p-3 font-medium">Updated</th>
                 <th className="text-right p-3 font-medium">Actions</th>
@@ -199,6 +203,23 @@ export default function CompressorsPage() {
                     <td className="p-3 font-mono text-xs">{pkg.version}</td>
                     <td className="p-3 text-xs">{pkg.language || '—'}</td>
                     <td className="p-3 text-xs">{pkg.workers}</td>
+                    <td className="p-3">
+                      {pkg.platform ? (
+                        <span className="flex items-center gap-1">
+                          <Badge variant="outline" className="text-xs font-mono">linux/{platformArch(pkg.platform)}</Badge>
+                          {pkg.emulated && (
+                            <Badge
+                              className="text-xs bg-amber-100 text-amber-800 border-amber-200"
+                              title="Targets a different architecture than the benchmark host — runs under emulation; throughput is distorted"
+                            >
+                              emulated
+                            </Badge>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="p-3">
                       <Badge className={PACKAGE_STATUS_CLASSES[pkg.status]}>
                         {pkg.status === 'building' && (
@@ -237,7 +258,7 @@ export default function CompressorsPage() {
                   </tr>
                   {openLog === pkg.id && pkg.build_log && (
                     <tr className="border-b border-border last:border-0 bg-secondary/20">
-                      <td colSpan={7} className="p-3">
+                      <td colSpan={8} className="p-3">
                         <pre className="text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto">
                           {pkg.build_log}
                         </pre>

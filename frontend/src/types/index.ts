@@ -2,6 +2,7 @@ export interface Config {
   maxFileSizeMb: number
   maxCompare: number
   smtpEnabled: boolean
+  hostPlatform: string
 }
 
 export interface CompressorPackage {
@@ -14,6 +15,8 @@ export interface CompressorPackage {
   language: string
   entrypoint: string
   workers: number
+  platform?: string
+  emulated?: boolean
   spec: unknown
   status: 'building' | 'ready' | 'failed'
   error?: string
@@ -70,6 +73,10 @@ export interface CompressorInstance {
   name: string
   options: Record<string, unknown>
   label: string
+  /** Resolved target platform (user packages only). */
+  platform?: string
+  /** True when the package ran through CPU emulation on the benchmark host. */
+  emulated?: boolean
 }
 
 export interface Benchmark {

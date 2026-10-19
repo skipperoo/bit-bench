@@ -108,3 +108,64 @@ describe('UploadPage upload progress', () => {
     await waitFor(() => expect(screen.getByText('Done')).toBeInTheDocument())
   })
 })
+
+describe('UploadPage emulation warning', () => {
+  it('warns about packages that target another platform', async () => {
+    mockedFetch.mockImplementation((path: string) => {
+      if (path === '/config') {
+        return Promise.resolve({ hostPlatform: 'linux/amd64' } as never)
+      }
+      if (path === '/compressors') {
+        return Promise.resolve({ example_pkg: {} } as never)
+      }
+      if (path === '/compressors/packages') {
+        return Promise.resolve([
+          { id: 'p1', name: 'example_pkg', status: 'ready', platform: 'linux/arm64', emulated: true },
+        ] as never)
+      }
+      return Promise.resolve({} as never)
+    })
+
+    const { container } = renderPage()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [new File(['xxxx'], 'one.bin')])
+
+    // The picker marks the package as emulated before it is even added.
+    expect(await screen.findByTitle(/Targets arm64/)).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add example_pkg' }))
+
+    const warning = await screen.findByTestId('emulation-warning')
+    expect(warning).toHaveTextContent('example_pkg (arm64)')
+    expect(screen.getByTestId('emulated-example_pkg')).toBeInTheDocument()
+
+    // Removing the instance clears the warning.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove example_pkg' }))
+    await waitFor(() => expect(screen.queryByTestId('emulation-warning')).not.toBeInTheDocument())
+  })
+
+  it('does not warn for native packages', async () => {
+    mockedFetch.mockImplementation((path: string) => {
+      if (path === '/config') {
+        return Promise.resolve({ hostPlatform: 'linux/amd64' } as never)
+      }
+      if (path === '/compressors') {
+        return Promise.resolve({ native_pkg: {} } as never)
+      }
+      if (path === '/compressors/packages') {
+        return Promise.resolve([
+          { id: 'p2', name: 'native_pkg', status: 'ready', platform: 'linux/amd64', emulated: false },
+        ] as never)
+      }
+      return Promise.resolve({} as never)
+    })
+
+    const { container } = renderPage()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [new File(['xxxx'], 'one.bin')])
+    await userEvent.click(await screen.findByRole('button', { name: 'Add native_pkg' }))
+
+    expect(screen.queryByTestId('emulation-warning')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('emulated-native_pkg')).not.toBeInTheDocument()
+  })
+})

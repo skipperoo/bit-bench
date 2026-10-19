@@ -1,6 +1,9 @@
 package service
 
 import (
+	"runtime"
+
+	"bitbench/internal/compressor"
 	"bitbench/internal/config"
 	"bitbench/internal/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +20,11 @@ type Services struct {
 var App *Services
 
 func InitServices(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) {
+	if cfg.HostPlatform == "" {
+		// Tests and embedders may construct Config by hand.
+		cfg.HostPlatform = compressor.HostPlatform(runtime.GOOS, runtime.GOARCH)
+	}
+
 	userRepo := repository.NewUserRepository(db)
 	benchRepo := repository.NewBenchmarkRepository(db)
 	resultRepo := repository.NewBenchmarkResultRepository(db)

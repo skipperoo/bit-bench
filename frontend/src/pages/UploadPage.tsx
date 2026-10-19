@@ -7,12 +7,13 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Loader2, FileUp, AlertCircle, CheckCircle2, X, Plus, Trash2, Search } from 'lucide-react'
+import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Trash2, Search } from 'lucide-react'
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor } from '@/lib/compressors'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
+import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
 import { batchFileStatuses, sequentialFileStatuses } from '@/lib/upload-progress'
 import type { FileUploadStatus, UploadPhase } from '@/lib/upload-progress'
 import { useAuthStore } from '@/stores/auth-store'
@@ -32,6 +33,8 @@ import type {
   CompressorInstance,
   BenchmarkPreset,
   ConfigHistoryEntry,
+  CompressorPackage,
+  Config,
 } from '@/types'
 
 interface CompressorFamily {
@@ -174,6 +177,8 @@ export default function UploadPage() {
   const [presetVisibility, setPresetVisibility] = useState<'private' | 'group'>('private')
   const [presetError, setPresetError] = useState('')
   const [savingPreset, setSavingPreset] = useState(false)
+  const [hostPlatform, setHostPlatform] = useState('')
+  const [packagePlatforms, setPackagePlatforms] = useState<Record<string, string | undefined>>({})
 
   const loadCompressors = useCallback(async () => {
     try {
@@ -226,6 +231,11 @@ export default function UploadPage() {
     [instances, compressors, customNames]
   )
 
+  const emulatedSelected = useMemo(
+    () => emulatedSelection(instances, packagePlatforms, hostPlatform),
+    [instances, packagePlatforms, hostPlatform]
+  )
+
   const addInstance = useCallback((compName: string) => {
     const schema = compressors[compName] || {}
     const options = defaultOptions(schema)
@@ -262,6 +272,24 @@ export default function UploadPage() {
   }, [])
 
   useEffect(() => { loadPresets(); loadHistory() }, [loadPresets, loadHistory])
+
+  // Host platform and custom-package platforms drive the emulation warning.
+  useEffect(() => {
+    apiFetch<Config>('/config')
+      .then((config) => setHostPlatform(config?.hostPlatform || ''))
+      .catch(() => {})
+    apiFetch<CompressorPackage[]>('/compressors/packages')
+      .then((packages) => {
+        if (!Array.isArray(packages)) return
+        const platforms: Record<string, string | undefined> = {}
+        for (const pkg of packages) {
+          if (pkg.status !== 'ready') continue
+          platforms[pkg.name] = pkg.platform
+        }
+        setPackagePlatforms(platforms)
+      })
+      .catch(() => {})
+  }, [])
 
   const applyInstances = useCallback((incoming: CompressorInstance[]) => {
     if (Object.keys(compressors).length === 0) {
@@ -780,6 +808,25 @@ export default function UploadPage() {
             </span>
           </div>
 
+          {emulatedSelected.length > 0 && (
+            <div
+              data-testid="emulation-warning"
+              className="flex items-start gap-2 mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900"
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">CPU emulation — throughput is not representative</p>
+                <p className="text-xs mt-1">
+                  {emulatedSelected.map((item) => `${item.name} (${platformArch(item.platform)})`).join(', ')}
+                  {' '}target{emulatedSelected.length === 1 ? 's' : ''} a different architecture than this host
+                  {hostPlatform ? ` (${platformArch(hostPlatform)})` : ''} and will run under emulation.
+                  Compression ratio and memory are reliable; throughput numbers are distorted and must not be
+                  compared directly with native runs.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-2">
             {/* Picker */}
             <div className="border border-border rounded-lg">
@@ -812,9 +859,20 @@ export default function UploadPage() {
                         {family.compressors.map((c) => {
                           const schema = compressors[c] || {}
                           const disabled = !canAddInstance(schema, customNames.has(c), instanceCount(c), instances.length)
+                          const emulated = isEmulated(packagePlatforms[c], hostPlatform)
                           return (
                             <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
-                              <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
+                              <span className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
+                                {emulated && (
+                                  <span
+                                    className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800"
+                                    title={`Targets ${platformArch(packagePlatforms[c])} — runs under emulation on this host`}
+                                  >
+                                    {platformArch(packagePlatforms[c])} emulated
+                                  </span>
+                                )}
+                              </span>
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -857,6 +915,7 @@ export default function UploadPage() {
                     const schema = compressors[inst.name] || {}
                     const label = renameCompressor(buildLabel(inst.name, schema, inst.options))
                     const expanded = expandedInstance === index
+                    const emulated = isEmulated(packagePlatforms[inst.name], hostPlatform)
                     return (
                       <div key={index} className="border border-border rounded-md">
                         <div className="flex items-center gap-2 px-2 py-1.5">
@@ -865,7 +924,18 @@ export default function UploadPage() {
                             className="flex-1 text-left min-w-0"
                             onClick={() => setExpandedInstance(expanded ? null : index)}
                           >
-                            <span className={`font-mono text-sm truncate ${expanded ? 'font-semibold' : ''}`}>{label}</span>
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <span className={`font-mono text-sm truncate ${expanded ? 'font-semibold' : ''}`}>{label}</span>
+                              {emulated && (
+                                <span
+                                  data-testid={`emulated-${inst.name}`}
+                                  className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800"
+                                  title={`Targets ${platformArch(packagePlatforms[inst.name])} — runs under emulation on this host`}
+                                >
+                                  {platformArch(packagePlatforms[inst.name])} emulated
+                                </span>
+                              )}
+                            </span>
                           </button>
                           <Button
                             type="button"
