@@ -22,10 +22,14 @@ const (
 
 // Instance is one configured compressor of a benchmark: a built-in algorithm
 // or a user package, with a concrete option set and a brief display label.
+// Platform/Emulated are only set for user packages and record whether the
+// package ran through CPU emulation on the benchmark host.
 type Instance struct {
-	Name    string                 `json:"name"`
-	Options map[string]interface{} `json:"options"`
-	Label   string                 `json:"label"`
+	Name     string                 `json:"name"`
+	Options  map[string]interface{} `json:"options"`
+	Label    string                 `json:"label"`
+	Platform string                 `json:"platform,omitempty"`
+	Emulated bool                   `json:"emulated,omitempty"`
 }
 
 // nativeOptionKeys are the option keys the native C++ harness understands as

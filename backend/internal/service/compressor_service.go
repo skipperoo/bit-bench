@@ -32,6 +32,12 @@ type PackageRunner interface {
 	Run(ctx context.Context, spec runner.Spec) (*runner.Result, error)
 }
 
+// PlatformChecker is implemented by runners that can validate a target
+// platform (image availability and, for foreign platforms, emulation).
+type PlatformChecker interface {
+	EnsurePlatform(ctx context.Context, platform string) error
+}
+
 type CompressorService struct {
 	repo   *repository.CompressorPackageRepository
 	cfg    *config.Config
@@ -116,6 +122,19 @@ func (s *CompressorService) UploadPackage(ctx context.Context, owner *model.User
 		return nil, fmt.Errorf("%w: workers=%d exceeds the maximum of %d", ErrBadRequest, spec.Workers, s.cfg.MaxParallelism)
 	}
 
+	// The declared platform must be runnable on this host before the package is
+	// accepted: the runner image must exist and, for foreign platforms, the
+	// host must be able to execute it through binfmt/QEMU.
+	resolvedPlatform := compressor.ResolvePlatform(spec.Platform, s.cfg.HostPlatform)
+	if s.runner != nil {
+		if checker, ok := s.runner.(PlatformChecker); ok {
+			if err := checker.EnsurePlatform(ctx, resolvedPlatform); err != nil {
+				cleanup()
+				return nil, fmt.Errorf("%w: %v", ErrBadRequest, err)
+			}
+		}
+	}
+
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
 		cleanup()
@@ -133,6 +152,8 @@ func (s *CompressorService) UploadPackage(ctx context.Context, owner *model.User
 		Language:        spec.Language,
 		Entrypoint:      spec.Entrypoint,
 		Workers:         spec.Workers,
+		Platform:        resolvedPlatform,
+		Emulated:        resolvedPlatform != s.cfg.HostPlatform,
 		Spec:            specJSON,
 		Status:          "building",
 		ArchiveChecksum: checksum,
@@ -193,6 +214,13 @@ func (s *CompressorService) Build(ctx context.Context, id uuid.UUID) error {
 		return s.markFailed(ctx, id, "runner unavailable: Docker is not configured")
 	}
 
+	platform := compressor.ResolvePlatform(spec.Platform, s.cfg.HostPlatform)
+	if checker, ok := s.runner.(PlatformChecker); ok {
+		if err := checker.EnsurePlatform(ctx, platform); err != nil {
+			return s.markFailed(ctx, id, err.Error())
+		}
+	}
+
 	var logs string
 	buildCmd := ""
 	if spec.Build != nil && strings.TrimSpace(spec.Build.Command) != "" {
@@ -215,6 +243,7 @@ func (s *CompressorService) Build(ctx context.Context, id uuid.UUID) error {
 			Command:    buildCmd,
 			Env:        buildEnv(),
 			User:       "0",
+			Platform:   platform,
 		})
 		if err != nil {
 			return s.markFailed(ctx, id, fmt.Sprintf("build failed: %v", err))
@@ -280,7 +309,26 @@ func (s *CompressorService) ListVisible(ctx context.Context, actor *model.User) 
 	if actor == nil {
 		return nil, ErrForbidden
 	}
-	return s.repo.ListVisible(ctx, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+	packages, err := s.repo.ListVisible(ctx, actor.ID, actor.GroupID, actor.Role == model.RoleAdmin)
+	if err != nil {
+		return nil, err
+	}
+	for _, pkg := range packages {
+		s.decoratePlatform(pkg)
+	}
+	return packages, nil
+}
+
+// decoratePlatform resolves the package's target platform and whether it runs
+// through emulation on this host.
+func (s *CompressorService) decoratePlatform(pkg *model.CompressorPackage) {
+	var spec compressor.PackageSpec
+	if err := json.Unmarshal(pkg.Spec, &spec); err != nil {
+		return
+	}
+	platform := compressor.ResolvePlatform(spec.Platform, s.cfg.HostPlatform)
+	pkg.Platform = platform
+	pkg.Emulated = platform != s.cfg.HostPlatform
 }
 
 // DeletePackage removes a package and its workspace if the actor may manage it.

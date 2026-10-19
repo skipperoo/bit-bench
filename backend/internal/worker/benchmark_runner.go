@@ -595,6 +595,7 @@ func (r *BenchmarkRunner) runCustomTask(ctx context.Context, benchmark *model.Be
 	if err := json.Unmarshal(pkg.Spec, &spec); err != nil {
 		return nil, fmt.Errorf("decode package spec: %w", err)
 	}
+	platform := compressor.ResolvePlatform(spec.Platform, r.cfg.HostPlatform)
 
 	// The configured instance carries the option set for this task.
 	instanceLabel := name
@@ -648,6 +649,7 @@ func (r *BenchmarkRunner) runCustomTask(ctx context.Context, benchmark *model.Be
 			Env:            []string{"HOME=/tmp", "TMPDIR=/tmp"},
 			User:           "1000",
 			Workers:        task.Workers,
+			Platform:       platform,
 			KillOnThrottle: true,
 		})
 		cancel()

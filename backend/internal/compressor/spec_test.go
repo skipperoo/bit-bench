@@ -63,6 +63,19 @@ func TestParseSpecDefaults(t *testing.T) {
 	if spec.Options == nil {
 		t.Error("options should default to an empty map, not nil")
 	}
+	if spec.Platform != "" {
+		t.Errorf("platform = %q, want empty (native)", spec.Platform)
+	}
+}
+
+func TestParseSpecPlatform(t *testing.T) {
+	spec, err := ParseSpec([]byte("name: arm_codec\nversion: \"1\"\nplatform: linux/arm64/v8\nentrypoint: ./run\n"))
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if spec.Platform != PlatformARM64 {
+		t.Errorf("platform = %q, want %q", spec.Platform, PlatformARM64)
+	}
 }
 
 func TestParseSpecInvalid(t *testing.T) {
@@ -83,6 +96,9 @@ func TestParseSpecInvalid(t *testing.T) {
 		{"select bad default", "name: codec\nversion: 1\nentrypoint: ./run\noptions:\n  mode:\n    type: select\n    options: [a, b]\n    default: c\n", "not one of the allowed"},
 		{"unknown type", "name: codec\nversion: 1\nentrypoint: ./run\noptions:\n  x:\n    type: string\n    default: hi\n", "unsupported type"},
 		{"invalid option name", "name: codec\nversion: 1\nentrypoint: ./run\noptions:\n  BadName:\n    type: boolean\n    default: true\n", "invalid option name"},
+		{"unsupported platform", "name: codec\nversion: 1\nplatform: linux/ppc64le\nentrypoint: ./run\n", "supported platforms"},
+		{"missing os", "name: codec\nversion: 1\nplatform: arm64\nentrypoint: ./run\n", "expected os/arch"},
+		{"unsupported os", "name: codec\nversion: 1\nplatform: windows/amd64\nentrypoint: ./run\n", "only linux is supported"},
 	}
 
 	for _, tt := range tests {

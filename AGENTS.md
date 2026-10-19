@@ -1,5 +1,7 @@
 # BitBench — Technical Specifications
 
+> **Revision 6** — Supersedes Revision 5. Adds **cross-architecture compressor packages**: `spec.yaml` may declare `platform: linux/arm64` (or amd64), the build and run containers use that platform, foreign platforms execute through binfmt/QEMU emulation with an upload-time availability probe, the platform is persisted with every benchmark, and the UI warns (upload page, Compressors page, results pages) that emulated throughput is not representative. Runner images are built per architecture (`bitbench-runner:amd64` / `bitbench-runner:arm64`) and the compose stack builds both. All design decisions are recorded inline (marked **[DECISION]**).
+>
 > **Revision 5** — Supersedes Revision 4. Adds **multi-instance benchmark configurations**: one benchmark may combine several configurations of the same compressor with different options (auto-labelled brief configs in results, duplicate configurations rejected, up to 64 instances), the native harness gains per-entry options (NeaTS `max_bpc`/`lossy`, Camel `max_precision`, Falcon `decimals`) and emits the configured entry in its CSV, and users gain **presets** (private or group-shared) plus a **configuration history** that can be promoted to a preset. All design decisions are recorded inline (marked **[DECISION]**).
 >
 > **Revision 4** — Supersedes Revision 3. Replaces the benchmark-per-goroutine runner with a **task-based scheduler over a single CPU worker budget** (`MAX_PARALLELISM` = allocatable cores): one benchmark can fan its `.bin` files and custom packages across the whole pool with priority + fair-share claiming, multi-file uploads are averaged into one benchmark, normalization happens at upload, and crash recovery re-queues interrupted tasks. All design decisions are recorded inline (marked **[DECISION]**).
@@ -51,6 +53,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D28 | **A benchmark configuration is an ordered list of instances** (`{name, options, label}`), so the same compressor or package may appear several times with different options. Up to `64` instances; exact duplicates are rejected server-side (built-ins by native invocation, packages by canonical options); labels are auto-generated from non-default options (`gzip · level 9`) and shown beside the compressor name in results, charts, tables and LaTeX exports. | Directly compares configurations of one algorithm; container-independent and unambiguous results. |
 | D29 | **Native per-entry options.** The C++ harness parses `-c` entries as `name`, `name=<int>` (legacy level) or `name=key:value;key:value` (`level`, `max_bpc`, `lossy`, `max_precision`, `decimals`; the pfordelta codec is encoded in the name). Configured entries are emitted verbatim in the CSV `compressor` column, while plain entries keep their historical labels (e.g. `NeaTS`); the backend matches entries case-insensitively and relabels rows with the configured instance label. `MemoryHarness` parses and applies the same entry syntax so memory results reflect the configured options. | Configurations are measurable per instance without breaking the standalone report pipeline. |
 | D30 | **Presets and configuration history.** Presets store an instance list, are named uniquely per owner, and are either `private` or `group`-shared (bound to the owner's group at creation, like packages). Every role may create, load and use presets; only the owner, an administrator, or a professor of the preset's group (for shared presets) may edit or delete them; only the owner or an administrator may change a preset's visibility. Each user keeps a deduplicated history of their last 20 configurations (`benchmark_config_history`), recorded on benchmark creation, which can be loaded or promoted to a preset. | Reusable experiment setups for a research group with clear ownership. |
+| D31 | **Cross-architecture packages via `spec.yaml: platform`.** Allowed values are `linux/amd64` and `linux/arm64` (variants normalized); empty means the host platform. The same platform is used for the offline build and the benchmark run. Runner images are per-arch (`RUNNER_IMAGE_AMD64` / `RUNNER_IMAGE_ARM64`, defaults `bitbench-runner:amd64` / `bitbench-runner:arm64`); compose builds both. A package whose platform differs from the Docker daemon's platform is **emulated** (binfmt/QEMU): uploads are rejected up front when the target image is missing or a `/bin/true` probe fails, the resolved platform + `emulated` flag are stored on each benchmark instance (and decorated onto package API responses), and the UI warns on the upload page, Compressors page, results/detail/compare pages that throughput is distorted. | Lets groups measure ARM codebases on x86 hosts (and vice versa) without silent cross-architecture surprises. |
 | D23 | **Visibility is group-tied at upload time.** A package is visible to its owner, the owner's group (so group members can select professor/phd packages), and admins. Moving a user to another group does not move the package. `GET /compressors` returns the flat `{name: options}` map with built-ins and visible ready packages merged. | Matches the "research group" visibility model and keeps the frontend contract unchanged. |
 | D24 | **Custom compressor CSV is parsed leniently**: `memory_usage`, `random_access_ns`, `random_access_mbs` and `range_query_*` may be empty and are stored as `NULL`; the platform does not run the Massif/MemoryHarness measurement on user programs. | "Leave NULL unless self-reported" avoids misleading zeros in rankings. |
 | D25 | **CPU information on `GET /status`** via `gopsutil` (cached static fields, live load per request): model, physical/logical cores, MHz, load 1/5/15, derived utilization, instruction-set flags. Shown on the Status page so users can pick safe `-march=native`/SIMD targets. | Needed by the compressor-package documentation and useful operationally. |
@@ -159,6 +162,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - **Multi-file mode**: *Average* sends all files in one request as repeated `files` fields (one benchmark, tasks fan out, results averaged into one row per compressor); *Run separate benchmarks* enqueues one benchmark per file.
 - **Run button** (disabled until name + valid file + at least one valid instance).
 - **Presets & History panel**: lists the visible presets (own + group-shared, `private`/`group` badge, load, delete when permitted) with a "save current configuration" form (name + visibility; group requires membership); lists the 20 most recent configurations of the user with load and "save as preset" actions. Loading replaces the current instance list (confirmation when non-empty).
+- **Emulation warning**: when any selected custom package targets a platform different from the host (`GET /config.hostPlatform` vs. the package platform from `GET /compressors/packages`), an amber warning lists the affected packages and states that throughput is distorted; each such picker entry and configured instance carries an `arm64 emulated` badge (D31).
 - **Two-pane configuration builder**: the left pane is a searchable algorithm picker grouped by family (Custom packages first) with an **Add** action per compressor; the right pane lists the configured instances (auto label, expandable options, remove). Option widgets follow the standard rules (slider for ≤ 20 steps, otherwise number input, switch for booleans, dropdown for selects). Compressors with no effective options can be added once; identical configurations are rejected client- and server-side; a counter enforces the 64-instance cap.
 - Duplicate checksums are allowed (D6); no client-side duplicate blocking. `GET /api/v1/benchmarks/checksums` is retained for backwards compatibility.
 
@@ -168,7 +172,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - **Compressor pills** (tag style, bottom-center): show up to 5; if more, show `+N other` with the full list on hover.
 
 #### 3.1.4 Benchmark detail page
-Reproduces `final_results.html` for the single benchmark. See §3.4 for the exact chart set.
+Reproduces `final_results.html` for the single benchmark. See §3.4 for the exact chart set. When any configured user package ran under CPU emulation (D31), an amber emulation notice appears above the results listing the affected compressors and warning that throughput is distorted; the compare page shows the same notice across the selected benchmarks, and result cards carry an `emulated` badge.
 
 #### 3.1.5 Compare page
 - Select up to 5 benchmarks.
@@ -181,10 +185,10 @@ Reproduces `final_results.html` for the single benchmark. See §3.4 for the exac
 #### 3.1.7 Compressors page
 - Lists the compressor packages visible to the current user (own group + own + all for admin).
 - **Upload button is always visible but disabled for `student`**; the server enforces `admin`/`professor`/`phd` on upload.
-- Upload form: `.zip` package; admins additionally choose an optional visibility group (no group → admins only).
-- Table: name, version, language, workers, **status pill** (`building` yellow with pulsing dot, `ready` green, `failed` red + error), updated timestamp, actions.
+- Upload form: `.zip` package; admins additionally choose an optional visibility group (no group → admins only). The form hints that `platform: linux/arm64` in `spec.yaml` targets ARM64.
+- Table: name, version, language, workers, **platform** (`linux/<arch>` badge plus an `emulated` badge when the package targets a foreign platform), **status pill** (`building` yellow with pulsing dot, `ready` green, `failed` red + error), updated timestamp, actions.
 - Packages in `building` state are polled every 3s; failed packages expose their build log; delete is available to the owner, an admin, or a professor of the same group.
-- Custom packages appear in the benchmark upload page under the **Custom** family and render their `spec.yaml` options with the standard widget rules.
+- Custom packages appear in the benchmark upload page under the **Custom** family and render their `spec.yaml` options with the standard widget rules. Emulated packages are marked there too, and selecting one shows the emulation warning (D31).
 
 ### 3.2 Admin frontend (decoupled)
 
@@ -315,7 +319,7 @@ func main() {
         AddMiddleware(loggingMw.GetMiddleware()).
         AddHandler("POST /api/v1/auth/login",   handler.Login).
         AddHandler("GET  /api/v1/health",       handler.HealthCheck).
-        AddHandler("GET  /api/v1/config",       handler.GetConfig) // {maxFileSizeMb, smtpEnabled}
+        AddHandler("GET  /api/v1/config",       handler.GetConfig) // {maxFileSizeMb, maxCompare, smtpEnabled, hostPlatform}
 
      // --- Protected routes (JWT + Redis blocklist + DB-resolved user) ---
     protected := routy.NewRouter()
@@ -482,7 +486,7 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 |:--|:--|:--|
 | `POST` | `/api/v1/auth/login` | Body `{email, password}` → `{token}`. Rate-limited 5/min/IP. |
 | `GET`  | `/api/v1/health` | `{status:"ok"}`. |
-| `GET`  | `/api/v1/config` | `{maxFileSizeMb, smtpEnabled}`. Public so the upload form can pre-validate. |
+| `GET`  | `/api/v1/config` | `{maxFileSizeMb, maxCompare, smtpEnabled, hostPlatform}`. Public so the upload form can pre-validate and the frontend can flag emulated packages. |
 
 #### Protected (all authenticated users)
 
@@ -492,8 +496,8 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `PUT`  | `/api/v1/auth/password` | Body `{current_password, new_password}`; update `password_hash`; issue a fresh JWT. |
 | `GET`  | `/api/v1/me` | Current user profile + group. |
 | `GET`  | `/api/v1/compressors` | Compressor-options registry (§3.3 / §6.2) merged with visible ready package options (D23). |
-| `POST` | `/api/v1/compressors/packages` | Multipart `file` (`.zip`); optional `group_id` for admins. `admin`/`professor`/`phd` only. Returns `202` + the package in `building` state; build runs asynchronously. |
-| `GET`  | `/api/v1/compressors/packages` | Packages visible to the caller (own + own group + all for admin). |
+| `POST` | `/api/v1/compressors/packages` | Multipart `file` (`.zip`); optional `group_id` for admins. `admin`/`professor`/`phd` only. Returns `202` + the package in `building` state; build runs asynchronously. The declared `spec.yaml: platform` is validated (allowed values + runner image present + emulation probe for foreign platforms) and rejected with `400` and guidance otherwise; responses carry the resolved `platform` and `emulated` fields. |
+| `GET`  | `/api/v1/compressors/packages` | Packages visible to the caller (own + own group + all for admin), each with the resolved `platform` and `emulated` fields. |
 | `GET`  | `/api/v1/compressors/packages/{id}` | Package details incl. status, error and build log. |
 | `DELETE` | `/api/v1/compressors/packages/{id}` | Delete a package (owner, admin, or professor of the same group). |
 | `GET`  | `/api/v1/presets` | Presets visible to the caller (own + group-shared + all for admin). |
@@ -537,7 +541,7 @@ One scheduler loop plus one goroutine per running task, with an in-process count
 6. On startup: `ResetRunning` re-queues interrupted tasks; `ListStrandedInProgress` finalizes benchmarks that crashed between the last task and aggregation.
 
 #### Compressor Package Builder
-- Triggered asynchronously after `POST /compressors/packages`: validates/extracts the archive, parses `spec.yaml`, then runs the optional build command (`make` when a `Makefile` exists) in a runner container **with no network** (all dependencies must be vendored).
+- Triggered asynchronously after `POST /compressors/packages`: validates/extracts the archive, parses `spec.yaml`, checks the target platform (allowed value, runner image present, foreign-platform `/bin/true` probe), then runs the optional build command (`make` when a `Makefile` exists) in a platform-matching runner container **with no network** (all dependencies must be vendored).
 - On success the package is `ready`; on failure `failed` with `error` and the build log; the Compressors page polls `building` packages every 3s.
 
 #### Email Dispatcher
@@ -614,7 +618,7 @@ CREATE TABLE benchmarks (
     file_ext        VARCHAR(10) NOT NULL,           -- 'bin','csv','zip','tar'
     status          VARCHAR(12) NOT NULL DEFAULT 'queued'
                     CHECK (status IN ('queued','in_progress','ready','failed','timed_out','cancelled')),
-    compressors     JSONB NOT NULL,                  -- {"<name>": {<option>: <value>}}
+    compressors     JSONB NOT NULL,                  -- ordered [CompressorInstance] ({name, options, label, platform?, emulated?})
     error           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at      TIMESTAMPTZ,
@@ -839,7 +843,7 @@ Higher is better: everything else (throughputs `*_mbs`, range queries).
 
 A package is a `.zip` archive with `spec.yaml` at the root, its sources under `src/`, an optional `Makefile` (compiled languages) and optionally vendored dependencies. Full user documentation lives in `docs/user-compressors.md`; working examples in `examples/user-compressors/<language>/` (Python, C, C++, Go, Rust), E2E-tested in CI.
 
-**`spec.yaml`**: `name` (`[a-z0-9_]{1,64}`, globally unique, no built-in collision), `version`, `description?`, `language?`, `entrypoint` (command relative to the package root), `workers` (default 1), optional `build.command`/`build.timeout_seconds`, and `options` (same schema as the built-in registry).
+**`spec.yaml`**: `name` (`[a-z0-9_]{1,64}`, globally unique, no built-in collision), `version`, `description?`, `language?`, `platform?` (`linux/amd64` or `linux/arm64`, variants normalized; empty = host platform), `entrypoint` (command relative to the package root), `workers` (default 1), optional `build.command`/`build.timeout_seconds`, and `options` (same schema as the built-in registry).
 
 **Invocation** (executed in the runner container, working dir = package root):
 ```
@@ -847,9 +851,11 @@ A package is a `.zip` archive with `spec.yaml` at the root, its sources under `s
 ```
 Both forms are always passed; when both specify a key the JSON file wins.
 
-**Build**: at upload, asynchronously, in the runner image, with **no network** — `build.command` or `make` when a `Makefile` exists. Artifacts live in `COMPRESSOR_DIR/<built_path>/pkg` on the `bitbench_compressor_data` volume. Success → `ready`, failure → `failed` with `error` + `build_log`.
+**Build**: at upload, asynchronously, in the runner image for the declared platform, with **no network** — `build.command` or `make` when a `Makefile` exists. Artifacts live in `COMPRESSOR_DIR/<built_path>/pkg` on the `bitbench_compressor_data` volume. Success → `ready`, failure → `failed` with `error` + `build_log`.
 
-**Sandbox** (build and run): image `RUNNER_IMAGE` (Debian + python3/pip, gcc/g++, Go, rustc/cargo), `--network none`, non-root (`uid 1000`) for runs, read-only rootfs with a `/tmp` tmpfs, memory `RUNNER_MEMORY_MB`, pids `RUNNER_PIDS_LIMIT`. Files are exchanged through the named volumes mounted at identical paths in backend and runner containers (D21). The runner never receives the Docker socket.
+**Sandbox** (build and run): image `RUNNER_IMAGE_<ARCH>` for the package platform (Debian + python3/pip, gcc/g++, Go, rustc/cargo), `--network none`, non-root (`uid 1000`) for runs, read-only rootfs with a `/tmp` tmpfs, memory `RUNNER_MEMORY_MB`, pids `RUNNER_PIDS_LIMIT`. Files are exchanged through the named volumes mounted at identical paths in backend and runner containers (D21). The runner never receives the Docker socket.
+
+**Platforms (D31)**: the Docker daemon's architecture is the host platform; a package whose `platform` differs runs through binfmt/QEMU. At upload the backend checks the target runner image exists and, for foreign platforms, runs a cached `/bin/true` probe with `--platform`; failures reject the upload with guidance (`docker run --privileged --rm tonistiigi/binfmt --install arm64`, build `bitbench-runner:arm64`). The build container uses the same platform as the run.
 
 **Workers**: each custom `(bin × package)` task costs the package's declared `workers` units from the unified `MAX_PARALLELISM` budget (`workers <= budget` is validated at upload and run time) and gets `--cpus=workers`; cgroup throttling beyond `max(2s, 5% of runtime)` kills the container and fails the task (D22).
 
@@ -906,11 +912,21 @@ services:
       - backend
     restart: unless-stopped
 
-  runner:
+  runner-amd64:
     build:
       context: ./runner
       dockerfile: Dockerfile
-    image: bitbench-runner:latest
+      platforms: ["linux/amd64"]
+    image: bitbench-runner:amd64
+    command: ["/bin/true"]
+    restart: "no"
+
+  runner-arm64:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+      platforms: ["linux/arm64"]
+    image: bitbench-runner:arm64
     command: ["/bin/true"]
     restart: "no"
 
@@ -949,7 +965,8 @@ services:
       - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
       - COMPRESSOR_DIR=/data/compressors
       - MAX_PACKAGE_SIZE_MB=50
-      - RUNNER_IMAGE=bitbench-runner:latest
+      - RUNNER_IMAGE_AMD64=bitbench-runner:amd64
+      - RUNNER_IMAGE_ARM64=bitbench-runner:arm64
       - RUNNER_MEMORY_MB=4096
       - RUNNER_PIDS_LIMIT=512
       - BUILD_TIMEOUT_SECONDS=600
@@ -970,7 +987,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      runner:
+      runner-amd64:
+        condition: service_completed_successfully
+      runner-arm64:
         condition: service_completed_successfully
     restart: unless-stopped
 
@@ -1024,7 +1043,7 @@ secrets:
     file: ./secrets/smtp_password.txt
 ```
 
-> Bug fix: the original compose omitted the `admin-frontend` service and used the TimescaleDB image; both corrected. Revision 3 adds the `runner` image service (no long-running process; it exists so `docker compose up --build` produces `bitbench-runner:latest`), the compressor volume and the Docker socket mount required by D21.
+> Bug fix: the original compose omitted the `admin-frontend` service and used the TimescaleDB image; both corrected. Revision 3 adds the `runner` image service (no long-running process; it exists so `docker compose up --build` produces the runner image), the compressor volume and the Docker socket mount required by D21. Revision 6 replaces it with `runner-amd64` + `runner-arm64`: the compose stack always builds both architectures (requires binfmt/QEMU on the host for the foreign one; Docker Desktop provides it, plain Linux needs `tonistiigi/binfmt`).
 
 ### Environment variables (complete reference)
 
@@ -1041,7 +1060,8 @@ secrets:
 | `BENCH_BINARY_PATH` | `/app/bin/LosslessBenchmarkFull` | Benchmark executable. |
 | `COMPRESSOR_DIR` | `/data/compressors` | Persistent package/workspace root. |
 | `MAX_PACKAGE_SIZE_MB` | `50` | Uploaded package `.zip` size cap. |
-| `RUNNER_IMAGE` | `bitbench-runner:latest` | Sandbox image for builds and runs. |
+| `RUNNER_IMAGE_AMD64` | `bitbench-runner:amd64` | Sandbox image for amd64 packages (built by `runner-amd64`). |
+| `RUNNER_IMAGE_ARM64` | `bitbench-runner:arm64` | Sandbox image for arm64 packages (built by `runner-arm64`; needs binfmt/QEMU on x86 hosts). |
 | `RUNNER_MEMORY_MB` | `4096` | Per-container memory limit. |
 | `RUNNER_PIDS_LIMIT` | `512` | Per-container pid limit. |
 | `BUILD_TIMEOUT_SECONDS` | `600` | Default package build timeout. |
@@ -1150,8 +1170,8 @@ Every PR introducing behavior MUST ship tests in the same commit.
 
 | Layer | Tool | What to cover |
 |:--|:--|:--|
-| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging incl. memory fields), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, instance canonicalization/labels/invocations, config fingerprints, preset permission matrix, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
-| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; multi-file upload creates one benchmark + one task per `.bin`; multi-instance uploads (duplicate rejection, instance cap, auto labels); login → logout + JWT blocklist eviction; role/scope matrix (professor group scoping, student 403, deleted-user token rejection); preset CRUD + visibility/management matrix and config-history dedup; compressor package API (upload/list/visibility/replace/delete) with a fake runner; task claim ordering (priority, fewest-running fair share, worker fit, cancelled benchmarks); benchmark scheduler end-to-end with the **real runner image** (normalize → task fan-out → build/run → parse → average → `ready` → files deleted), including all `examples/user-compressors` packages, a multi-file averaging case and a multi-instance case |
+| Unit | `testing` (stdlib) | CSV result parser (strict + lenient, dynamic range columns, missing-metric propagation through averaging incl. memory fields), MD5 checksum, filename-escaping rule, `.bin` 8-byte vs 16-byte header detection, job-state transition predicates, Pareto-score computation, compressor-option registry serialization, instance canonicalization/labels/invocations, platform normalization/host mapping/`spec.yaml` platform validation, config fingerprints, preset permission matrix, `spec.yaml`/option validation, zip extraction safety (traversal/symlink/size cap), custom invocation command builder, CPU status builder, role guards and `ResolveUser` |
+| Integration | `testing` + `testcontainers-go` | Each handler (happy + error path) against real PostgreSQL + Redis; multi-file upload creates one benchmark + one task per `.bin`; multi-instance uploads (duplicate rejection, instance cap, auto labels); platform rejection for unavailable architectures and resolved platform/emulated fields on package responses; login → logout + JWT blocklist eviction; role/scope matrix (professor group scoping, student 403, deleted-user token rejection); preset CRUD + visibility/management matrix and config-history dedup; compressor package API (upload/list/visibility/replace/delete) with a fake runner; task claim ordering (priority, fewest-running fair share, worker fit, cancelled benchmarks); benchmark scheduler end-to-end with the **real runner image** (normalize → task fan-out → build/run → parse → average → `ready` → files deleted), including all `examples/user-compressors` packages, a multi-file averaging case, a multi-instance case and an **emulated arm64 case** (`E2E_RUNNER_IMAGE_ARM64`, built with QEMU in CI) |
 
 Minimum per PR: new handler → ≥1 happy + ≥1 error integration test; new worker → unit test for the scheduling/claim predicate + integration test for the DB interaction; new migration → integration test against a fresh schema.
 
@@ -1159,8 +1179,8 @@ Minimum per PR: new handler → ≥1 happy + ≥1 error integration test; new wo
 
 | Layer | Tool | What to cover |
 |:--|:--|:--|
-| Unit | Vitest | File-validation logic (type + size), option-form rendering rules (slider vs number input by step count), instance helpers (canonicalization, labels, invocations, duplicate detection, cap), labelled-name renaming/colors/shapes, preset permission + summary helpers, Pareto-score helper, ranking-direction helper, package status/manage helpers, CPU formatting/flags helpers |
-| Component | React Testing Library | Upload form (valid/invalid/loading states), status pill states (`queued`/`in_progress`/`ready`), error states, configuration builder (add/remove instances, duplicate warning), presets/history panel states, Compressors page (student-disabled upload, statuses, build log) |
+| Unit | Vitest | File-validation logic (type + size), option-form rendering rules (slider vs number input by step count), instance helpers (canonicalization, labels, invocations, duplicate detection, cap), labelled-name renaming/colors/shapes, platform normalization/emulation helpers, preset permission + summary helpers, Pareto-score helper, ranking-direction helper, package status/manage helpers, CPU formatting/flags helpers |
+| Component | React Testing Library | Upload form (valid/invalid/loading states), status pill states (`queued`/`in_progress`/`ready`), error states, configuration builder (add/remove instances, duplicate warning), presets/history panel states, emulation warning states (package targeting another platform, native packages), Compressors page (student-disabled upload, statuses, build log) |
 | E2E | Playwright | Login, upload a benchmark, view detail charts, compare two benchmarks |
 
 Minimum per PR: new UI component → component tests for its interactive states; new pure logic → unit tests with known input/output vectors; new user journey → happy-path Playwright test.

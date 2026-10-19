@@ -22,6 +22,12 @@ Then open **<http://localhost>** (main frontend) or **<http://localhost:81>** (a
 Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed from the admin panel).
 
 > **Prerequisites:** Docker, Docker Compose and an AVX/AVX2 compatible processor.
+>
+> The stack builds runner images for **both amd64 and arm64** (so compressor packages
+> can target either architecture). Docker Desktop includes the required QEMU/binfmt
+> emulation; on plain Linux hosts register it once before the first build:
+> `docker run --privileged --rm tonistiigi/binfmt --install all`.
+> Building the foreign architecture takes a few minutes under emulation.
 
 ---
 
@@ -111,6 +117,7 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 - **Staff-created accounts only**: admins manage everything; professors manage users of their own group; `phd` users can upload compressors; `student` users run benchmarks.
 - **PostgreSQL as task queue**: each benchmark owns `benchmark_tasks` rows (`FOR UPDATE SKIP LOCKED`); a single scheduler spreads them over one CPU worker budget with group priority and per-benchmark fair share. No separate job broker.
 - **Multi-instance configurations**: a benchmark is an ordered list of configured compressor instances (up to 64); exact duplicates are rejected, and results are labelled with the instance's brief configuration. Presets (private or group-shared) and a per-user configuration history make setups reusable.
+- **Cross-architecture packages**: a compressor package may declare `platform: linux/arm64` (or `amd64`) in `spec.yaml`. Foreign platforms are built and run with `--platform` in the corresponding runner image through binfmt/QEMU; the platform is stored with every benchmark and the UI warns that emulated throughput is not representative.
 - **Ephemeral files**: uploaded files are deleted once the benchmark finishes. Re-running requires re-upload. Built compressor-package workspaces persist.
 - **Sandboxed user compressors**: uploaded packages are built once, offline, in the runner image and executed in network-isolated containers with CPU/memory/pid limits.
 - **Multi-stage Docker build**: the C++ benchmark binary and Squash libraries are compiled at image-build time, producing a slim runtime image.
@@ -123,7 +130,7 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 | **frontend**       | 80 (internal) | Vite/React main app -- upload, results, compare, compressor pages            |
 | **admin-frontend** | 80 (internal) | Vite/React management panel -- user & group CRUD, benchmark management       |
 | **backend**        | 8080          | Go HTTP server + background benchmark runner + package builder               |
-| **runner**         | —             | Build-only service producing the sandbox image `bitbench-runner:latest`      |
+| **runner**         | —             | Build-only services producing the sandbox images `bitbench-runner:amd64` and `bitbench-runner:arm64` (both are built by `docker compose up --build`) |
 | **postgres**       | 5432          | Database (users, groups, benchmarks, results, packages)                      |
 | **redis**          | 6379          | JWT blocklist + rate limiting (ephemeral, no volume)                         |
 
@@ -175,9 +182,14 @@ sandboxed Debian image with Python, C/C++, Go and Rust toolchains, and then run
 in a network-isolated container while the benchmark executes.
 
 Ready packages are selectable next to the built-in compressors by every member
-of the uploader's group. See
+of the uploader's group. Packages can declare a target architecture in
+`spec.yaml` (`platform: linux/arm64` or `linux/amd64`; default: the host
+platform); foreign architectures run through CPU emulation, which distorts
+throughput measurements — the UI marks such packages everywhere.
+See
 [`docs/user-compressors.md`](docs/user-compressors.md) for the package format,
-the invocation/CSV contract, vendoring instructions and resource limits, and
+the invocation/CSV contract, vendoring instructions, platform/emulation setup
+and resource limits, and
 [`examples/user-compressors/`](examples/user-compressors) for a working example
 in every supported language.
 
@@ -330,7 +342,8 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 | `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                        |
 | `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages        |
 | `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)       |
-| `RUNNER_IMAGE`          | `bitbench-runner:latest`         | Sandbox image used to build/run user compressors    |
+| `RUNNER_IMAGE_AMD64`    | `bitbench-runner:amd64`         | Sandbox image for amd64 packages                    |
+| `RUNNER_IMAGE_ARM64`    | `bitbench-runner:arm64`         | Sandbox image for arm64 packages (QEMU on x86 hosts)|
 | `RUNNER_MEMORY_MB`      | `4096`                           | Per-container memory limit for user compressors     |
 | `RUNNER_PIDS_LIMIT`     | `512`                            | Per-container pid limit                             |
 | `BUILD_TIMEOUT_SECONDS` | `600`                            | Default package build timeout                       |
