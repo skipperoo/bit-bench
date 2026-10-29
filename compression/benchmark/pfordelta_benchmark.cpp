@@ -130,14 +130,14 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
     result.compression_throughput_mbs = (raw_data.size() * sizeof(int64_t) / 1024.0 / 1024.0) / (comp_ns / 1e9);
 
     // Decompression
-    std::vector<uint32_t> decompressed(raw_data.size());
-    size_t decompressed_size = decompressed.size();
+    std::vector<uint32_t> decompressed(raw_data.size() + kPforDecodeSlack);
+    size_t decompressed_size = raw_data.size();
     
     t1 = std::chrono::high_resolution_clock::now();
     codec->decodeArray(compressed.data(), compressed.size(), decompressed.data(), decompressed_size);
     
     // Inverse zigzag Delta
-    pfor_delta_zigzag_decode(decompressed.data(), decompressed.size());
+    pfor_delta_zigzag_decode(decompressed.data(), raw_data.size());
     t2 = std::chrono::high_resolution_clock::now();
     
     auto decomp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
