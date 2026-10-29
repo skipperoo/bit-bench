@@ -802,8 +802,10 @@ With `LD_LIBRARY_PATH` pointing at the bundled Squash libraries when running Ful
 | neats | `max_bpc`, `lossy` |
 | camel | `max_precision` (falls back to the `.bin` decimals) |
 | falcon | `decimals` (falls back to the `.bin` decimals) |
-| pfordelta | `codec` (maps to `pfordelta_<codec>` except the default `simdnewpfor`) |
+| pfordelta | `codec` (maps to `pfordelta_<codec>`, including the default `simdnewpfor`; the allowed names mirror the makers in `compression/benchmark/pfor_codec.hpp`) |
 | user packages | every `spec.yaml` option (flags + `--options <json>`) |
+
+The pfordelta codec list is part of the native contract: `pfordelta_codecs_test.go` parses `pfor_codec.hpp` and fails the unit suite if the registry options drift from the makers registered there.
 
 ### 6.3 Benchmark result CSV schema (the exact columns the backend parses)
 
