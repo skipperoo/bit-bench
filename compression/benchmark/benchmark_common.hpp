@@ -90,6 +90,24 @@ inline void compiler_barrier() {
     std::atomic_signal_fence(std::memory_order_seq_cst);
 }
 
+// PForDelta pre/post-processing of a 32-bit block. The first value is kept as is and
+// every following one is replaced by the zigzag-mapped difference from its predecessor,
+// so that negative deltas become small integers instead of wrapping around to ~2^32.
+// Both directions are bijective modulo 2^32, so decoding is exact for any uint32 input.
+inline void pfor_delta_zigzag_encode(uint32_t *block, size_t n) {
+    for (size_t i = n; i-- > 1;) {
+        uint32_t d = block[i] - block[i - 1];
+        block[i] = (d << 1) ^ (0u - (d >> 31));
+    }
+}
+
+inline void pfor_delta_zigzag_decode(uint32_t *block, size_t n) {
+    for (size_t i = 1; i < n; ++i) {
+        uint32_t d = (block[i] >> 1) ^ (0u - (block[i] & 1u));
+        block[i] = block[i - 1] + d;
+    }
+}
+
 // External benchmark functions (compiled with different compilers for compatibility)
 // ALP: compiled with clang++ for AVX-512 support
 BenchmarkResult benchmark_alp(const BenchmarkData &bench_data,
