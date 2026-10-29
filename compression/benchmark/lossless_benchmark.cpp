@@ -1212,7 +1212,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         size_t end = std::min(start + block_size, n);
         size_t bs = end - start;
 
-        std::vector<uint32_t> block_decomp(bs);
+        std::vector<uint32_t> block_decomp(bs + kPforDecodeSlack);
         size_t decomp_size = bs;
         codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                            block_decomp.data(), decomp_size);
@@ -1249,7 +1249,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         size_t offset_in_block = idx % block_size;
         size_t bs = std::min(block_size, n - ib * block_size);
 
-        std::vector<uint32_t> block_decomp(bs);
+        std::vector<uint32_t> block_decomp(bs + kPforDecodeSlack);
         size_t decomp_size = bs;
         codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                            block_decomp.data(), decomp_size);
@@ -1285,7 +1285,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
             for (size_t ib = start_block; ib <= end_block; ++ib) {
                 size_t bs = std::min(block_size, n - ib * block_size);
 
-                std::vector<uint32_t> block_decomp(bs);
+                std::vector<uint32_t> block_decomp(bs + kPforDecodeSlack);
                 size_t decomp_size = bs;
                 codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                                    block_decomp.data(), decomp_size);
