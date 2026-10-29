@@ -93,7 +93,7 @@ func TestBuildInvocation(t *testing.T) {
 	if got := BuildInvocation("pfordelta", pfor, map[string]interface{}{"codec": "pfor"}); got != "pfordelta_pfor" {
 		t.Errorf("pfordelta invocation = %q", got)
 	}
-	if got := BuildInvocation("pfordelta", pfor, map[string]interface{}{"codec": "simdnewpfor"}); got != "pfordelta" {
+	if got := BuildInvocation("pfordelta", pfor, map[string]interface{}{"codec": "simdnewpfor"}); got != "pfordelta_simdnewpfor" {
 		t.Errorf("pfordelta default invocation = %q", got)
 	}
 }
