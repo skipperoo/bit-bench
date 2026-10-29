@@ -13,6 +13,36 @@
 
 #include <headers/codecfactory.h>
 
+// Simple8b_RLE<true> and Simple9_RLE<true> write a 32-bit length word before the
+// compressed words, but the size they report leaves it out (nvalue = count * 2 in
+// simple8b_rle.h, nvalue = count in simple9_rle.h; still so in upstream FastPFor).
+// The measured size was therefore one word short per encoded block, and decoding
+// from exactly the reported size read past it. This wrapper adds the word back.
+class PforLengthWordFix final : public FastPForLib::IntegerCODEC {
+public:
+    explicit PforLengthWordFix(std::unique_ptr<FastPForLib::IntegerCODEC> inner)
+        : inner_(std::move(inner)) {}
+
+    using FastPForLib::IntegerCODEC::encodeArray;
+    using FastPForLib::IntegerCODEC::decodeArray;
+
+    void encodeArray(const uint32_t *in, const size_t length, uint32_t *out,
+                     size_t &nvalue) override {
+        inner_->encodeArray(in, length, out, nvalue);
+        ++nvalue;
+    }
+
+    const uint32_t *decodeArray(const uint32_t *in, const size_t length, uint32_t *out,
+                                size_t &nvalue) override {
+        return inner_->decodeArray(in, length, out, nvalue);
+    }
+
+    std::string name() const override { return inner_->name(); }
+
+private:
+    std::unique_ptr<FastPForLib::IntegerCODEC> inner_;
+};
+
 // Some decoders write whole words past the requested number of values (Simple9/16 up to
 // 28 integers), so every decode buffer must have this many spare integers after its end.
 // 32 was enough for all codecs on every Phase One chunk under AddressSanitizer.
@@ -62,7 +92,10 @@ inline std::shared_ptr<FastPForLib::IntegerCODEC> make_pfor_codec(const std::str
         {"simdgroupsimple_ringbuf", FastPForLib::simdgroupsimple_ringbuf_codec},
     }};
     for (const auto &[codec_name, make] : makers) {
-        if (name == codec_name) return make();
+        if (name != codec_name) continue;
+        if (name == "simple8b_rle" || name == "simple9_rle")
+            return std::make_shared<PforLengthWordFix>(make());
+        return make();
     }
     throw std::invalid_argument("Unknown PForDelta codec: " + name);
 }
