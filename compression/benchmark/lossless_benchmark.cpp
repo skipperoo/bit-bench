@@ -78,6 +78,7 @@
 // FastPFOR for PForDelta benchmarking
 #include <headers/fastpfor.h>
 #include <headers/codecfactory.h>
+#include "pfor_codec.hpp"
 
 using namespace FastPForLib;
 
@@ -1172,8 +1173,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
     size_t total_compressed_units = 0;
     std::vector<std::vector<uint32_t>> compressed_blocks(num_blocks);
 
-    CODECFactory factory;
-    auto codec = factory.getFromName(codec_name);
+    auto codec = make_pfor_codec(codec_name);
 
     // Compression
     auto t1 = std::chrono::high_resolution_clock::now();
