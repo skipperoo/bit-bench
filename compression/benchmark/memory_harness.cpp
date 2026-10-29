@@ -255,8 +255,7 @@ void run_pfordelta(const std::string &codec_name, const std::vector<T> &data, si
         for (size_t i = 0; i < bs; ++i)
             block_data[i] = static_cast<uint32_t>(data[start + i]);
 
-        for (size_t i = bs - 1; i > 0; --i)
-            block_data[i] -= block_data[i - 1];
+        pfor_delta_zigzag_encode(block_data.data(), bs);
 
         std::vector<uint32_t> compressed(bs + 1024);
         size_t compressed_size = compressed.size();

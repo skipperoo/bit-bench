@@ -105,7 +105,14 @@ def get_data_format_for_compressor(compressor: str) -> str:
     if c in {"baseline_shifted", "baseline_double", "baseline_raw"}:
         return c.split("_", 1)[1]
 
-    if c == "neats" or c == "dac" or ("_gef" in c) or c == "leco":
+    if (
+        c == "neats"
+        or c == "dac"
+        or ("_gef" in c)
+        or c == "leco"
+        or c == "pfordelta"
+        or c.startswith("pfordelta_")
+    ):
         return "shifted"
 
     if c in {"alp", "gorilla", "chimp", "chimp128", "tsxor", "elf", "camel", "falcon"}:
@@ -336,7 +343,10 @@ def main():
         else:
             selected_samples[signal] = random.sample(files, args.samples)
 
-    # Check for checkpoint
+    # Check for checkpoint: keep the existing rows and measure only the missing
+    # (compressor, signal) pairs.
+    todo = [(comp, signal) for signal in selected_samples for comp in compressors]
+    existing_rows = []
     if os.path.exists(args.output_csv):
         try:
             with open(args.output_csv, "r") as f:
@@ -346,29 +356,32 @@ def main():
             existing_keys = set(
                 (row["compressor"].lower(), row["dataset"]) for row in existing_rows
             )
-            target_keys = set(
-                (comp.lower(), signal)
-                for signal in selected_samples.keys()
-                for comp in compressors
-            )
+            todo = [
+                (comp, signal)
+                for comp, signal in todo
+                if (comp.lower(), signal) not in existing_keys
+            ]
 
-            if target_keys.issubset(existing_keys):
+            if not todo:
                 print(
-                    f"Checkpoint hit: {args.output_csv} already contains all {len(target_keys)} measurements. Skipping."
+                    f"Checkpoint hit: {args.output_csv} already contains all {len(existing_keys)} measurements. Skipping."
                 )
                 return 0
             else:
-                missing = target_keys - existing_keys
                 print(
-                    f"Checkpoint incomplete: missing {len(missing)} measurements. Restarting from scratch."
+                    f"Checkpoint incomplete: measuring {len(todo)} missing measurements, keeping {len(existing_rows)} existing rows."
                 )
         except Exception as e:
+            existing_rows = []
+            todo = [(comp, signal) for signal in selected_samples for comp in compressors]
             print(
                 f"Warning: Could not read checkpoint file {args.output_csv}: {e}. Restarting."
             )
 
+    todo_compressors = sorted({comp for comp, _ in todo})
+    todo_signals = sorted({signal for _, signal in todo})
     print(
-        f"Measuring {len(compressors)} compressors on {len(selected_samples)} signals with {args.samples} samples each (parallelism={args.parallelism})"
+        f"Measuring {len(todo_compressors)} compressors on {len(todo_signals)} signals with {args.samples} samples each (parallelism={args.parallelism})"
     )
 
     baseline_enabled = not args.no_baseline
@@ -377,13 +390,13 @@ def main():
     # Phase 0: Baselines (same input+preprocessing, no compression)
     if baseline_enabled:
         formats_needed = sorted(
-            {get_data_format_for_compressor(c) for c in compressors}
+            {get_data_format_for_compressor(c) for c in todo_compressors}
         )
         baseline_keys = sorted(
             {
                 (str(bin_file), fmt)
-                for files in selected_samples.values()
-                for bin_file in files
+                for signal in todo_signals
+                for bin_file in selected_samples[signal]
                 for fmt in formats_needed
             }
         )
@@ -431,20 +444,19 @@ def main():
 
     # Phase 1: Compressor runs
     tasks = []
-    for signal, files in selected_samples.items():
-        for compressor in compressors:
-            for i, bin_file in enumerate(files):
-                massif_out = f"/tmp/massif_{compressor}_{signal}_{i}.out"
-                tasks.append(
-                    (
-                        args.binary,
-                        compressor,
-                        signal,
-                        bin_file,
-                        massif_out,
-                        args.timeout,
-                    )
+    for compressor, signal in todo:
+        for i, bin_file in enumerate(selected_samples[signal]):
+            massif_out = f"/tmp/massif_{compressor}_{signal}_{i}.out"
+            tasks.append(
+                (
+                    args.binary,
+                    compressor,
+                    signal,
+                    bin_file,
+                    massif_out,
+                    args.timeout,
                 )
+            )
 
     results_raw = defaultdict(lambda: defaultdict(list))
     warned_missing_baseline = False
@@ -491,8 +503,17 @@ def main():
                 print(f"Progress: {completed}/{total} tasks completed...", end="\r")
     print()
 
-    # Average results
-    final_measurements = []
+    # Average results (rows kept from the checkpoint come first, re-sorted below)
+    final_measurements = [
+        [
+            row["compressor"],
+            row["dataset"],
+            row["memory_usage"],
+            row["input_buffer"],
+            row["compressor_internal"],
+        ]
+        for row in existing_rows
+    ]
     for compressor in sorted(results_raw.keys()):
         for signal in sorted(results_raw[compressor].keys()):
             stats_list = results_raw[compressor][signal]
@@ -509,9 +530,11 @@ def main():
                 [compressor, signal, avg_peak, avg_buffer, avg_internal]
             )
 
+    final_measurements.sort(key=lambda r: (r[0], r[1]))
+
     # Write to CSV
     with open(args.output_csv, "w", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(
             [
                 "compressor",

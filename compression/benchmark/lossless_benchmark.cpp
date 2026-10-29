@@ -1148,7 +1148,7 @@ BenchmarkResult benchmark_falcon(const BenchmarkData &bench_data,
 // Declaration is in benchmark_common.hpp
 
 // ============================================================================
-// PForDelta Benchmark (block-based, uses shifted data with delta encoding)
+// PForDelta Benchmark (block-based, uses shifted data with zigzag delta encoding)
 // ============================================================================
 
 template<typename T = int64_t>
@@ -1186,8 +1186,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         for (size_t i = 0; i < bs; ++i)
             block_data[i] = static_cast<uint32_t>(data[start + i]);
 
-        for (size_t i = bs - 1; i > 0; --i)
-            block_data[i] -= block_data[i - 1];
+        pfor_delta_zigzag_encode(block_data.data(), bs);
 
         std::vector<uint32_t> compressed(bs + 1024);
         size_t compressed_size = compressed.size();
@@ -1218,8 +1217,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                            block_decomp.data(), decomp_size);
 
-        for (size_t i = 1; i < bs; ++i)
-            block_decomp[i] += block_decomp[i - 1];
+        pfor_delta_zigzag_decode(block_decomp.data(), bs);
 
         for (size_t i = 0; i < bs; ++i)
             decompressed[start + i] = static_cast<T>(block_decomp[i]);
@@ -1255,8 +1253,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         size_t decomp_size = bs;
         codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                            block_decomp.data(), decomp_size);
-        for (size_t i = 1; i < bs; ++i)
-            block_decomp[i] += block_decomp[i - 1];
+        pfor_delta_zigzag_decode(block_decomp.data(), bs);
 
         ra_sum += static_cast<T>(block_decomp[offset_in_block]);
     }
@@ -1292,8 +1289,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
                 size_t decomp_size = bs;
                 codec->decodeArray(compressed_blocks[ib].data(), compressed_blocks[ib].size(),
                                    block_decomp.data(), decomp_size);
-                for (size_t i = 1; i < bs; ++i)
-                    block_decomp[i] += block_decomp[i - 1];
+                pfor_delta_zigzag_decode(block_decomp.data(), bs);
 
                 size_t block_start_global = ib * block_size;
                 size_t skip = (ib == start_block) ? (start_idx - block_start_global) : 0;
