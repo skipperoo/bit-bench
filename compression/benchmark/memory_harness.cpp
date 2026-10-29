@@ -37,6 +37,7 @@
 // FastPFOR for PForDelta memory benchmarking
 #include <headers/fastpfor.h>
 #include <headers/codecfactory.h>
+#include "pfor_codec.hpp"
 
 using namespace FastPForLib;
 
@@ -243,8 +244,7 @@ void run_pfordelta(const std::string &codec_name, const std::vector<T> &data, si
     if (n == 0) return;
     const size_t num_blocks = (n + block_size - 1) / block_size;
 
-    CODECFactory factory;
-    auto codec = factory.getFromName(codec_name);
+    auto codec = make_pfor_codec(codec_name);
 
     for (size_t ib = 0; ib < num_blocks; ++ib) {
         size_t start = ib * block_size;
