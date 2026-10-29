@@ -208,3 +208,46 @@ describe('UploadPage save preset', () => {
     expect(calls.some(([path]) => path === '/benchmarks')).toBe(false)
   })
 })
+
+describe('UploadPage pfordelta instances', () => {
+  it('allows several pfordelta configurations with different codecs', async () => {
+    mockedFetch.mockImplementation((path: string) => {
+      if (path === '/compressors') {
+        return Promise.resolve({
+          pfordelta: {
+            codec: { type: 'select', options: ['simdnewpfor', 'pfor'], default: 'simdnewpfor' },
+          },
+        } as never)
+      }
+      if (path === '/compressors/packages' || path === '/presets' || path === '/config-history') {
+        return Promise.resolve([] as never)
+      }
+      if (path === '/config') {
+        return Promise.resolve({ hostPlatform: 'linux/amd64' } as never)
+      }
+      return Promise.resolve({} as never)
+    })
+
+    const { container } = renderPage()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [new File(['xxxx'], 'one.bin')])
+
+    const add = await screen.findByRole('button', { name: 'Add PForDelta' })
+    await userEvent.click(add)
+    // The add button must stay enabled after the first instance.
+    expect(screen.getByRole('button', { name: 'Add PForDelta' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Add PForDelta' }))
+    expect(screen.getByText('2/64 instances')).toBeInTheDocument()
+
+    // Identical configurations are rejected...
+    expect(screen.getAllByText(/Duplicate configuration/).length).toBeGreaterThan(0)
+
+    // ...until one instance uses a different codec. (The second instance is
+    // expanded automatically after adding it; open the first one instead.)
+    const configure = screen.getAllByRole('button', { name: 'Configure PForDelta' })
+    await userEvent.click(configure[0])
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'codec' }), 'pfor')
+    await waitFor(() => expect(screen.queryAllByText(/Duplicate configuration/)).toHaveLength(0))
+    expect(screen.getByText('PForDelta · codec pfor')).toBeInTheDocument()
+  })
+})

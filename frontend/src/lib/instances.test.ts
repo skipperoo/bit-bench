@@ -63,7 +63,7 @@ describe('buildInvocation', () => {
 
   it('maps the pfordelta codec to a distinct name', () => {
     expect(buildInvocation('pfordelta', pforSchema, { codec: 'pfor' })).toBe('pfordelta_pfor')
-    expect(buildInvocation('pfordelta', pforSchema, { codec: 'simdnewpfor' })).toBe('pfordelta')
+    expect(buildInvocation('pfordelta', pforSchema, { codec: 'simdnewpfor' })).toBe('pfordelta_simdnewpfor')
   })
 })
 
@@ -88,29 +88,37 @@ describe('instanceIdentity', () => {
 
 describe('hasVariableOptions', () => {
   it('detects native options', () => {
-    expect(hasVariableOptions(gzipSchema)).toBe(true)
-    expect(hasVariableOptions({})).toBe(false)
-    expect(hasVariableOptions({ mode: { type: 'select', options: ['a'], default: 'a' } })).toBe(false)
+    expect(hasVariableOptions('gzip', gzipSchema)).toBe(true)
+    expect(hasVariableOptions('gorilla', {})).toBe(false)
+    expect(hasVariableOptions('gorilla', { mode: { type: 'select', options: ['a'], default: 'a' } })).toBe(false)
+  })
+
+  it('treats the pfordelta codec as effective', () => {
+    expect(hasVariableOptions('pfordelta', pforSchema)).toBe(true)
   })
 })
 
 describe('canAddInstance', () => {
   it('allows multiple configurations when options can vary', () => {
-    expect(canAddInstance(gzipSchema, false, 1, 1)).toBe(true)
+    expect(canAddInstance('gzip', gzipSchema, false, 1, 1)).toBe(true)
+  })
+
+  it('allows multiple pfordelta configurations', () => {
+    expect(canAddInstance('pfordelta', pforSchema, false, 1, 1)).toBe(true)
   })
 
   it('allows a built-in without effective options only once', () => {
-    expect(canAddInstance({}, false, 0, 0)).toBe(true)
-    expect(canAddInstance({}, false, 1, 1)).toBe(false)
+    expect(canAddInstance('gorilla', {}, false, 0, 0)).toBe(true)
+    expect(canAddInstance('gorilla', {}, false, 1, 1)).toBe(false)
   })
 
   it('allows several configurations of a custom package', () => {
     const schema: Record<string, CompressorOption> = { mode: { type: 'select', options: ['a', 'b'], default: 'a' } }
-    expect(canAddInstance(schema, true, 1, 1)).toBe(true)
+    expect(canAddInstance('my_pkg', schema, true, 1, 1)).toBe(true)
   })
 
   it('respects the global cap', () => {
-    expect(canAddInstance(gzipSchema, false, 1, MAX_INSTANCES_PER_BENCHMARK)).toBe(false)
+    expect(canAddInstance('gzip', gzipSchema, false, 1, MAX_INSTANCES_PER_BENCHMARK)).toBe(false)
   })
 })
 

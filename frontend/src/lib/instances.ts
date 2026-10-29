@@ -7,6 +7,15 @@ export const MAX_LABEL_LEN = 64
 /** Options the native C++ harness applies per entry. */
 const NATIVE_OPTIONS = new Set(['level', 'max_bpc', 'lossy', 'max_precision', 'decimals'])
 
+/**
+ * Effective built-in options that are not passed as `key:value` pairs but
+ * still change the native invocation (the pfordelta codec is part of the
+ * entry name, e.g. `pfordelta_pfor`).
+ */
+const NAME_ENCODED_OPTIONS: Record<string, Set<string>> = {
+  pfordelta: new Set(['codec']),
+}
+
 export interface InstanceDraft {
   name: string
   options: Record<string, unknown>
@@ -67,8 +76,10 @@ export function buildInvocation(
 ): string {
   let base = name
   if (name === 'pfordelta') {
+    // Always name the codec explicitly (including the default), so the entry
+    // matches the compressor column emitted by the native harness.
     const codec = options.codec
-    if (typeof codec === 'string' && codec !== '' && codec !== 'simdnewpfor') {
+    if (typeof codec === 'string' && codec !== '') {
       base = `pfordelta_${codec}`
     }
   }
@@ -105,8 +116,9 @@ export function instanceIdentity(
 }
 
 /** Whether the compressor exposes any option that actually changes the run. */
-export function hasVariableOptions(schema: Record<string, CompressorOption>): boolean {
-  return Object.keys(schema).some((key) => NATIVE_OPTIONS.has(key))
+export function hasVariableOptions(name: string, schema: Record<string, CompressorOption>): boolean {
+  const encoded = NAME_ENCODED_OPTIONS[name]
+  return Object.keys(schema).some((key) => NATIVE_OPTIONS.has(key) || encoded?.has(key) === true)
 }
 
 /**
@@ -115,13 +127,14 @@ export function hasVariableOptions(schema: Record<string, CompressorOption>): bo
  * only be configured once.
  */
 export function canAddInstance(
+  name: string,
   schema: Record<string, CompressorOption>,
   isCustom: boolean,
   currentCount: number,
   totalCount: number
 ): boolean {
   if (totalCount >= MAX_INSTANCES_PER_BENCHMARK) return false
-  if (!isCustom && !hasVariableOptions(schema) && currentCount > 0) return false
+  if (!isCustom && !hasVariableOptions(name, schema) && currentCount > 0) return false
   return true
 }
 

@@ -502,6 +502,7 @@ export default function UploadPage() {
     if (opt.type === 'select') {
       return (
         <select
+          aria-label={key}
           className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
           value={(value as string) || ''}
           onChange={(e) => updateInstanceOption(index, key, e.target.value)}
@@ -862,7 +863,7 @@ export default function UploadPage() {
                       <div className="space-y-0.5">
                         {family.compressors.map((c) => {
                           const schema = compressors[c] || {}
-                          const disabled = !canAddInstance(schema, customNames.has(c), instanceCount(c), instances.length)
+                          const disabled = !canAddInstance(c, schema, customNames.has(c), instanceCount(c), instances.length)
                           const emulated = isEmulated(packagePlatforms[c], hostPlatform)
                           return (
                             <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
@@ -884,7 +885,7 @@ export default function UploadPage() {
                                 className="h-6 px-2 shrink-0"
                                 aria-label={`Add ${renameCompressor(c)}`}
                                 disabled={disabled}
-                                title={!customNames.has(c) && !hasVariableOptions(compressors[c] || {}) && instanceCount(c) > 0
+                                title={!customNames.has(c) && !hasVariableOptions(c, compressors[c] || {}) && instanceCount(c) > 0
                                   ? 'This compressor has no configurable options'
                                   : undefined}
                                 onClick={() => addInstance(c)}
@@ -926,6 +927,7 @@ export default function UploadPage() {
                           <button
                             type="button"
                             className="flex-1 text-left min-w-0"
+                            aria-label={`Configure ${label}`}
                             onClick={() => setExpandedInstance(expanded ? null : index)}
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
