@@ -46,11 +46,20 @@ var Registry = map[string]map[string]Option{
 			// Must match the makers registered in
 			// compression/benchmark/pfor_codec.hpp (enforced by a unit test).
 			Options: []string{
+				// Patched frame of reference
 				"simdnewpfor", "newpfor", "simdpfor", "pfor",
 				"pfor2008", "simdoptpfor", "optpfor",
 				"simdsimplepfor", "simplepfor",
 				"simdfastpfor128", "simdfastpfor256",
 				"fastpfor128", "fastpfor256",
+				// Binary packing
+				"fastbinarypacking8", "fastbinarypacking16", "fastbinarypacking32",
+				"bp32", "simdbinarypacking",
+				// Variable byte
+				"varint", "vbyte", "maskedvbyte", "streamvbyte", "varintgb",
+				// Word-aligned (Simple family)
+				"simple9", "simple9_rle", "simple16", "simple8b", "simple8b_rle",
+				"simdgroupsimple", "simdgroupsimple_ringbuf",
 			},
 			Default: "simdnewpfor",
 		},

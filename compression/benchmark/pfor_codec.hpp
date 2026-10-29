@@ -5,7 +5,7 @@
 #pragma once
 
 #include <array>
-#include <cstring>
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -13,10 +13,20 @@
 
 #include <headers/codecfactory.h>
 
+// Some decoders write whole words past the requested number of values (Simple9/16 up to
+// 28 integers), so every decode buffer must have this many spare integers after its end.
+// 32 was enough for all codecs on every Phase One chunk under AddressSanitizer.
+inline constexpr size_t kPforDecodeSlack = 64;
+
+// Names follow FastPForLib::CODECFactory, except "bp32" (factory name "BP32").
+// Left out: "copy" (no compression), "snappy" and "varintg8iu" (only compiled with
+// optional build flags of the library) and "vsencoding" (out-of-bounds read inside
+// VSEncoding::compute_OptPartition, reported by AddressSanitizer).
 inline std::shared_ptr<FastPForLib::IntegerCODEC> make_pfor_codec(const std::string &name) {
     using Maker = std::unique_ptr<FastPForLib::IntegerCODEC> (*)();
     // Plain array instead of a std::map, so that the lookup itself does not allocate.
-    static constexpr std::array<std::pair<const char *, Maker>, 13> makers{{
+    static constexpr std::array<std::pair<const char *, Maker>, 30> makers{{
+        // Patched frame of reference
         {"simdnewpfor", FastPForLib::simdnewpfor_codec},
         {"newpfor", FastPForLib::newpfor_codec},
         {"simdpfor", FastPForLib::simdpfor_codec},
@@ -30,6 +40,26 @@ inline std::shared_ptr<FastPForLib::IntegerCODEC> make_pfor_codec(const std::str
         {"simdfastpfor256", FastPForLib::simdfastpfor256_codec},
         {"fastpfor128", FastPForLib::fastpfor128_codec},
         {"fastpfor256", FastPForLib::fastpfor256_codec},
+        // Binary packing
+        {"fastbinarypacking8", FastPForLib::fastbinarypacking8_codec},
+        {"fastbinarypacking16", FastPForLib::fastbinarypacking16_codec},
+        {"fastbinarypacking32", FastPForLib::fastbinarypacking32_codec},
+        {"bp32", FastPForLib::BP32_codec},
+        {"simdbinarypacking", FastPForLib::simdbinarypacking_codec},
+        // Variable byte
+        {"varint", FastPForLib::varint_codec},
+        {"vbyte", FastPForLib::vbyte_codec},
+        {"maskedvbyte", FastPForLib::maskedvbyte_codec},
+        {"streamvbyte", FastPForLib::streamvbyte_codec},
+        {"varintgb", FastPForLib::varintgb_codec},
+        // Word-aligned (Simple family)
+        {"simple9", FastPForLib::simple9_codec},
+        {"simple9_rle", FastPForLib::simple9_rle_codec},
+        {"simple16", FastPForLib::simple16_codec},
+        {"simple8b", FastPForLib::simple8b_codec},
+        {"simple8b_rle", FastPForLib::simple8b_rle_codec},
+        {"simdgroupsimple", FastPForLib::simdgroupsimple_codec},
+        {"simdgroupsimple_ringbuf", FastPForLib::simdgroupsimple_ringbuf_codec},
     }};
     for (const auto &[codec_name, make] : makers) {
         if (name == codec_name) return make();
