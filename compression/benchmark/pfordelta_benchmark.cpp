@@ -107,11 +107,9 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
         data[i] = static_cast<uint32_t>(raw_data[i]);
     }
 
-    // Apply Delta
+    // Apply zigzag Delta
     std::vector<uint32_t> delta_data = data;
-    for (size_t i = delta_data.size() - 1; i > 0; --i) {
-        delta_data[i] -= delta_data[i - 1];
-    }
+    pfor_delta_zigzag_encode(delta_data.data(), delta_data.size());
 
     CODECFactory factory;
     auto codec = factory.getFromName(codec_name);
@@ -138,10 +136,8 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
     t1 = std::chrono::high_resolution_clock::now();
     codec->decodeArray(compressed.data(), compressed.size(), decompressed.data(), decompressed_size);
     
-    // Inverse Delta
-    for (size_t i = 1; i < decompressed.size(); ++i) {
-        decompressed[i] += decompressed[i - 1];
-    }
+    // Inverse zigzag Delta
+    pfor_delta_zigzag_decode(decompressed.data(), decompressed.size());
     t2 = std::chrono::high_resolution_clock::now();
     
     auto decomp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
