@@ -214,7 +214,9 @@ func BuildLabel(name string, schema map[string]Option, values map[string]interfa
 func BuildInvocation(name string, schema map[string]Option, values map[string]interface{}) string {
 	base := name
 	if name == "pfordelta" {
-		if codec, ok := values["codec"].(string); ok && codec != "" && codec != "simdnewpfor" {
+		// Always name the codec explicitly (including the default), so the
+		// entry matches the compressor column emitted by the native harness.
+		if codec, ok := values["codec"].(string); ok && codec != "" {
 			base = "pfordelta_" + codec
 		}
 	}

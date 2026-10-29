@@ -43,10 +43,14 @@ var Registry = map[string]map[string]Option{
 	// codec selects the underlying FastPFOR implementation
 	"pfordelta": {
 		"codec": {Type: "select",
+			// Must match the makers registered in
+			// compression/benchmark/pfor_codec.hpp (enforced by a unit test).
 			Options: []string{
-				"simdnewpfor", "simdpfor", "newpfor", "pfor",
-				"optpfor", "simdoptpfor", "simple8b", "simple16",
-				"varint", "streamvbyte", "maskedvbyte",
+				"simdnewpfor", "newpfor", "simdpfor", "pfor",
+				"pfor2008", "simdoptpfor", "optpfor",
+				"simdsimplepfor", "simplepfor",
+				"simdfastpfor128", "simdfastpfor256",
+				"fastpfor128", "fastpfor256",
 			},
 			Default: "simdnewpfor",
 		},
