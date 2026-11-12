@@ -1,5 +1,7 @@
 # BitBench — Technical Specifications
 
+> **Revision 7** — Supersedes Revision 6. Adds **standardized datasets** and **aggregation methods**: full recordings in `./datasets/<dataset>/<series>.bin` are mounted read-only at `DATASET_DIR`, listed by `GET /datasets` and benchmarked through `POST /benchmarks/dataset`, which cuts them at run time (chunk size in samples or the whole series, evenly spaced max chunks per series, `std`/`gap`/`gap_shifted` transform) and creates one benchmark per (transform × chunk size), mirroring `run_all_benchmarks.sh`. Every benchmark records its aggregation (`mean`/`median`/`pooled`) and whether the Massif memory measurement runs. Dataset tooling lives in `scripts/datasets/` and `docs/datasets.md`. All design decisions are recorded inline (marked **[DECISION]**).
+>
 > **Revision 6** — Supersedes Revision 5. Adds **cross-architecture compressor packages**: `spec.yaml` may declare `platform: linux/arm64` (or amd64), the build and run containers use that platform, foreign platforms execute through binfmt/QEMU emulation with an upload-time availability probe, the platform is persisted with every benchmark, and the UI warns (upload page, Compressors page, results pages) that emulated throughput is not representative. Runner images are built per architecture (`bitbench-runner:amd64` / `bitbench-runner:arm64`) and the compose stack builds both. All design decisions are recorded inline (marked **[DECISION]**).
 >
 > **Revision 5** — Supersedes Revision 4. Adds **multi-instance benchmark configurations**: one benchmark may combine several configurations of the same compressor with different options (auto-labelled brief configs in results, duplicate configurations rejected, up to 64 instances), the native harness gains per-entry options (NeaTS `max_bpc`/`lossy`, Camel `max_precision`, Falcon `decimals`) and emits the configured entry in its CSV, and users gain **presets** (private or group-shared) plus a **configuration history** that can be promoted to a preset. All design decisions are recorded inline (marked **[DECISION]**).
@@ -54,6 +56,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 | D29 | **Native per-entry options.** The C++ harness parses `-c` entries as `name`, `name=<int>` (legacy level) or `name=key:value;key:value` (`level`, `max_bpc`, `lossy`, `max_precision`, `decimals`; the pfordelta codec is encoded in the name). Configured entries are emitted verbatim in the CSV `compressor` column, while plain entries keep their historical labels (e.g. `NeaTS`); the backend matches entries case-insensitively and relabels rows with the configured instance label. `MemoryHarness` parses and applies the same entry syntax so memory results reflect the configured options. | Configurations are measurable per instance without breaking the standalone report pipeline. |
 | D30 | **Presets and configuration history.** Presets store an instance list, are named uniquely per owner, and are either `private` or `group`-shared (bound to the owner's group at creation, like packages). Every role may create, load and use presets; only the owner, an administrator, or a professor of the preset's group (for shared presets) may edit or delete them; only the owner or an administrator may change a preset's visibility. Each user keeps a deduplicated history of their last 20 configurations (`benchmark_config_history`), recorded on benchmark creation, which can be loaded or promoted to a preset. | Reusable experiment setups for a research group with clear ownership. |
 | D31 | **Cross-architecture packages via `spec.yaml: platform`.** Allowed values are `linux/amd64` and `linux/arm64` (variants normalized); empty means the host platform. The same platform is used for the offline build and the benchmark run. Runner images are per-arch (`RUNNER_IMAGE_AMD64` / `RUNNER_IMAGE_ARM64`, defaults `bitbench-runner:amd64` / `bitbench-runner:arm64`); compose builds both. A package whose platform differs from the Docker daemon's platform is **emulated** (binfmt/QEMU): uploads are rejected up front when the target image is missing or a `/bin/true` probe fails, the resolved platform + `emulated` flag are stored on each benchmark instance (and decorated onto package API responses), and the UI warns on the upload page, Compressors page, results/detail/compare pages that throughput is distorted. | Lets groups measure ARM codebases on x86 hosts (and vice versa) without silent cross-architecture surprises. |
+| D32 | **Standardized datasets are full recordings cut at run time.** `./datasets/<dataset>/<series>.bin` (any integer data, BitBench `.bin` format, optional `dataset.yaml`) is bind-mounted read-only at `DATASET_DIR`. A dataset run selects series, chunk sizes in **samples** (`0` = whole series; thesis `size_<B>` = B/2 samples), max chunks per series (evenly spaced with numpy-compatible rounding, `0` = all) and transforms; each (transform × chunk size) becomes one benchmark (≤ 32 per request, ≤ 5000 inputs each). `gap_shifted` is `x0 − min(x)`, then gaps minus the minimum gap (all ≥ 0; offsets not stored). WildPPG chunks are byte-identical to the thesis `std`/`gap` files. | One copy of each recording, any chunking, reproducible thesis sweeps. |
+| D33 | **Aggregation is a per-benchmark setting** (`mean` default, `median`, `pooled`), for uploads and dataset runs. `pooled` treats all inputs as one dataset (summed sizes, ratio Σcompressed/Σuncompressed, throughput = total values / total time, harmonic means for query throughputs). `measure_memory` (default on) toggles the Massif harness. | Makes multi-input results interpretable and large sweeps affordable. |
 | D23 | **Visibility is group-tied at upload time.** A package is visible to its owner, the owner's group (so group members can select professor/phd packages), and admins. Moving a user to another group does not move the package. `GET /compressors` returns the flat `{name: options}` map with built-ins and visible ready packages merged. | Matches the "research group" visibility model and keeps the frontend contract unchanged. |
 | D24 | **Custom compressor CSV is parsed leniently**: `memory_usage`, `random_access_ns`, `random_access_mbs` and `range_query_*` may be empty and are stored as `NULL`; the platform does not run the Massif/MemoryHarness measurement on user programs. | "Leave NULL unless self-reported" avoids misleading zeros in rankings. |
 | D25 | **CPU information on `GET /status`** via `gopsutil` (cached static fields, live load per request): model, physical/logical cores, MHz, load 1/5/15, derived utilization, instruction-set flags. Shown on the Status page so users can pick safe `-march=native`/SIMD targets. | Needed by the compressor-package documentation and useful operationally. |
@@ -155,6 +159,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - Email + password form; error states; loading state. No "register" link (staff-created accounts only, D1). If SMTP is enabled, show a "forgot password" link; if disabled, hide it.
 
 #### 3.1.2 Main / upload page
+- **Data source switch**: *Upload files* (below) or *Standard dataset* (D32): dataset select (description/source from `dataset.yaml`), series checklist (invalid files listed but disabled), chunk-size chips (`whole series`, thesis presets 256…786432 samples, custom), max chunks per series, transform chips, and a plan box listing the benchmarks/inputs the run creates. Empty `DATASET_DIR` shows setup instructions.
+- **Run settings** (both sources): aggregation select (`mean`/`median`/`pooled`, D33) with its definition, Massif memory-measurement switch.
 - Brief platform introduction.
 - Brief instructions on accepted file types and structure (see §4.5).
 - **Benchmark name** input.
@@ -506,7 +512,9 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `DELETE` | `/api/v1/presets/{id}` | Delete a preset (same permission rule as `PUT`). |
 | `GET`  | `/api/v1/config-history` | The caller's 20 most recently used configurations, deduplicated and most-recent-first. |
 | `GET`  | `/api/v1/benchmarks/checksums` | `[{"checksum":"<md5>"}, ...]` retained for backwards compatibility (duplicates are allowed, D6). |
-| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
+| `GET`  | `/api/v1/datasets` | Standardized datasets under `DATASET_DIR` (`{datasets: [{name, description, source, series: [{name, values, decimals, size_bytes, error?}]}], transforms, max_runs, max_inputs_per_run, max_chunks_per_series}`); see `docs/datasets.md`. |
+| `POST` | `/api/v1/benchmarks/dataset` | JSON `{name, dataset, series?, chunk_sizes?, max_chunks, transforms?, aggregation?, measure_memory?, compressors}` → `201 {benchmarks}`: one benchmark per (transform × chunk size), inputs cut synchronously, `source` recorded (D32). |
+| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), optional `aggregation` (`mean`/`median`/`pooled`) and `measure_memory` (`true`/`false`), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
 | `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
 | `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. Owner or admin only (others get `404`); the same rule applies to `/status`, `/progress` and `/compare`. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
@@ -573,7 +581,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused).
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused), `0012_benchmark_sources` (`benchmarks.aggregation`, `measure_memory`, `source JSONB`).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -968,6 +976,7 @@ services:
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
+      - DATASET_DIR=/data/datasets
       - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
       - COMPRESSOR_DIR=/data/compressors
       - MAX_PACKAGE_SIZE_MB=50
@@ -985,6 +994,7 @@ services:
     volumes:
       - bench_data:/data/benchmarks
       - compressor_data:/data/compressors
+      - ./datasets:/data/datasets:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose:
       - "8080"
@@ -1065,6 +1075,8 @@ secrets:
 | `DATA_DIR` | `/data/benchmarks` | Ephemeral file workspace. |
 | `BENCH_BINARY_PATH` | `/app/bin/LosslessBenchmarkFull` | Benchmark executable. |
 | `COMPRESSOR_DIR` | `/data/compressors` | Persistent package/workspace root. |
+| `DATASET_DIR` | `/data/datasets` | Standardized datasets (`./datasets` mounted read-only, D32). |
+| `LISTEN_ADDR` | `:8080` | Backend HTTP listen address. |
 | `MAX_PACKAGE_SIZE_MB` | `50` | Uploaded package `.zip` size cap. |
 | `RUNNER_IMAGE_AMD64` | `bitbench-runner:amd64` | Sandbox image for amd64 packages (built by `runner-amd64`). |
 | `RUNNER_IMAGE_ARM64` | `bitbench-runner:arm64` | Sandbox image for arm64 packages (built by `runner-arm64`; needs binfmt/QEMU on x86 hosts). |

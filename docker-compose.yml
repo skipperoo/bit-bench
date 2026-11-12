@@ -90,6 +90,8 @@ services:
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
+      # Standardized datasets: ./datasets/<dataset>/<series>.bin (read-only).
+      - DATASET_DIR=/data/datasets
       - BENCH_BINARY_PATH=/app/bin/LosslessBenchmarkFull
       - COMPRESSOR_DIR=/data/compressors
       - MAX_PACKAGE_SIZE_MB=50
@@ -107,6 +109,8 @@ services:
     volumes:
       - bench_data:/data/benchmarks
       - compressor_data:/data/compressors
+      # Full recordings for the standardized-dataset runs; see docs/datasets.md.
+      - ./datasets:/data/datasets:ro
       - /var/run/docker.sock:/var/run/docker.sock
     expose:
       - "8080"

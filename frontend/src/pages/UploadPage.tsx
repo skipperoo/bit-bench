@@ -17,6 +17,9 @@ import { canManagePreset, summarizeInstances } from '@/lib/presets'
 import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
 import { batchFileStatuses, sequentialFileStatuses } from '@/lib/upload-progress'
 import { ACCEPTED_EXTENSIONS, checkUploadFiles } from '@/lib/files'
+import { AGGREGATION_INFO, DEFAULT_DATASET_SELECTION, datasetSelectionError } from '@/lib/datasets'
+import type { Aggregation, DatasetListResponse, DatasetSelection } from '@/lib/datasets'
+import DatasetPanel from '@/components/DatasetPanel'
 import type { FileUploadStatus, UploadPhase } from '@/lib/upload-progress'
 import { useAuthStore } from '@/stores/auth-store'
 import {
@@ -157,6 +160,11 @@ export default function UploadPage() {
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
+  const [source, setSource] = useState<'files' | 'dataset'>('files')
+  const [datasetCatalog, setDatasetCatalog] = useState<DatasetListResponse | null>(null)
+  const [datasetSelection, setDatasetSelection] = useState<DatasetSelection>(DEFAULT_DATASET_SELECTION)
+  const [aggregation, setAggregation] = useState<Aggregation>('mean')
+  const [measureMemory, setMeasureMemory] = useState(true)
   const [compressors, setCompressors] = useState<CompressorRegistry>({})
   const [instances, setInstances] = useState<InstanceDraft[]>([])
   const [expandedInstance, setExpandedInstance] = useState<number | null>(null)
@@ -275,6 +283,23 @@ export default function UploadPage() {
   }, [])
 
   useEffect(() => { loadPresets(); loadHistory() }, [loadPresets, loadHistory])
+
+  useEffect(() => {
+    const empty: DatasetListResponse = { datasets: [], transforms: [], max_runs: 32, max_inputs_per_run: 5000, max_chunks_per_series: 10000 }
+    apiFetch<Partial<DatasetListResponse>>('/datasets')
+      .then((data) => setDatasetCatalog({
+        ...empty,
+        ...data,
+        datasets: Array.isArray(data?.datasets) ? data.datasets : [],
+      }))
+      .catch(() => setDatasetCatalog(empty))
+  }, [])
+
+  const currentDataset = datasetCatalog?.datasets.find((d) => d.name === datasetSelection.dataset)
+  const datasetError = useMemo(
+    () => datasetSelectionError(datasetSelection, currentDataset, datasetCatalog),
+    [datasetSelection, currentDataset, datasetCatalog],
+  )
 
   // Host platform and custom-package platforms drive the emulation warning.
   useEffect(() => {
@@ -427,8 +452,30 @@ export default function UploadPage() {
     if (newFiles.length > 0) handleFileChange(newFiles)
   }, [handleFileChange])
 
+  const submitDataset = async (compressorsPayload: { name: string; options: Record<string, unknown> }[]) => {
+    setUploadPhase('processing')
+    const res = await apiFetch<{ benchmarks: { id: string }[]; error?: string }>('/benchmarks/dataset', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        dataset: datasetSelection.dataset,
+        series: datasetSelection.series,
+        chunk_sizes: datasetSelection.chunkSizes,
+        max_chunks: datasetSelection.maxChunks,
+        transforms: datasetSelection.transforms,
+        aggregation,
+        measure_memory: measureMemory,
+        compressors: compressorsPayload,
+      }),
+    })
+    if (res?.error) throw new Error(`Created ${res.benchmarks.length} benchmark(s), then: ${res.error}`)
+    setUploadPhase('done')
+    navigate('/results')
+  }
+
   const handleSubmit = async () => {
-    if (!name || files.length === 0 || validationError || loading) return
+    const hasInput = source === 'files' ? files.length > 0 : !datasetError
+    if (!name || !hasInput || validationError || loading) return
     setLoading(true)
     setError('')
     setUploadLoaded(0)
@@ -442,6 +489,11 @@ export default function UploadPage() {
         method: 'PUT',
         body: JSON.stringify({ compressors: compressorsPayload }),
       }).catch(() => {})
+
+      if (source === 'dataset') {
+        await submitDataset(compressorsPayload)
+        return
+      }
 
       const reportProgress = (progress: UploadProgress) => {
         setUploadLoaded(progress.loaded)
@@ -463,6 +515,8 @@ export default function UploadPage() {
           formData.append('files', f)
         }
         formData.append('compressors', JSON.stringify(compressorsPayload))
+        formData.append('aggregation', aggregation)
+        formData.append('measure_memory', String(measureMemory))
         await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
         setUploadPhase('done')
         navigate(`/results`)
@@ -479,6 +533,8 @@ export default function UploadPage() {
           formData.append('name', `${name} (${fname})`)
           formData.append('files', f)
           formData.append('compressors', JSON.stringify(compressorsPayload))
+          formData.append('aggregation', aggregation)
+          formData.append('measure_memory', String(measureMemory))
           await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
           setUploadPhase('done')
           if (i === files.length - 1) {
@@ -494,7 +550,8 @@ export default function UploadPage() {
     }
   }
 
-  const canSubmit = Boolean(name) && files.length > 0 && instances.length > 0 && !validationError
+  const inputReady = source === 'files' ? files.length > 0 : !datasetError
+  const canSubmit = Boolean(name) && inputReady && instances.length > 0 && !validationError
 
   function renderOptionField(index: number, key: string, opt: CompressorOption) {
     const value = instances[index]?.options[key]
@@ -579,7 +636,7 @@ export default function UploadPage() {
         <div className="mb-10">
           <h1 className="text-2xl font-semibold tracking-tight mb-1">New Benchmark</h1>
           <p className="text-sm text-muted-foreground mb-6">
-            Upload an integer sequence file and configure the compressors to test.
+            Upload integer sequences or pick a standardized dataset, then configure the compressors to test.
           </p>
           <div className="space-y-1.5">
             <Label htmlFor="name">Benchmark Name</Label>
@@ -599,9 +656,37 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* Zone 2: File Upload */}
+        {/* Zone 2: Data source */}
         <div className="mb-10">
-          <h2 className="text-sm font-medium text-foreground mb-3">Data File</h2>
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <h2 className="text-sm font-medium text-foreground">Data</h2>
+            <div role="tablist" aria-label="Data source" className="inline-flex rounded-md border border-border p-0.5 text-xs">
+              {(['files', 'dataset'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="tab"
+                  aria-selected={source === s}
+                  disabled={loading}
+                  onClick={() => { setSource(s); setError('') }}
+                  className={`px-3 py-1 rounded ${source === s ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {s === 'files' ? 'Upload files' : 'Standard dataset'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {source === 'dataset' ? (
+            <DatasetPanel
+              catalog={datasetCatalog}
+              selection={datasetSelection}
+              onChange={(next) => {
+                if (!name && next.dataset) setName(next.dataset)
+                setDatasetSelection(next)
+              }}
+              disabled={loading}
+            />
+          ) : (
           <div className="space-y-3">
             {/* File format info */}
             <div className="text-xs text-muted-foreground bg-secondary/30 rounded-lg p-3 space-y-1">
@@ -693,6 +778,40 @@ export default function UploadPage() {
               </label>
             )}
           </div>
+          </div>
+          )}
+        </div>
+
+        {/* Zone 2b: How results are combined */}
+        <div className="mb-10">
+          <h2 className="text-sm font-medium text-foreground mb-3">Run Settings</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="aggregation">Aggregate results over inputs</Label>
+              <select
+                id="aggregation"
+                className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm"
+                value={aggregation}
+                disabled={loading}
+                onChange={(e) => setAggregation(e.target.value as Aggregation)}
+              >
+                {(Object.keys(AGGREGATION_INFO) as Aggregation[]).map((a) => (
+                  <option key={a} value={a}>{AGGREGATION_INFO[a].label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{AGGREGATION_INFO[aggregation].help}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="measure-memory">Memory measurement</Label>
+              <div className="flex items-center gap-2">
+                <Switch id="measure-memory" checked={measureMemory} onCheckedChange={setMeasureMemory} disabled={loading} />
+                <span className="text-sm">{measureMemory ? 'Valgrind Massif on' : 'Off'}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Peak-memory profiling of built-in compressors. It runs every compressor again under Valgrind
+                (much slower); turn it off for large chunk sweeps.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1006,7 +1125,7 @@ export default function UploadPage() {
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {uploadPhase === 'processing' ? 'Processing…' : 'Uploading…'}
+                {uploadPhase === 'processing' ? (source === 'dataset' ? 'Preparing inputs…' : 'Processing…') : 'Uploading…'}
               </span>
             ) : (
               'Run Benchmark'
@@ -1015,9 +1134,9 @@ export default function UploadPage() {
           {!canSubmit && !loading && (
             <p className="text-xs text-muted-foreground">
               {!name && 'Enter a name'}
-              {name && files.length === 0 && ' · Select a file'}
-              {name && files.length > 0 && instances.length === 0 && ' · Configure at least one compressor'}
-              {name && files.length > 0 && instances.length > 0 && validationError && ` · ${validationError}`}
+              {name && !inputReady && (source === 'files' ? ' · Select a file' : ` · ${datasetError}`)}
+              {name && inputReady && instances.length === 0 && ' · Configure at least one compressor'}
+              {name && inputReady && instances.length > 0 && validationError && ` · ${validationError}`}
             </p>
           )}
         </div>

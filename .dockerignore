@@ -8,3 +8,7 @@ node_modules/
 dist/
 pg_data/
 secrets/
+# Standardized datasets are bind-mounted at runtime, never baked into images.
+datasets/
+compression/datasets/
+compression/benchmark_results/

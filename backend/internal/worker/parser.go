@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -215,10 +216,44 @@ func parseFloat(record []string, colIndex map[string]int, col string) (float64, 
 	return strconv.ParseFloat(strings.TrimSpace(record[idx]), 64)
 }
 
-// AverageRows averages all rows per compressor into one row per compressor.
-// Every optional metric is averaged over the rows that reported it, and a
-// metric missing from every row stays missing (stored as NULL).
+// Aggregation methods for combining the rows of one compressor over all
+// inputs (files, CSV columns, archive members or dataset chunks).
+const (
+	// AggregateMean is the arithmetic mean of every metric (default).
+	AggregateMean = "mean"
+	// AggregateMedian is the per-metric median (robust to outlier chunks).
+	AggregateMedian = "median"
+	// AggregatePooled treats all inputs as one dataset: sizes are summed, the
+	// ratio is Σcompressed/Σuncompressed, compression/decompression
+	// throughput is total values over total time (value-weighted harmonic
+	// mean), random-access and range-query throughputs are harmonic means
+	// (every input runs the same number of queries), latencies and memory
+	// metrics are arithmetic means.
+	AggregatePooled = "pooled"
+)
+
+// ValidAggregation reports whether method is a supported aggregation.
+func ValidAggregation(method string) bool {
+	switch method {
+	case AggregateMean, AggregateMedian, AggregatePooled:
+		return true
+	}
+	return false
+}
+
+// AverageRows aggregates rows with the arithmetic mean.
 func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
+	return AggregateRows(rows, AggregateMean)
+}
+
+// AggregateRows combines all rows of each compressor into one row. Every
+// optional metric is aggregated over the rows that reported it, and a metric
+// missing from every row stays missing (stored as NULL). Unknown methods fall
+// back to the mean.
+func AggregateRows(rows []BenchmarkRow, method string) []BenchmarkRow {
+	if !ValidAggregation(method) {
+		method = AggregateMean
+	}
 	order := make([]string, 0)
 	groups := make(map[string][]BenchmarkRow)
 	for _, r := range rows {
@@ -230,106 +265,148 @@ func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
 
 	result := make([]BenchmarkRow, 0, len(order))
 	for _, comp := range order {
-		result = append(result, averageGroup(comp, groups[comp]))
+		result = append(result, aggregateGroup(comp, groups[comp], method))
 	}
 	return result
 }
 
-// metricAccumulator collects the reported values of one metric.
-type metricAccumulator struct {
-	sum   float64
-	count int
+// sample is one reported value with the input's value count (pooled weights).
+type sample struct {
+	value  float64
+	weight float64
 }
 
-func (a *metricAccumulator) add(v float64) { a.sum += v; a.count++ }
+// reducer combines the samples of one metric.
+type reducer func([]sample) float64
 
-// mean returns the average and whether any row reported the metric.
-func (a *metricAccumulator) mean() (float64, bool) {
-	if a.count == 0 {
-		return 0, false
+func reduceMean(s []sample) float64 {
+	sum := 0.0
+	for _, x := range s {
+		sum += x.value
 	}
-	return a.sum / float64(a.count), true
+	return sum / float64(len(s))
 }
 
-func averageGroup(comp string, group []BenchmarkRow) BenchmarkRow {
-	avg := BenchmarkRow{
+func reduceMedian(s []sample) float64 {
+	values := make([]float64, len(s))
+	for i, x := range s {
+		values[i] = x.value
+	}
+	sort.Float64s(values)
+	mid := len(values) / 2
+	if len(values)%2 == 1 {
+		return values[mid]
+	}
+	return (values[mid-1] + values[mid]) / 2
+}
+
+func reduceSum(s []sample) float64 {
+	sum := 0.0
+	for _, x := range s {
+		sum += x.value
+	}
+	return sum
+}
+
+// reduceHarmonic is the weighted harmonic mean Σw / Σ(w/v): total work over
+// total time when v is a throughput and w the work done. Zero throughputs
+// (no measurable work) are skipped.
+func reduceHarmonic(s []sample) float64 {
+	var work, time float64
+	for _, x := range s {
+		if x.value <= 0 || x.weight <= 0 {
+			continue
+		}
+		work += x.weight
+		time += x.weight / x.value
+	}
+	if time == 0 {
+		return reduceMean(s)
+	}
+	return work / time
+}
+
+func aggregateGroup(comp string, group []BenchmarkRow, method string) BenchmarkRow {
+	out := BenchmarkRow{
 		Compressor:   comp,
 		Dataset:      group[0].Dataset,
 		RangeQueries: make(map[string]float64),
 		Missing:      make(map[string]bool),
 	}
 
-	type intMetric struct {
-		key string
-		get func(*BenchmarkRow) int64
-		set func(*BenchmarkRow, int64)
+	// pick returns the reducer for a metric class under the chosen method.
+	pick := func(pooled reducer) reducer {
+		switch method {
+		case AggregateMedian:
+			return reduceMedian
+		case AggregatePooled:
+			return pooled
+		}
+		return reduceMean
 	}
-	type floatMetric struct {
-		key string
-		get func(*BenchmarkRow) float64
-		set func(*BenchmarkRow, float64)
-	}
-	// Metrics whose key is "" are always reported (mandatory columns).
-	ints := []intMetric{
-		{"", func(r *BenchmarkRow) int64 { return r.NumValues }, func(r *BenchmarkRow, v int64) { r.NumValues = v }},
-		{"", func(r *BenchmarkRow) int64 { return r.OriginalSize }, func(r *BenchmarkRow, v int64) { r.OriginalSize = v }},
-		{"", func(r *BenchmarkRow) int64 { return r.UncompressedBits }, func(r *BenchmarkRow, v int64) { r.UncompressedBits = v }},
-		{"", func(r *BenchmarkRow) int64 { return r.CompressedBits }, func(r *BenchmarkRow, v int64) { r.CompressedBits = v }},
-		{"memory_usage", func(r *BenchmarkRow) int64 { return r.MemoryUsage }, func(r *BenchmarkRow, v int64) { r.MemoryUsage = v }},
-		{"input_buffer", func(r *BenchmarkRow) int64 { return r.InputBuffer }, func(r *BenchmarkRow, v int64) { r.InputBuffer = v }},
-		{"compressor_internal", func(r *BenchmarkRow) int64 { return r.CompressorInternal }, func(r *BenchmarkRow, v int64) { r.CompressorInternal = v }},
-	}
-	floats := []floatMetric{
-		{"", func(r *BenchmarkRow) float64 { return r.CompressionRatio }, func(r *BenchmarkRow, v float64) { r.CompressionRatio = v }},
-		{"compression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.CompressionThroughputMbs }, func(r *BenchmarkRow, v float64) { r.CompressionThroughputMbs = v }},
-		{"decompression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.DecompressionThroughputMbs }, func(r *BenchmarkRow, v float64) { r.DecompressionThroughputMbs = v }},
-		{"random_access_ns", func(r *BenchmarkRow) float64 { return r.RandomAccessNs }, func(r *BenchmarkRow, v float64) { r.RandomAccessNs = v }},
-		{"random_access_mbs", func(r *BenchmarkRow) float64 { return r.RandomAccessMbs }, func(r *BenchmarkRow, v float64) { r.RandomAccessMbs = v }},
-		{"internal_memory_ratio", func(r *BenchmarkRow) float64 { return r.InternalMemoryRatio }, func(r *BenchmarkRow, v float64) { r.InternalMemoryRatio = v }},
-		{"relative_memory_usage", func(r *BenchmarkRow) float64 { return r.RelativeMemoryUsage }, func(r *BenchmarkRow, v float64) { r.RelativeMemoryUsage = v }},
+	equalWork := func(s []sample) float64 { // same query count per input
+		unit := make([]sample, len(s))
+		for i, x := range s {
+			unit[i] = sample{value: x.value, weight: 1}
+		}
+		return reduceHarmonic(unit)
 	}
 
-	for _, m := range ints {
-		var acc metricAccumulator
-		for i := range group {
-			if m.key == "" || !group[i].Missing[m.key] {
-				acc.add(float64(m.get(&group[i])))
-			}
-		}
-		if v, ok := acc.mean(); ok {
-			m.set(&avg, int64(math.Round(v)))
-		} else {
-			avg.Missing[m.key] = true
-		}
+	type metric struct {
+		key    string // "" = mandatory column, always reported
+		get    func(*BenchmarkRow) float64
+		set    func(*BenchmarkRow, float64)
+		reduce reducer
 	}
-	for _, m := range floats {
-		var acc metricAccumulator
-		for i := range group {
-			if m.key == "" || !group[i].Missing[m.key] {
-				acc.add(m.get(&group[i]))
-			}
-		}
-		if v, ok := acc.mean(); ok {
-			m.set(&avg, v)
-		} else {
-			avg.Missing[m.key] = true
-		}
+	setInt := func(dst *int64) func(*BenchmarkRow, float64) {
+		return func(_ *BenchmarkRow, v float64) { *dst = int64(math.Round(v)) }
+	}
+	metrics := []metric{
+		{"", func(r *BenchmarkRow) float64 { return float64(r.NumValues) }, setInt(&out.NumValues), pick(reduceSum)},
+		{"", func(r *BenchmarkRow) float64 { return float64(r.OriginalSize) }, setInt(&out.OriginalSize), pick(reduceSum)},
+		{"", func(r *BenchmarkRow) float64 { return float64(r.UncompressedBits) }, setInt(&out.UncompressedBits), pick(reduceSum)},
+		{"", func(r *BenchmarkRow) float64 { return float64(r.CompressedBits) }, setInt(&out.CompressedBits), pick(reduceSum)},
+		{"memory_usage", func(r *BenchmarkRow) float64 { return float64(r.MemoryUsage) }, setInt(&out.MemoryUsage), pick(reduceMean)},
+		{"input_buffer", func(r *BenchmarkRow) float64 { return float64(r.InputBuffer) }, setInt(&out.InputBuffer), pick(reduceMean)},
+		{"compressor_internal", func(r *BenchmarkRow) float64 { return float64(r.CompressorInternal) }, setInt(&out.CompressorInternal), pick(reduceMean)},
+		{"", func(r *BenchmarkRow) float64 { return r.CompressionRatio }, func(_ *BenchmarkRow, v float64) { out.CompressionRatio = v }, pick(reduceMean)},
+		{"compression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.CompressionThroughputMbs }, func(_ *BenchmarkRow, v float64) { out.CompressionThroughputMbs = v }, pick(reduceHarmonic)},
+		{"decompression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.DecompressionThroughputMbs }, func(_ *BenchmarkRow, v float64) { out.DecompressionThroughputMbs = v }, pick(reduceHarmonic)},
+		{"random_access_ns", func(r *BenchmarkRow) float64 { return r.RandomAccessNs }, func(_ *BenchmarkRow, v float64) { out.RandomAccessNs = v }, pick(reduceMean)},
+		{"random_access_mbs", func(r *BenchmarkRow) float64 { return r.RandomAccessMbs }, func(_ *BenchmarkRow, v float64) { out.RandomAccessMbs = v }, pick(equalWork)},
+		{"internal_memory_ratio", func(r *BenchmarkRow) float64 { return r.InternalMemoryRatio }, func(_ *BenchmarkRow, v float64) { out.InternalMemoryRatio = v }, pick(reduceMean)},
+		{"relative_memory_usage", func(r *BenchmarkRow) float64 { return r.RelativeMemoryUsage }, func(_ *BenchmarkRow, v float64) { out.RelativeMemoryUsage = v }, pick(reduceMean)},
 	}
 
-	// Each range size is averaged over the rows that measured it.
-	ranges := make(map[string]*metricAccumulator)
+	for _, m := range metrics {
+		samples := make([]sample, 0, len(group))
+		for i := range group {
+			if m.key == "" || !group[i].Missing[m.key] {
+				samples = append(samples, sample{value: m.get(&group[i]), weight: float64(group[i].NumValues)})
+			}
+		}
+		if len(samples) == 0 {
+			out.Missing[m.key] = true
+			continue
+		}
+		m.set(&out, m.reduce(samples))
+	}
+
+	// Pooled ratio: total compressed over total uncompressed bits.
+	if method == AggregatePooled && out.UncompressedBits > 0 {
+		out.CompressionRatio = float64(out.CompressedBits) / float64(out.UncompressedBits)
+	}
+
+	// Each range size is aggregated over the rows that measured it.
+	ranges := make(map[string][]sample)
 	for i := range group {
 		for k, v := range group[i].RangeQueries {
-			if ranges[k] == nil {
-				ranges[k] = &metricAccumulator{}
-			}
-			ranges[k].add(v)
+			ranges[k] = append(ranges[k], sample{value: v, weight: 1})
 		}
 	}
-	for k, acc := range ranges {
-		if v, ok := acc.mean(); ok {
-			avg.RangeQueries[k] = v
-		}
+	reduceRange := pick(equalWork)
+	for k, s := range ranges {
+		out.RangeQueries[k] = reduceRange(s)
 	}
-	return avg
+	return out
 }

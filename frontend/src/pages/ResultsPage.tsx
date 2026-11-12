@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api'
 import type { Benchmark, BenchmarkListResponse, Config } from '@/types'
 import { renameCompressor } from '@/lib/compressors'
 import { formatBytes } from '@/lib/format'
+import { describeSource } from '@/lib/datasets'
 
 const ACTIVE_STATUSES = new Set(['queued', 'in_progress'])
 
@@ -187,8 +188,13 @@ export default function ResultsPage() {
                       </div>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      {formatBytes(b.file_size)} &middot; {b.file_ext}
-                      {b.file_count && b.file_count > 1 ? ` · ${b.file_count} files` : ''}
+                      {b.source
+                        ? describeSource(b)
+                        : <>
+                            {formatBytes(b.file_size)} &middot; {b.file_ext}
+                            {b.file_count && b.file_count > 1 ? ` · ${b.file_count} files` : ''}
+                            {b.aggregation && b.aggregation !== 'mean' ? ` · ${b.aggregation}` : ''}
+                          </>}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(b.created_at).toLocaleString()}

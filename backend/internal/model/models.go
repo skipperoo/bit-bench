@@ -73,11 +73,30 @@ type Benchmark struct {
 	Compressors      []compressor.Instance `json:"compressors"`
 	Error            *string               `json:"error,omitempty"`
 	Warnings         []string              `json:"warnings"`
-	Progress         *int                  `json:"progress,omitempty"`
-	CreatedAt        time.Time             `json:"created_at"`
-	StartedAt        *time.Time            `json:"started_at,omitempty"`
-	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
-	UpdatedAt        time.Time             `json:"updated_at"`
+	// Aggregation combines per-input rows: "mean", "median" or "pooled".
+	Aggregation string `json:"aggregation"`
+	// MeasureMemory runs the Valgrind Massif harness for built-in compressors.
+	MeasureMemory bool `json:"measure_memory"`
+	// Source describes inputs generated from a standardized dataset; nil for
+	// uploaded files.
+	Source     *DatasetSource `json:"source,omitempty"`
+	Progress   *int           `json:"progress,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	StartedAt  *time.Time     `json:"started_at,omitempty"`
+	FinishedAt *time.Time     `json:"finished_at,omitempty"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+}
+
+// DatasetSource records how a benchmark's inputs were cut from a
+// standardized dataset.
+type DatasetSource struct {
+	Kind      string   `json:"kind"` // "dataset"
+	Dataset   string   `json:"dataset"`
+	Series    []string `json:"series"`
+	ChunkSize uint64   `json:"chunk_size"` // samples per chunk; 0 = whole series
+	MaxChunks int      `json:"max_chunks"` // per series; 0 = all
+	Transform string   `json:"transform"`
+	Inputs    int      `json:"inputs"` // number of generated .bin inputs
 }
 
 const (

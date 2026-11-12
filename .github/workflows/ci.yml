@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-      - run: cd backend && go test ./internal/compressor/... ./internal/model/... ./internal/middleware/... ./internal/seqfile/... ./internal/service/... ./internal/worker/...
+      - run: cd backend && go test ./internal/compressor/... ./internal/dataset/... ./internal/model/... ./internal/middleware/... ./internal/seqfile/... ./internal/service/... ./internal/worker/...
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

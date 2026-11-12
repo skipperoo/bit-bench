@@ -109,6 +109,8 @@ func main() {
 		AddHandler("GET   /config-history", handler.ListConfigHistory).
 		AddHandler("GET   /benchmarks/checksums", handler.ListChecksums).
 		AddHandler("POST  /benchmarks", handler.CreateBenchmark).
+		AddHandler("POST  /benchmarks/dataset", handler.CreateDatasetBenchmarks).
+		AddHandler("GET   /datasets", handler.ListDatasets).
 		AddHandler("GET   /benchmarks", handler.ListBenchmarks).
 		AddHandler("GET   /benchmarks/{id}", handler.GetBenchmark).
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
@@ -147,7 +149,7 @@ func main() {
 	go worker.NewEmailDispatcher(cfg, db).Run(ctx)
 
 	server := &http.Server{
-		Addr:              ":8080",
+		Addr:              cfg.ListenAddr,
 		Handler:           final,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
@@ -159,7 +161,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("server starting", "addr", ":8080")
+		logger.Info("server starting", "addr", cfg.ListenAddr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("server error", "error", err)
 		}

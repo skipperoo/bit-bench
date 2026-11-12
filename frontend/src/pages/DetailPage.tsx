@@ -13,6 +13,7 @@ import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/
 import { formatBytes, formatMetricValue, metricLabel } from '@/lib/format'
 import { isLowerBetter, metricValue, rangeQueryMetrics, withDerivedMetrics } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
+import { describeSource } from '@/lib/datasets'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
@@ -385,11 +386,23 @@ export default function DetailPage() {
         <div className="flex items-center gap-2 mt-1">
           <Badge>{benchmark.status.replace('_', ' ')}</Badge>
           <span className="text-sm text-muted-foreground">
-            {formatBytes(benchmark.file_size)} &middot; {benchmark.file_ext}
-            {benchmark.file_count && benchmark.file_count > 1 ? ` · ${benchmark.file_count} files` : ''}
+            {benchmark.source
+              ? describeSource(benchmark)
+              : <>
+                  {formatBytes(benchmark.file_size)} &middot; {benchmark.file_ext}
+                  {benchmark.file_count && benchmark.file_count > 1 ? ` · ${benchmark.file_count} files` : ''}
+                  {benchmark.aggregation && benchmark.aggregation !== 'mean' ? ` · ${benchmark.aggregation} aggregation` : ''}
+                </>}
             {benchmark.created_at && ` · ${new Date(benchmark.created_at).toLocaleDateString()}`}
+            {benchmark.measure_memory === false && ' · memory not measured'}
           </span>
         </div>
+        {benchmark.source && (
+          <p className="text-xs text-muted-foreground mt-1 font-mono truncate" title={benchmark.source.series.join(', ')}>
+            series: {benchmark.source.series.join(', ')}
+            {benchmark.source.max_chunks > 0 && benchmark.source.chunk_size > 0 && ` · ≤${benchmark.source.max_chunks} chunks each`}
+          </p>
+        )}
       </div>
 
       {benchmark.status !== 'ready' && (

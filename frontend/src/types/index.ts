@@ -93,10 +93,26 @@ export interface Benchmark {
   error?: string
   /** Non-fatal problems (e.g. a compressor without a result on one input). */
   warnings?: string[]
+  /** How per-input rows were combined: mean, median or pooled. */
+  aggregation?: 'mean' | 'median' | 'pooled'
+  measure_memory?: boolean
+  /** Set when the inputs were cut from a standardized dataset. */
+  source?: DatasetSource
   progress?: number
   created_at: string
   started_at?: string
   finished_at?: string
+}
+
+export interface DatasetSource {
+  kind: 'dataset'
+  dataset: string
+  series: string[]
+  /** Samples per chunk; 0 = whole series. */
+  chunk_size: number
+  max_chunks: number
+  transform: 'std' | 'gap' | 'gap_shifted'
+  inputs: number
 }
 
 export interface BenchmarkResult {
