@@ -263,20 +263,37 @@ export const ALTERNATE_SHAPES = ['triangle-down', 'hexagon', 'x', 'square', 'dia
 /** Every marker shape the charts can draw (mirrors model.ChartShapes in the backend). */
 export const CHART_SHAPES = ['circle', 'square', 'diamond', 'triangle-up', 'triangle-down', 'star', 'pentagon', 'hexagon', 'x', 'cross']
 
-/** Key of a compressor label in the per-user shape overrides. */
+/**
+ * Swatches offered by the colour picker: the report palette, then the
+ * custom-coder palette (duplicates removed).
+ */
+export const CHART_PALETTE: string[] = [...new Set([...Object.values(COMPRESSOR_COLORS), ...CUSTOM_PALETTE].map((c) => c.toLowerCase()))]
+
+/** Key of a compressor label in the per-user style overrides. */
 export function shapeKey(name: string): string {
   return name.trim().toLowerCase()
+}
+
+/** A user's saved chart styles, keyed by shapeKey(label). */
+export interface ChartStyleOverrides {
+  shapes?: Record<string, string>
+  colors?: Record<string, string>
 }
 
 /**
  * Colour and marker shape for every compressor label of a result set:
  * colours as in assignCompressorColors, shapes by family, and whenever
  * several labels share a colour, each of them gets a different shape.
- * `overrides` (the user's saved choices, keyed by shapeKey) always win; the
- * automatic shapes of the other labels avoid them.
+ * The user's `overrides` always win (a colour override applies to that exact
+ * label); the automatic shapes of the other labels with the same final colour
+ * avoid the shapes the user picked.
  */
-export function assignCompressorStyles(names: string[], overrides: Record<string, string> = {}): Map<string, CompressorStyle> {
+export function assignCompressorStyles(names: string[], overrides: ChartStyleOverrides = {}): Map<string, CompressorStyle> {
   const colors = assignCompressorColors(names)
+  for (const name of colors.keys()) {
+    const chosen = overrides.colors?.[shapeKey(name)]
+    if (chosen && /^#[0-9a-f]{6}$/i.test(chosen)) colors.set(name, chosen.toLowerCase())
+  }
   const byColor = new Map<string, string[]>()
   for (const [name, color] of colors) byColor.set(color, [...(byColor.get(color) ?? []), name])
   const styles = new Map<string, CompressorStyle>()
@@ -284,7 +301,7 @@ export function assignCompressorStyles(names: string[], overrides: Record<string
     const taken = new Set<string>()
     const auto: string[] = []
     for (const name of group) {
-      const chosen = overrides[shapeKey(name)]
+      const chosen = overrides.shapes?.[shapeKey(name)]
       if (chosen && CHART_SHAPES.includes(chosen)) {
         taken.add(chosen)
         styles.set(name, { color, shape: chosen })

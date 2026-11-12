@@ -1,15 +1,17 @@
 import { useId, useMemo } from 'react'
 import { LegendMarker } from '@/components/charts/CompressorMarker'
-import ShapePicker from '@/components/ShapePicker'
+import StylePicker from '@/components/StylePicker'
 import { getCompressorFamily, renameCompressor } from '@/lib/compressors'
+import type { CompressorStyle } from '@/lib/compressors'
 
-/** Per-user marker shapes: with it, every marker becomes a shape picker. */
-export interface ShapeEditing {
-  /** Shape each compressor gets without the user's overrides. */
-  defaults: Map<string, string>
-  overridden: (name: string) => boolean
-  onChange: (name: string, shape: string | null) => void
-  /** Restores the default shape of the given compressors. */
+/** Per-user marker styles: with it, every marker becomes a shape/colour picker. */
+export interface StyleEditing {
+  /** Style each compressor gets without the user's overrides. */
+  defaults: Map<string, CompressorStyle>
+  overridden: (name: string) => { shape: boolean; color: boolean }
+  onShapeChange: (name: string, shape: string | null) => void
+  onColorChange: (name: string, color: string | null) => void
+  /** Restores the default shape and colour of the given compressors. */
   onReset: (names: string[]) => void
   /** Why the last change could not be saved. */
   error?: string
@@ -19,13 +21,13 @@ export interface ShapeEditing {
  * Checklist of the compressors/instances of a result set, grouped by family.
  * Hidden instances are removed from every chart and table of the view.
  */
-export default function InstanceFilter({ names, colors, shapes, hidden, onChange, shapeEditing }: {
+export default function InstanceFilter({ names, colors, shapes, hidden, onChange, styleEditing }: {
   names: string[]
   colors: Map<string, string>
   shapes?: Map<string, string>
   hidden: Set<string>
   onChange: (hidden: Set<string>) => void
-  shapeEditing?: ShapeEditing
+  styleEditing?: StyleEditing
 }) {
   const idBase = useId()
   const families = useMemo(() => {
@@ -46,7 +48,7 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
     onChange(next)
   }
   const shown = names.length - names.filter((n) => hidden.has(n)).length
-  const customised = shapeEditing ? names.filter((n) => shapeEditing.overridden(n)) : []
+  const customised = styleEditing ? names.filter((n) => { const o = styleEditing.overridden(n); return o.shape || o.color }) : []
 
   return (
     <div className="space-y-3 text-sm" aria-label="Compressor filter">
@@ -78,14 +80,18 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
               return (
                 <div key={m} className="flex items-center gap-1.5 pl-5">
                   <input id={id} type="checkbox" checked={!hidden.has(m)} onChange={(e) => set([m], e.target.checked)} />
-                  {shapeEditing && shape ? (
-                    <ShapePicker
+                  {styleEditing && shape ? (
+                    <StylePicker
                       name={m}
                       color={color}
                       shape={shape}
-                      defaultShape={shapeEditing.defaults.get(m) ?? shape}
-                      overridden={shapeEditing.overridden(m)}
-                      onChange={(s) => shapeEditing.onChange(m, s)}
+                      defaultColor={styleEditing.defaults.get(m)?.color ?? color}
+                      defaultShape={styleEditing.defaults.get(m)?.shape ?? shape}
+                      shapeOverridden={styleEditing.overridden(m).shape}
+                      colorOverridden={styleEditing.overridden(m).color}
+                      onShapeChange={(s) => styleEditing.onShapeChange(m, s)}
+                      onColorChange={(c) => styleEditing.onColorChange(m, c)}
+                      onReset={() => styleEditing.onReset([m])}
                     />
                   ) : (
                     <LegendMarker name={m} color={color} shape={shape} />
@@ -97,18 +103,18 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
           </fieldset>
         )
       })}
-      {shapeEditing && (
+      {styleEditing && (
         <p className="text-xs text-muted-foreground">
-          Click a marker to change its shape; your choice is saved to your account.
+          Click a marker to change its shape or colour; your choice is saved to your account.
           {customised.length > 0 && (
             <>
               {' '}
-              <button type="button" className="text-foreground underline underline-offset-2" onClick={() => shapeEditing.onReset(customised)}>
-                Reset {customised.length === 1 ? '1 shape' : `${customised.length} shapes`}
+              <button type="button" className="text-foreground underline underline-offset-2" onClick={() => styleEditing.onReset(customised)}>
+                Reset {customised.length === 1 ? '1 style' : `${customised.length} styles`}
               </button>
             </>
           )}
-          {shapeEditing.error && <span role="alert" className="block text-destructive">Shape not saved: {shapeEditing.error}</span>}
+          {styleEditing.error && <span role="alert" className="block text-destructive">Style not saved: {styleEditing.error}</span>}
         </p>
       )}
     </div>
