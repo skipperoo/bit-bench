@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -128,6 +130,35 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 	}
 	if mm := r.FormValue("measure_memory"); mm != "" {
 		opts.MeasureMemory = mm == "true" || mm == "1"
+	}
+
+	// mode=separate: one benchmark per file, named "<name> (<file stem>)", in
+	// a single request (so the per-user upload rate limit counts it once).
+	if r.FormValue("mode") == "separate" && len(uploads) > 1 {
+		created := make([]*model.Benchmark, 0, len(uploads))
+		for _, up := range uploads {
+			stem := strings.TrimSuffix(filepath.Base(up.Filename), filepath.Ext(up.Filename))
+			b, err := service.App.Benchmark.CreateBenchmarkWithOptions(r.Context(), actor,
+				fmt.Sprintf("%s (%s)", name, stem), []service.UploadedFile{up}, []byte(compressorsStr), opts)
+			if err != nil {
+				if len(created) == 0 {
+					writeError(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"benchmarks": created,
+					"error":      fmt.Sprintf("%s: %v", up.Filename, err),
+				})
+				return
+			}
+			created = append(created, b)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]interface{}{"benchmarks": created})
+		return
 	}
 
 	benchmark, err := service.App.Benchmark.CreateBenchmarkWithOptions(r.Context(), actor, name, uploads, []byte(compressorsStr), opts)

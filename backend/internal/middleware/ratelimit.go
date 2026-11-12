@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 type RateLimiter struct {
 	rdb     *redis.Client
+	prefix  string
 	limit   int
 	window  time.Duration
 	keyFunc func(r *http.Request) string
@@ -21,13 +23,20 @@ func NewRateLimiter(rdb *redis.Client, limit int, window time.Duration, keyFunc 
 	return &RateLimiter{rdb: rdb, limit: limit, window: window, keyFunc: keyFunc}
 }
 
+// WithPrefix namespaces the limiter's Redis keys so independent limits (login,
+// uploads) never share a counter.
+func (rl *RateLimiter) WithPrefix(prefix string) *RateLimiter {
+	rl.prefix = prefix
+	return rl
+}
+
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if rl.rdb == nil {
+		if rl.rdb == nil || rl.limit <= 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
-		key := "ratelimit:" + rl.keyFunc(r)
+		key := "ratelimit:" + rl.prefix + rl.keyFunc(r)
 		count, err := rl.rdb.Incr(r.Context(), key).Result()
 		if err != nil {
 			next.ServeHTTP(w, r)
@@ -37,8 +46,14 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 			rl.rdb.Expire(r.Context(), key, rl.window)
 		}
 		if count > int64(rl.limit) {
-			w.Header().Set("Retry-After", strconv.Itoa(int(rl.window.Seconds())))
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			retry := int(rl.window.Seconds())
+			if ttl, err := rl.rdb.TTL(r.Context(), key).Result(); err == nil && ttl > 0 {
+				retry = int(ttl.Seconds()) + 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprintf(w, `{"error":"rate limit exceeded: at most %d requests per %s, retry in %ds"}`+"\n", rl.limit, rl.window, retry)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -62,4 +77,16 @@ func IPKeyFunc(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// UserKeyFunc keys requests by the authenticated user (use after
+// JWTAuth/ResolveUser); unauthenticated requests fall back to the client IP.
+func UserKeyFunc(r *http.Request) string {
+	if u := UserFromContext(r.Context()); u != nil {
+		return "user:" + u.ID.String()
+	}
+	if c := ClaimsFromContext(r.Context()); c != nil && c.Sub != "" {
+		return "user:" + c.Sub
+	}
+	return "ip:" + IPKeyFunc(r)
 }

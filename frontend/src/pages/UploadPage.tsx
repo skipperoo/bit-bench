@@ -16,7 +16,7 @@ import CompressorSwatch from '@/components/CompressorSwatch'
 import { formatBytes } from '@/lib/format'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
 import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
-import { batchFileStatuses, sequentialFileStatuses } from '@/lib/upload-progress'
+import { batchFileStatuses } from '@/lib/upload-progress'
 import { ACCEPTED_EXTENSIONS, checkUploadFiles } from '@/lib/files'
 import { AGGREGATION_INFO, DEFAULT_DATASET_SELECTION, datasetSelectionError } from '@/lib/datasets'
 import type { Aggregation, DatasetListResponse, DatasetSelection } from '@/lib/datasets'
@@ -176,7 +176,6 @@ export default function UploadPage() {
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle')
   const [uploadLoaded, setUploadLoaded] = useState(0)
   const [uploadTotal, setUploadTotal] = useState(0)
-  const [uploadIndex, setUploadIndex] = useState(0)
   const restoredRef = useRef(false)
 
   const role = useAuthStore((s) => s.getRole)()
@@ -406,7 +405,6 @@ export default function UploadPage() {
     setUploadPhase('idle')
     setUploadLoaded(0)
     setUploadTotal(0)
-    setUploadIndex(0)
     setError(rejected.length > 0
       ? `Skipped ${rejected.length} file(s): ${rejected.slice(0, 3).join('; ')}${rejected.length > 3 ? '; …' : ''}`
       : '')
@@ -423,16 +421,12 @@ export default function UploadPage() {
     setUploadPhase('idle')
     setUploadLoaded(0)
     setUploadTotal(0)
-    setUploadIndex(0)
   }, [])
 
   const fileStatuses = useMemo(() => {
     if (files.length === 0) return []
-    if (multiMode === 'sequential' && files.length > 1) {
-      return sequentialFileStatuses(files.length, uploadIndex, uploadPhase)
-    }
     return batchFileStatuses(files, uploadPhase, uploadLoaded, uploadTotal)
-  }, [files, multiMode, uploadIndex, uploadPhase, uploadLoaded, uploadTotal])
+  }, [files, uploadPhase, uploadLoaded, uploadTotal])
 
   const uploadPercent = uploadTotal > 0 ? Math.round((uploadLoaded / uploadTotal) * 100) : null
 
@@ -441,13 +435,10 @@ export default function UploadPage() {
     if (uploadPhase === 'processing') return 'Upload complete — processing on the server…'
     if (uploadPhase === 'done') return 'Uploaded'
     if (uploadPhase === 'uploading') {
-      const prefix = multiMode === 'sequential' && files.length > 1
-        ? `Uploading file ${uploadIndex + 1} of ${files.length}`
-        : 'Uploading'
-      return uploadPercent !== null ? `${prefix} — ${uploadPercent}%` : `${prefix}…`
+      return uploadPercent !== null ? `Uploading — ${uploadPercent}%` : 'Uploading…'
     }
     return 'Submitting…'
-  }, [loading, files.length, uploadPhase, multiMode, uploadIndex, uploadPercent])
+  }, [loading, files.length, uploadPhase, uploadPercent])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -489,7 +480,6 @@ export default function UploadPage() {
     setError('')
     setUploadLoaded(0)
     setUploadTotal(0)
-    setUploadIndex(0)
     try {
       const compressorsPayload = instances.map((inst) => ({ name: inst.name, options: inst.options }))
 
@@ -514,43 +504,25 @@ export default function UploadPage() {
         }
       }
 
-      if (files.length === 1 || multiMode === 'average') {
-        // One benchmark; all files are processed in parallel and averaged.
-        setUploadPhase('uploading')
-        const formData = new FormData()
-        formData.append('name', multiMode === 'average' && files.length > 1
-          ? `${name} (avg ${files.length})` : name)
-        for (const f of files) {
-          formData.append('files', f)
-        }
-        formData.append('compressors', JSON.stringify(compressorsPayload))
-        formData.append('aggregation', aggregation)
-        formData.append('measure_memory', String(measureMemory))
-        await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
-        setUploadPhase('done')
-        navigate(`/results`)
-      } else {
-        // Sequential mode: enqueue each file as a separate benchmark
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i]
-          setUploadIndex(i)
-          setUploadLoaded(0)
-          setUploadTotal(0)
-          setUploadPhase('uploading')
-          const fname = f.name.replace(/\.[^.]+$/, '')
-          const formData = new FormData()
-          formData.append('name', `${name} (${fname})`)
-          formData.append('files', f)
-          formData.append('compressors', JSON.stringify(compressorsPayload))
-          formData.append('aggregation', aggregation)
-          formData.append('measure_memory', String(measureMemory))
-          await apiUploadWithProgress<{ id: string }>('/benchmarks', formData, reportProgress)
-          setUploadPhase('done')
-          if (i === files.length - 1) {
-            navigate(`/results`)
-          }
-        }
+      // One request in both modes: "average" makes one benchmark of all files,
+      // "separate" one benchmark per file (named "<name> (<file>)").
+      const separate = multiMode === 'sequential' && files.length > 1
+      setUploadPhase('uploading')
+      const formData = new FormData()
+      formData.append('name', !separate && files.length > 1 ? `${name} (avg ${files.length})` : name)
+      if (separate) formData.append('mode', 'separate')
+      for (const f of files) {
+        formData.append('files', f)
       }
+      formData.append('compressors', JSON.stringify(compressorsPayload))
+      formData.append('aggregation', aggregation)
+      formData.append('measure_memory', String(measureMemory))
+      const res = await apiUploadWithProgress<{ id?: string; benchmarks?: { id: string }[]; error?: string }>(
+        '/benchmarks', formData, reportProgress,
+      )
+      if (res?.error) throw new Error(`Created ${res.benchmarks?.length ?? 0} benchmark(s), then: ${res.error}`)
+      setUploadPhase('done')
+      navigate('/results')
     } catch (err) {
       setUploadPhase('error')
       setError(err instanceof Error ? err.message : 'Upload failed')

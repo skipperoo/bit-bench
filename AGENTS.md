@@ -140,7 +140,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 ### 2.5 Redis usage
 
 - **JWT blocklist**: on logout, `SET jwt_blocklist:<jti> 1 EX <remaining_ttl>`. Every protected request checks `EXISTS jwt_blocklist:<jti>`.
-- **Rate limiting**: login (5/min/IP), fixed window in Redis. The client IP is `X-Real-IP` (overwritten by nginx, so not client-controlled) or the connection address without its port; `X-Forwarded-For` is ignored. Upload rate limiting is not implemented (the "separate benchmarks" mode issues one request per file).
+- **Rate limiting**: login (5/min/IP), fixed window in Redis. The client IP is `X-Real-IP` (overwritten by nginx, so not client-controlled) or the connection address without its port; `X-Forwarded-For` is ignored. Uploads (`POST /benchmarks`, `POST /benchmarks/dataset`, `POST /compressors/packages`) share one per-user counter of `UPLOAD_RATE_LIMIT` requests per minute (default 10, `0` disables); exceeding it returns `429` with `Retry-After` and a JSON error. "Run separate benchmarks" is a single request (`mode=separate`), so it counts once.
 - Redis data is **ephemeral** (no persistent volume required).
 
 ---
@@ -514,7 +514,7 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `GET`  | `/api/v1/benchmarks/checksums` | `[{"checksum":"<md5>"}, ...]` retained for backwards compatibility (duplicates are allowed, D6). |
 | `GET`  | `/api/v1/datasets` | Standardized datasets under `DATASET_DIR` (`{datasets: [{name, description, source, series: [{name, values, decimals, size_bytes, error?}]}], transforms, max_runs, max_inputs_per_run, max_chunks_per_series}`); see `docs/datasets.md`. |
 | `POST` | `/api/v1/benchmarks/dataset` | JSON `{name, dataset, series?, chunk_sizes?, max_chunks, transforms?, aggregation?, measure_memory?, compressors}` → `201 {benchmarks}`: one benchmark per (transform × chunk size), inputs cut synchronously, `source` recorded (D32). |
-| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), optional `aggregation` (`mean`/`median`/`pooled`) and `measure_memory` (`true`/`false`), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
+| `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), optional `mode=separate` (one benchmark per file named `<name> (<file stem>)`, response `{benchmarks}`), optional `aggregation` (`mean`/`median`/`pooled`) and `measure_memory` (`true`/`false`), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
 | `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
 | `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. Owner or admin only (others get `404`); the same rule applies to `/status`, `/progress` and `/compare`. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
@@ -977,6 +977,7 @@ services:
       # container (cgroup-aware). Uncomment to pin an explicit cap.
       # - MAX_PARALLELISM=8
       - MAX_FILE_SIZE_MB=500
+      - UPLOAD_RATE_LIMIT=10
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks
@@ -1081,6 +1082,7 @@ secrets:
 | `COMPRESSOR_DIR` | `/data/compressors` | Persistent package/workspace root. |
 | `DATASET_DIR` | `/data/datasets` | Standardized datasets (`./datasets` mounted read-only, D32). |
 | `LISTEN_ADDR` | `:8080` | Backend HTTP listen address. |
+| `UPLOAD_RATE_LIMIT` | `10` | Uploads per user per minute (benchmarks, dataset runs, packages); `0` disables. |
 | `MAX_PACKAGE_SIZE_MB` | `50` | Uploaded package `.zip` size cap. |
 | `RUNNER_IMAGE_AMD64` | `bitbench-runner:amd64` | Sandbox image for amd64 packages (built by `runner-amd64`). |
 | `RUNNER_IMAGE_ARM64` | `bitbench-runner:arm64` | Sandbox image for arm64 packages (built by `runner-arm64`; needs binfmt/QEMU on x86 hosts). |
