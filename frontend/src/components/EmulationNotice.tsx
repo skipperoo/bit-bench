@@ -12,7 +12,7 @@ export default function EmulationNotice({ instances }: { instances: CompressorIn
   if (emulated.length === 0) return null
 
   return (
-    <div className="flex items-start gap-2 mb-6 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900">
+    <div className="flex items-start gap-2 mb-6 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
       <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
       <div className="text-sm">
         <p className="font-medium">CPU emulation — throughput is not representative</p>

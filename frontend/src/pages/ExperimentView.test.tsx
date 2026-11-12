@@ -77,8 +77,16 @@ describe('ExperimentView', () => {
     expect(screen.getByRole('list', { name: 'Benchmarks in this view' })).toHaveTextContent('wild · std · 4096')
     expect(screen.getAllByRole('columnheader', { name: /Gzip/ }).length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole('tab', { name: 'Sweep' }))
-    expect(screen.getByLabelText('Sweep metric')).toBeInTheDocument()
-    expect(screen.getByText(/wildppg · std — Compression Ratio/)).toBeInTheDocument()
+    // Every metric is plotted; chips switch them off.
+    const metricsFilter = screen.getByRole('group', { name: 'Sweep metrics' })
+    const label = 'Compression Ratio (%)'
+    expect(within(metricsFilter).getAllByRole('button', { pressed: true }).length).toBeGreaterThan(1)
+    expect(screen.getAllByText(label)).toHaveLength(2) // chip + chart title
+    await userEvent.click(within(metricsFilter).getByRole('button', { name: label, pressed: true }))
+    expect(within(metricsFilter).getByRole('button', { name: label, pressed: false })).toBeInTheDocument()
+    expect(screen.getAllByText(label)).toHaveLength(1) // only the chip is left
+    await userEvent.click(within(metricsFilter).getByRole('button', { name: 'None' }))
+    expect(screen.getByText(/Every metric is switched off/)).toBeInTheDocument()
   })
 
   it('monitors runs that are not ready', async () => {

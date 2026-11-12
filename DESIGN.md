@@ -106,6 +106,9 @@ A restrained, technical palette anchored by a very dark blue-black ink on pure w
 - **Alert** (`oklch(55% 0.2 20)`): Destructive actions, error states, deletion. Slightly desaturated red for technical precision, not alarm.
 - **Alert Surface** (`oklch(96% 0.01 260)` x Alert background overlay): Error message backgrounds.
 
+### Dark theme
+A neutral graphite, never pure black: **Graphite** `#25262a` (page), **Raised** `#2b2c31` (cards, popovers), **Watermark** `#33353a` (hover, secondary), **Edge** `#3e4046` (borders), **Ink** `#e8e9ec`, **Dim Ink** `#a3a6ad`. Buttons invert (Ink background, graphite text). Chart series keep their colours; grids and axes take Edge and Dim Ink.
+
 ### The Ink Rule
 The foreground color (`oklch(12% 0.03 260)`) is never lightened for "visual hierarchy." Hierarchy is produced through spacing, weight (600 vs 400), and size — never through fading Ink toward Dim Ink for body text. Body text is always full Ink at `oklch(12% 0.03 260)`. Dim Ink is reserved for secondary metadata, placeholders, and disabled content.
 

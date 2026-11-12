@@ -88,7 +88,7 @@ function FileStatusBadge({ status }: { status: FileUploadStatus }) {
       )
     case 'sent':
       return (
-        <span className="flex items-center gap-1 text-xs text-emerald-600">
+        <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="w-3.5 h-3.5" />
           Uploaded
         </span>
@@ -102,7 +102,7 @@ function FileStatusBadge({ status }: { status: FileUploadStatus }) {
       )
     case 'done':
       return (
-        <span className="flex items-center gap-1 text-xs text-emerald-600">
+        <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="w-3.5 h-3.5" />
           Done
         </span>
@@ -999,7 +999,7 @@ export default function NewExperimentPage() {
           {emulatedSelected.length > 0 && (
             <div
               data-testid="emulation-warning"
-              className="flex items-start gap-2 mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900"
+              className="flex items-start gap-2 mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
             >
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <div className="text-sm">
@@ -1066,7 +1066,7 @@ export default function NewExperimentPage() {
                                 <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
                                 {emulated && (
                                   <span
-                                    className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800"
+                                    className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
                                     title={`Targets ${platformArch(packagePlatforms[c])} — runs under emulation on this host`}
                                   >
                                     {platformArch(packagePlatforms[c])} emulated
@@ -1143,7 +1143,7 @@ export default function NewExperimentPage() {
                               {emulated && (
                                 <span
                                   data-testid={`emulated-${inst.name}`}
-                                  className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800"
+                                  className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
                                   title={`Targets ${platformArch(packagePlatforms[inst.name])} — runs under emulation on this host`}
                                 >
                                   {platformArch(packagePlatforms[inst.name])} emulated

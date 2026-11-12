@@ -25,6 +25,57 @@
   --radius: 0.5rem;
 }
 
+/*
+ * Dark theme: a neutral graphite (not black) with a faint cool tint, raised
+ * surfaces a step lighter, light ink. Chart series keep their colours.
+ */
+.dark {
+  color-scheme: dark;
+  --color-background: #25262a;
+  --color-foreground: #e8e9ec;
+  --color-card: #2b2c31;
+  --color-card-foreground: #e8e9ec;
+  --color-popover: #2b2c31;
+  --color-popover-foreground: #e8e9ec;
+  --color-primary: #e8e9ec;
+  --color-primary-foreground: #1f2024;
+  --color-secondary: #33353a;
+  --color-secondary-foreground: #e8e9ec;
+  --color-muted: #33353a;
+  --color-muted-foreground: #a3a6ad;
+  --color-accent: #33353a;
+  --color-accent-foreground: #e8e9ec;
+  --color-destructive: #ef6b62;
+  --color-destructive-foreground: #1f2024;
+  --color-border: #3e4046;
+  --color-input: #4a4c53;
+  --color-ring: #e8e9ec;
+}
+
+/* Recharts draws its grid, axes and default tooltip with fixed light colours. */
+.dark .recharts-cartesian-grid line {
+  stroke: var(--color-border);
+}
+.dark .recharts-cartesian-axis-line,
+.dark .recharts-cartesian-axis-tick-line {
+  stroke: var(--color-muted-foreground);
+}
+.dark .recharts-cartesian-axis-tick-value,
+.dark .recharts-label {
+  fill: var(--color-muted-foreground);
+}
+.dark .recharts-default-tooltip {
+  background-color: var(--color-popover) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-foreground);
+}
+.dark rect.recharts-tooltip-cursor {
+  fill: var(--color-secondary);
+}
+.dark path.recharts-tooltip-cursor {
+  stroke: var(--color-muted-foreground);
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

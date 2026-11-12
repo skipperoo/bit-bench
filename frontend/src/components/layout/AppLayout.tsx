@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { useChartStyles } from '@/stores/chart-styles-store'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { apiFetch } from '@/lib/api'
 import {
   BarChart3,
@@ -28,6 +29,11 @@ export function AppLayout() {
   const navigate = useNavigate()
   const logout = useAuthStore((s) => s.logout)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // Result pages are dense (sidebar + charts + wide tables): give them the
+  // screen width; task pages keep the narrower reading width.
+  const container = location.pathname.startsWith('/experiments')
+    ? 'max-w-[120rem] px-4 lg:px-6'
+    : 'max-w-7xl px-4'
 
   const handleLogout = async () => {
     try {
@@ -43,7 +49,7 @@ export function AppLayout() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b sticky top-0 bg-background z-20">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className={`${container} mx-auto h-14 flex items-center justify-between`}>
           <Link to="/experiments" className="font-bold text-lg">
             BitBench
           </Link>
@@ -65,13 +71,15 @@ export function AppLayout() {
                 </Link>
               )
             })}
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="ml-2">
+            <ThemeToggle className="ml-2" />
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="ml-1">
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
           </nav>
           <button
             className="md:hidden"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -97,6 +105,7 @@ export function AppLayout() {
                 </Link>
               )
             })}
+            <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={handleLogout} className="w-full justify-start">
               <LogOut className="w-4 h-4 mr-2" />
               Logout
@@ -104,7 +113,7 @@ export function AppLayout() {
           </div>
         )}
       </header>
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
+      <main className={`${container} flex-1 mx-auto w-full py-6`}>
         <Outlet />
       </main>
     </div>
