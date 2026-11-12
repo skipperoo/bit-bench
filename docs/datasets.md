@@ -137,12 +137,38 @@ reproduces the header of the thesis files):
 and `pamap2/wrist_{acc,gyro}_{x,y,z}.bin`.
 
 * **WildPPG** chunks cut by BitBench contain exactly the values of the thesis
-  `std` and `gap` files (verified on all 938 chunk files; byte-identical with
+  `std` and `gap` files (verified on all 938 chunk files of the default export; byte-identical with
   `--decimals 1`; re-run with the opt-in `TestThesisEquivalence` in
   `backend/internal/dataset/thesis_test.go`).
 * **PAMAP2** concatenates its NaN-free runs into one series. For large chunk
   sizes this equals the thesis fallback; for small sizes the thesis cut each run
   separately, so chunks can differ.
+
+**Every signal: `--all-signals`, `--exclude PATTERN`.** By default only the
+thesis signals above are written. `--all-signals` writes every signal instead,
+and `--exclude` (repeatable shell pattern on the series name) drops some:
+
+```bash
+# WildPPG without accelerometers, PAMAP2 subject 101 without the heart rate
+python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat --all-signals --exclude '*_acc_*'
+python3 scripts/datasets/export_thesis_datasets.py pamap2 /path/to/Protocol/subject101.dat --all-signals --exclude heart_rate
+```
+
+| Dataset | Series | Integer projection |
+|:--|:--|:--|
+| WildPPG | `<site>_ppg_{g,r,ir}` for `sternum, head, ankle, wrist` (128 Hz) | value × 2^19, clipped to 19 bits (the stored fractions are exact multiples of 2^-19) |
+| WildPPG | `sternum_ecg` (128 Hz) | raw 18-bit ADC codes, unchanged |
+| WildPPG | `<site>_altitude` (0.5 Hz) | 19 bits over [0, 4096) m: 1/128 m |
+| WildPPG | `<site>_temperature` (0.5 Hz) | 19 bits over [0, 64) °C: 1/8192 °C |
+| WildPPG | `<site>_acc_{x,y,z}` | 10-bit codes (8 mg) |
+| PAMAP2 | `{wrist,chest,ankle}_temperature` | native 1/16 °C steps (lossless) |
+| PAMAP2 | `…_acc_{x,y,z}` / `…_acc6_{x,y,z}` | 13-bit codes over ±16 g / ±6 g (the ±6 g sensor saturates on impacts) |
+| PAMAP2 | `…_gyro_{x,y,z}` | 13-bit codes over ±2000 °/s |
+| PAMAP2 | `…_mag_{x,y,z}` | 0.1 µT steps |
+| PAMAP2 | `heart_rate` | bpm (only the valid ~9 Hz samples) |
+
+The PAMAP2 hand IMU is named `wrist`; its orientation columns are skipped
+(invalid in this collection). `dataset.yaml` describes what was written.
 * **gap_shifted** is the corrected transform (below) and intentionally differs
   from the thesis files.
 

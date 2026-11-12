@@ -19,7 +19,7 @@ import (
 // Thesis size_<B> folders hold chunks of B/2 samples, at most 10 per signal,
 // named <prefix>_<series>_<k>.bin where k is the position in the selection.
 // The header's decimals word is ignored (the thesis wrote 1, exports default
-// to 0); N and every value must match.
+// to 0); N and every value must match. Series without thesis chunks are skipped.
 func TestThesisEquivalence(t *testing.T) {
 	full := os.Getenv("BITBENCH_FULL_DATASETS")
 	thesis := os.Getenv("BITBENCH_THESIS_DATASETS")
@@ -44,6 +44,11 @@ func TestThesisEquivalence(t *testing.T) {
 			fmt.Sscanf(filepath.Base(sizeDir), "size_%d", &bytesSize)
 			plan := ChunkPlan{ChunkSize: bytesSize / 2, MaxChunks: 10, Transform: transform}
 			for _, s := range ds.Series {
+				// Series the thesis never cut (e.g. an --all-signals export's
+				// altitude or head PPG) have no first chunk: nothing to compare.
+				if _, err := os.Stat(filepath.Join(sizeDir, fmt.Sprintf("%s_%s_0.bin", datasetName, s.Name))); err != nil {
+					continue
+				}
 				out := t.TempDir()
 				outputs, err := Materialize(full, datasetName, s.Name, plan, out, nil)
 				if err != nil {
