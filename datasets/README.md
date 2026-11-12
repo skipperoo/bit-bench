@@ -37,6 +37,8 @@ python3 scripts/datasets/make_dataset.py csv prices.csv --dataset finance --colu
 # the thesis datasets (WildPPG .mat, PAMAP2 .dat files)
 python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat
 python3 scripts/datasets/export_thesis_datasets.py pamap2 /path/to/PAMAP2_Dataset/Protocol
+# ... or every signal, minus some (see docs/datasets.md)
+python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat --all-signals --exclude '*_acc_*'
 ```
 
 New files show up without restarting the stack. Full guide:
