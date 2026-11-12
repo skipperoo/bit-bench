@@ -1,3 +1,4 @@
+import { formatBytes } from '@/lib/format'
 /** Standardized datasets served from DATASET_DIR (GET /api/v1/datasets). */
 
 export interface DatasetSeries {
@@ -45,19 +46,21 @@ export const AGGREGATION_INFO: Record<Aggregation, { label: string; help: string
   },
 }
 
-/**
- * Chunk-size presets in samples. They match the thesis datasets, whose
- * size_<B> folders count bytes of the original 16-bit stream (B / 2 samples).
- */
-export const CHUNK_PRESETS: { samples: number; thesis: string }[] = [
-  { samples: 256, thesis: 'size_512' },
-  { samples: 768, thesis: 'size_1536' },
-  { samples: 4096, thesis: 'size_8192' },
-  { samples: 8192, thesis: 'size_16384' },
-  { samples: 16384, thesis: 'size_32768' },
-  { samples: 32768, thesis: 'size_65536' },
-  { samples: 786432, thesis: 'size_1572864' },
+/** Chunk-size presets, in samples (from small blocks to long records). */
+export const CHUNK_PRESETS: { samples: number }[] = [
+  { samples: 256 },
+  { samples: 768 },
+  { samples: 4096 },
+  { samples: 8192 },
+  { samples: 16384 },
+  { samples: 32768 },
+  { samples: 786432 },
 ]
+
+/** What a chunk of `samples` values weighs at 16 bits per sample (e.g. 4,096 samples = 8.0 KB). */
+export function chunkSizeHint(samples: number): string {
+  return `${samples.toLocaleString()} samples = ${formatBytes(samples * 2)} of 16-bit data`
+}
 
 /** Chunk size 0 means "benchmark the whole series as one input". */
 export const WHOLE_SERIES = 0

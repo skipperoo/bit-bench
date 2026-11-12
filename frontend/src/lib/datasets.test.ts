@@ -26,3 +26,11 @@ describe('chunk planning', () => {
     expect(describeChunking(768, 10)).toBe('768 samples × ≤10')
   })
 })
+
+describe('chunkSizeHint', () => {
+  it('states the size in samples and in bytes at 16 bits', async () => {
+    const { chunkSizeHint } = await import('./datasets')
+    expect(chunkSizeHint(4096)).toBe('4,096 samples = 8.0 KB of 16-bit data')
+    expect(chunkSizeHint(256)).toBe('256 samples = 512 B of 16-bit data')
+  })
+})

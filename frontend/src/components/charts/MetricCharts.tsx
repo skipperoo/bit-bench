@@ -194,7 +194,7 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
   )
 }
 
-/** Metric vs chunk size, one line per compressor (thesis scaling plots). */
+/** Metric vs chunk size, one line per compressor (scaling plots). */
 export function SweepChart({ chunkLabels, lines, metric, colors, shapes }: {
   chunkLabels: string[]
   lines: { compressor: string; values: (number | null)[] }[]
