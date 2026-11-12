@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import type { Benchmark, BenchmarkListResponse, Config } from '@/types'
 import { renameCompressor } from '@/lib/compressors'
+import { formatBytes } from '@/lib/format'
+
+const ACTIVE_STATUSES = new Set(['queued', 'in_progress'])
+
+function statusLabel(b: Benchmark): string {
+  const label = b.status.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  return b.status === 'in_progress' && b.progress != null ? `${label} (${b.progress}%)` : label
+}
 
 const statusColors: Record<string, string> = {
   queued: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200',
@@ -20,6 +28,7 @@ const statusColors: Record<string, string> = {
 export default function ResultsPage() {
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
   const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
   const [nextCursor, setNextCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -33,12 +42,18 @@ export default function ResultsPage() {
     apiFetch<Config>('/config').then((c) => setMaxCompare(c.maxCompare)).catch(() => {})
   }, [])
 
+  // Debounce the search box so typing does not fire one request per key.
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
   const loadBenchmarks = useCallback(async (cursor?: string, append = false) => {
     if (!append) setLoading(true)
     else setLoadingMore(true)
     try {
       const params = new URLSearchParams()
-      if (search) params.set('q', search)
+      if (query) params.set('q', query)
       if (cursor) params.set('cursor', cursor)
       params.set('limit', '20')
       const data = await apiFetch<BenchmarkListResponse>(`/benchmarks?${params}`)
@@ -55,43 +70,40 @@ export default function ResultsPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [search])
+  }, [query])
 
   useEffect(() => {
     loadBenchmarks()
   }, [loadBenchmarks])
 
-  // Poll progress for active (queued or in_progress) benchmarks every 2s
+  // Poll active (queued or in_progress) benchmarks every 2s. The interval is
+  // keyed on the set of active ids, not on every list update.
+  const activeIds = benchmarks.filter((b) => ACTIVE_STATUSES.has(b.status)).map((b) => b.id).join(',')
   useEffect(() => {
-    const active = benchmarks.filter(
-      (b) => b.status === 'in_progress' || b.status === 'queued'
-    )
-    if (active.length === 0) return
-
+    if (!activeIds) return
+    const ids = activeIds.split(',')
     const interval = setInterval(async () => {
-      for (const b of active) {
+      for (const id of ids) {
         try {
-          const data = await apiFetch<{ progress: number; status: string }>(`/benchmarks/${b.id}/progress`)
-          if (data.progress != null || data.status != null) {
-            setBenchmarks((prev) =>
-              prev.map((bm) => {
-                if (bm.id !== b.id) return bm
-                return {
-                  ...bm,
-                  progress: data.progress ?? bm.progress,
-                  status: data.status && data.status !== bm.status
-                    ? data.status as Benchmark['status']
-                    : bm.status,
-                }
-              })
-            )
-          }
+          const data = await apiFetch<Pick<Benchmark, 'status' | 'progress' | 'started_at' | 'finished_at' | 'error'>>(
+            `/benchmarks/${id}/progress`
+          )
+          setBenchmarks((prev) => prev.map((bm) => (bm.id === id
+            ? {
+                ...bm,
+                status: data.status ?? bm.status,
+                progress: data.progress ?? bm.progress,
+                started_at: data.started_at ?? bm.started_at,
+                finished_at: data.finished_at ?? bm.finished_at,
+                error: data.error ?? bm.error,
+              }
+            : bm)))
         } catch { /* ignore */ }
       }
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [benchmarks])
+  }, [activeIds])
 
   return (
     <div className="space-y-6">
@@ -136,7 +148,7 @@ export default function ResultsPage() {
             {benchmarks.map((b) => {
               const isSelected = selectedIds.has(b.id)
               return (
-                <Card className={`h-full transition-shadow ${selectMode ? (isSelected ? 'ring-2 ring-primary cursor-pointer' : 'opacity-70 cursor-pointer') : 'hover:shadow-md cursor-pointer'}`}
+                <Card key={b.id} className={`h-full transition-shadow ${selectMode ? (isSelected ? 'ring-2 ring-primary cursor-pointer' : 'opacity-70 cursor-pointer') : 'hover:shadow-md cursor-pointer'}`}
                   onClick={() => {
                     if (!selectMode) {
                       navigate(`/results/${b.id}`)
@@ -160,16 +172,10 @@ export default function ResultsPage() {
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Badge className={statusColors[b.status] || ''}>
-                        {b.status === 'in_progress' && (
-                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse mr-1" />
+                        {ACTIVE_STATUSES.has(b.status) && (
+                          <span className={`inline-block w-2 h-2 rounded-full animate-pulse mr-1 ${b.status === 'queued' ? 'bg-blue-500' : 'bg-yellow-500'}`} />
                         )}
-                        {b.status === 'in_progress' && b.progress != null
-                          ? `${b.status.split('_')
-                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                .join(' ')} (${b.progress}%)`
-                          : b.status.split('_')
-                                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                                .join(' ')}
+                        {statusLabel(b)}
                       </Badge>
                     </div>
                     {b.status === 'in_progress' && b.progress != null && (
@@ -181,7 +187,8 @@ export default function ResultsPage() {
                       </div>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      {(b.file_size / 1024).toFixed(1)} KB &middot; {b.file_ext}
+                      {formatBytes(b.file_size)} &middot; {b.file_ext}
+                      {b.file_count && b.file_count > 1 ? ` · ${b.file_count} files` : ''}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(b.created_at).toLocaleString()}
@@ -196,6 +203,9 @@ export default function ResultsPage() {
                         Finished {new Date(b.finished_at).toLocaleString()}
                       </p>
                     )}
+                    {b.error && b.status !== 'ready' && (
+                      <p className="text-xs text-destructive line-clamp-2" title={b.error}>{b.error}</p>
+                    )}
                     {b.compressors.length > 0 && (
                       <div className="flex flex-wrap gap-1 pt-2">
                         {b.compressors.slice(0, 5).map((inst, i) => (
@@ -206,7 +216,7 @@ export default function ResultsPage() {
                         {b.compressors.length > 5 && (
                           <div className="relative group">
                             <Badge variant="outline" className="text-xs cursor-default">
-                              +{b.compressors.length - 5}
+                              +{b.compressors.length - 5} other
                             </Badge>
                             <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
                               <div className="bg-popover border border-border text-popover-foreground rounded-lg shadow-lg p-2 text-xs overflow-y-auto" style={{ maxHeight: '200px', minWidth: '120px' }}>

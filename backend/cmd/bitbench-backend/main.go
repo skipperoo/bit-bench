@@ -8,14 +8,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/skipperoo/routy"
 	"bitbench/internal/config"
 	"bitbench/internal/handler"
 	"bitbench/internal/logger"
 	"bitbench/internal/middleware"
+	"bitbench/internal/model"
 	"bitbench/internal/runner"
 	"bitbench/internal/service"
 	"bitbench/internal/worker"
+	"github.com/skipperoo/routy"
 )
 
 func main() {
@@ -26,6 +27,12 @@ func main() {
 	defer cancel()
 
 	cfg := config.LoadConfig()
+	if cfg.JWTSecret == "" {
+		logger.Fatal("jwt_secret is empty: provide /run/secrets/jwt_secret (or JWT_SECRET for local runs)")
+	}
+	// Tokens are signed with this key; without it every token would be
+	// HMAC-signed with an empty key and trivially forgeable.
+	model.InitJWT(cfg.JWTSecret)
 
 	db, err := config.ConnectDB(ctx, cfg)
 	if err != nil {
@@ -78,53 +85,53 @@ func main() {
 	router.
 		AddMiddleware(recoverMw.GetMiddleware()).
 		AddMiddleware(loggingMw.GetMiddleware()).
-		AddHandler("POST /api/v1/auth/login",   loginHandler).
-		AddHandler("GET  /api/v1/health",       handler.HealthCheck).
-		AddHandler("GET  /api/v1/config",       handler.GetConfig)
+		AddHandler("POST /api/v1/auth/login", loginHandler).
+		AddHandler("GET  /api/v1/health", handler.HealthCheck).
+		AddHandler("GET  /api/v1/config", handler.GetConfig)
 
 	protected := routy.NewRouter()
 	protected.
 		AddMiddleware(middleware.JWTAuth).
 		AddMiddleware(middleware.ResolveUser).
-		AddHandler("POST  /auth/logout",           handler.Logout).
-		AddHandler("PUT   /auth/password",         handler.ChangePassword).
-		AddHandler("PUT   /me/config",             handler.SaveLastConfig).
-		AddHandler("GET   /me",                    handler.Me).
-		AddHandler("GET   /compressors",           handler.ListCompressors).
-		AddHandler("POST  /compressors/packages",  middleware.RequireUploader(handler.UploadCompressorPackage)).
-		AddHandler("GET   /compressors/packages",  handler.ListCompressorPackages).
+		AddHandler("POST  /auth/logout", handler.Logout).
+		AddHandler("PUT   /auth/password", handler.ChangePassword).
+		AddHandler("PUT   /me/config", handler.SaveLastConfig).
+		AddHandler("GET   /me", handler.Me).
+		AddHandler("GET   /compressors", handler.ListCompressors).
+		AddHandler("POST  /compressors/packages", middleware.RequireUploader(handler.UploadCompressorPackage)).
+		AddHandler("GET   /compressors/packages", handler.ListCompressorPackages).
 		AddHandler("GET   /compressors/packages/{id}", handler.GetCompressorPackage).
 		AddHandler("DELETE /compressors/packages/{id}", handler.DeleteCompressorPackage).
-		AddHandler("GET   /presets",               handler.ListPresets).
-		AddHandler("POST  /presets",               handler.CreatePreset).
-		AddHandler("PUT   /presets/{id}",          handler.UpdatePreset).
-		AddHandler("DELETE /presets/{id}",         handler.DeletePreset).
-		AddHandler("GET   /config-history",        handler.ListConfigHistory).
-		AddHandler("GET   /benchmarks/checksums",  handler.ListChecksums).
-		AddHandler("POST  /benchmarks",            handler.CreateBenchmark).
-		AddHandler("GET   /benchmarks",            handler.ListBenchmarks).
-		AddHandler("GET   /benchmarks/{id}",       handler.GetBenchmark).
+		AddHandler("GET   /presets", handler.ListPresets).
+		AddHandler("POST  /presets", handler.CreatePreset).
+		AddHandler("PUT   /presets/{id}", handler.UpdatePreset).
+		AddHandler("DELETE /presets/{id}", handler.DeletePreset).
+		AddHandler("GET   /config-history", handler.ListConfigHistory).
+		AddHandler("GET   /benchmarks/checksums", handler.ListChecksums).
+		AddHandler("POST  /benchmarks", handler.CreateBenchmark).
+		AddHandler("GET   /benchmarks", handler.ListBenchmarks).
+		AddHandler("GET   /benchmarks/{id}", handler.GetBenchmark).
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
 		AddHandler("GET   /benchmarks/{id}/progress", handler.ProgressHandler).
-		AddHandler("GET   /benchmarks/compare",    handler.CompareBenchmarks).
-		AddHandler("GET   /status",                handler.GetStatus)
+		AddHandler("GET   /benchmarks/compare", handler.CompareBenchmarks).
+		AddHandler("GET   /status", handler.GetStatus)
 
 	admin := routy.NewRouter()
 	admin.
 		AddMiddleware(middleware.JWTAuth).
 		AddMiddleware(middleware.ResolveUser).
-		AddHandler("POST   /users",                    middleware.RequireAdminOrProfessor(handler.AdminCreateUser)).
-		AddHandler("GET    /users",                    middleware.RequireAdminOrProfessor(handler.AdminListUsers)).
-		AddHandler("PUT    /users/{id}",               middleware.RequireAdminOrProfessor(handler.AdminUpdateUser)).
-		AddHandler("DELETE /users/{id}",               middleware.RequireAdminOrProfessor(handler.AdminDeleteUser)).
-		AddHandler("POST   /groups",                  middleware.RequireAdmin(handler.AdminCreateGroup)).
-		AddHandler("GET    /groups",                  middleware.RequireAdminOrProfessor(handler.AdminListGroups)).
-		AddHandler("PUT    /groups/{id}",              middleware.RequireAdmin(handler.AdminUpdateGroup)).
-		AddHandler("DELETE /groups/{id}",              middleware.RequireAdmin(handler.AdminDeleteGroup)).
-		AddHandler("GET    /benchmarks",               middleware.RequireAdmin(handler.AdminListBenchmarks)).
-		AddHandler("DELETE /benchmarks/{id}",          middleware.RequireAdmin(handler.AdminDeleteBenchmark)).
-		AddHandler("POST   /benchmarks/batch-delete",  middleware.RequireAdmin(handler.AdminBatchDeleteBenchmarks)).
-		AddHandler("POST   /benchmarks/{id}/cancel",   middleware.RequireAdmin(handler.AdminCancelBenchmark))
+		AddHandler("POST   /users", middleware.RequireAdminOrProfessor(handler.AdminCreateUser)).
+		AddHandler("GET    /users", middleware.RequireAdminOrProfessor(handler.AdminListUsers)).
+		AddHandler("PUT    /users/{id}", middleware.RequireAdminOrProfessor(handler.AdminUpdateUser)).
+		AddHandler("DELETE /users/{id}", middleware.RequireAdminOrProfessor(handler.AdminDeleteUser)).
+		AddHandler("POST   /groups", middleware.RequireAdmin(handler.AdminCreateGroup)).
+		AddHandler("GET    /groups", middleware.RequireAdminOrProfessor(handler.AdminListGroups)).
+		AddHandler("PUT    /groups/{id}", middleware.RequireAdmin(handler.AdminUpdateGroup)).
+		AddHandler("DELETE /groups/{id}", middleware.RequireAdmin(handler.AdminDeleteGroup)).
+		AddHandler("GET    /benchmarks", middleware.RequireAdmin(handler.AdminListBenchmarks)).
+		AddHandler("DELETE /benchmarks/{id}", middleware.RequireAdmin(handler.AdminDeleteBenchmark)).
+		AddHandler("POST   /benchmarks/batch-delete", middleware.RequireAdmin(handler.AdminBatchDeleteBenchmarks)).
+		AddHandler("POST   /benchmarks/{id}/cancel", middleware.RequireAdmin(handler.AdminCancelBenchmark))
 
 	router.AddSubroute("/api/v1/", protected.Finalize())
 	router.AddSubroute("/api/v1/admin/", admin.Finalize())

@@ -153,7 +153,7 @@ compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compr
   `compressed_bits`, `compression_ratio`, `compression_throughput_mbs`,
   `decompression_throughput_mbs`.
 - Optional metrics: `memory_usage`, `random_access_ns`, `random_access_mbs`,
-  and any `range_query_<N>` columns. **Leave a cell empty to store `NULL`
+  and any `range_query_<N>` (or `range_<N>_mbs`, as the built-in harness writes) columns. **Leave a cell empty to store `NULL`
   instead of a misleading zero** (the platform does not run its Massif
   harness on user programs).
 - Throughputs are MiB/s of input data: `(bytes / 1048576) / seconds`.

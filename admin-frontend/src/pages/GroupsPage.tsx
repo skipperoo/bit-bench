@@ -68,7 +68,9 @@ export default function GroupsPage() {
       })
       setEditingId(null)
       await loadData()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -76,7 +78,9 @@ export default function GroupsPage() {
     try {
       await apiFetch(`/groups/${id}`, { method: 'DELETE' })
       loadData()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const usersInGroup = (groupId: string): User[] =>

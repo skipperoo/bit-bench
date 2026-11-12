@@ -91,6 +91,8 @@ export interface Benchmark {
   status: 'queued' | 'in_progress' | 'ready' | 'failed' | 'timed_out' | 'cancelled'
   compressors: CompressorInstance[]
   error?: string
+  /** Non-fatal problems (e.g. a compressor without a result on one input). */
+  warnings?: string[]
   progress?: number
   created_at: string
   started_at?: string

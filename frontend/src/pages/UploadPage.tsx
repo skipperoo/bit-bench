@@ -12,9 +12,11 @@ import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
 import { renameCompressor } from '@/lib/compressors'
+import { formatBytes } from '@/lib/format'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
 import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
 import { batchFileStatuses, sequentialFileStatuses } from '@/lib/upload-progress'
+import { ACCEPTED_EXTENSIONS, checkUploadFiles } from '@/lib/files'
 import type { FileUploadStatus, UploadPhase } from '@/lib/upload-progress'
 import { useAuthStore } from '@/stores/auth-store'
 import {
@@ -131,7 +133,7 @@ const FileRow = memo(function FileRow({ file, index, status, removable, onRemove
         <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">{file.name}</p>
-          <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
+          <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -178,6 +180,7 @@ export default function UploadPage() {
   const [presetError, setPresetError] = useState('')
   const [savingPreset, setSavingPreset] = useState(false)
   const [hostPlatform, setHostPlatform] = useState('')
+  const [maxFileSizeMb, setMaxFileSizeMb] = useState(0)
   const [packagePlatforms, setPackagePlatforms] = useState<Record<string, string | undefined>>({})
 
   const loadCompressors = useCallback(async () => {
@@ -276,7 +279,10 @@ export default function UploadPage() {
   // Host platform and custom-package platforms drive the emulation warning.
   useEffect(() => {
     apiFetch<Config>('/config')
-      .then((config) => setHostPlatform(config?.hostPlatform || ''))
+      .then((config) => {
+        setHostPlatform(config?.hostPlatform || '')
+        setMaxFileSizeMb(config?.maxFileSizeMb || 0)
+      })
       .catch(() => {})
     apiFetch<CompressorPackage[]>('/compressors/packages')
       .then((packages) => {
@@ -358,7 +364,8 @@ export default function UploadPage() {
     })
   }, [applyInstances])
 
-  const handleFileChange = useCallback((newFiles: File[]) => {
+  const handleFileChange = useCallback((selected: File[]) => {
+    const { accepted: newFiles, rejected } = checkUploadFiles(selected, maxFileSizeMb)
     // Update the list synchronously so it appears as soon as the selection
     // returns, before any other work.
     setFiles(newFiles)
@@ -366,14 +373,16 @@ export default function UploadPage() {
     setUploadLoaded(0)
     setUploadTotal(0)
     setUploadIndex(0)
+    setError(rejected.length > 0
+      ? `Skipped ${rejected.length} file(s): ${rejected.slice(0, 3).join('; ')}${rejected.length > 3 ? '; …' : ''}`
+      : '')
     if (newFiles.length === 0) return
     // Autocomplete benchmark name from first filename (without extension)
     if (!name) {
       const base = newFiles[0].name.replace(/\.[^.]+$/, '')
       setName(base)
     }
-    setError('')
-  }, [name])
+  }, [name, maxFileSizeMb])
 
   const removeFile = useCallback((index: number) => {
     setFiles((prev) => prev.filter((_, i) => i !== index))
@@ -672,12 +681,12 @@ export default function UploadPage() {
                   Drag & drop your file(s) here
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  .bin, .csv, .zip, or .tar — max 500 MB each
+                  .bin, .csv, .zip, or .tar{maxFileSizeMb > 0 ? ` — max ${maxFileSizeMb} MB each` : ''}
                 </p>
                 <input
                   type="file"
                   className="hidden"
-                  accept=".bin,.csv,.zip,.tar"
+                  accept={ACCEPTED_EXTENSIONS.join(',')}
                   multiple
                   onChange={handleFileInput}
                 />

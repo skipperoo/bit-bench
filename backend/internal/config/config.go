@@ -69,7 +69,7 @@ func LoadConfig() *Config {
 		JWTSecret: readSecret("jwt_secret"),
 		JWTExpiry: getDuration("JWT_EXPIRY", 24*time.Hour),
 
-		MaxParallelism:  getInt("MAX_PARALLELISM", runtime.GOMAXPROCS(0)),
+		MaxParallelism:  max(1, getInt("MAX_PARALLELISM", runtime.GOMAXPROCS(0))),
 		MaxFileSizeMB:   int64(getInt("MAX_FILE_SIZE_MB", 500)),
 		MaxCompare:      getInt("MAX_COMPARE_BENCHMARKS", 5),
 		BenchTimeout:    getDuration("BENCH_TIMEOUT_SECONDS", 3600*time.Second),
@@ -138,11 +138,8 @@ func readSecret(name string) string {
 	if err == nil {
 		return strings.TrimSpace(string(data))
 	}
-	return os.Getenv(stringToUpper(name))
-}
-
-func stringToUpper(s string) string {
-	return s
+	// Fallback for local runs outside Docker: DB_PASSWORD, JWT_SECRET, ...
+	return strings.TrimSpace(os.Getenv(strings.ToUpper(name)))
 }
 
 func getEnv(key, fallback string) string {

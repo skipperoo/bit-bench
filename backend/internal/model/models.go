@@ -61,22 +61,23 @@ type User struct {
 }
 
 type Benchmark struct {
-	ID               uuid.UUID              `json:"id"`
-	UserID           uuid.UUID              `json:"user_id"`
-	Name             string                 `json:"name"`
-	OriginalFilename string                 `json:"original_filename"`
-	FileSize         int64                  `json:"file_size"`
-	FileCount        int                    `json:"file_count"`
-	FileChecksum     string                 `json:"file_checksum"`
-	FileExt          string                 `json:"file_ext"`
-	Status           string                 `json:"status"`
-	Compressors      []compressor.Instance  `json:"compressors"`
-	Error            *string                `json:"error,omitempty"`
-	Progress         *int                   `json:"progress,omitempty"`
-	CreatedAt        time.Time              `json:"created_at"`
-	StartedAt        *time.Time             `json:"started_at,omitempty"`
-	FinishedAt       *time.Time             `json:"finished_at,omitempty"`
-	UpdatedAt        time.Time              `json:"updated_at"`
+	ID               uuid.UUID             `json:"id"`
+	UserID           uuid.UUID             `json:"user_id"`
+	Name             string                `json:"name"`
+	OriginalFilename string                `json:"original_filename"`
+	FileSize         int64                 `json:"file_size"`
+	FileCount        int                   `json:"file_count"`
+	FileChecksum     string                `json:"file_checksum"`
+	FileExt          string                `json:"file_ext"`
+	Status           string                `json:"status"`
+	Compressors      []compressor.Instance `json:"compressors"`
+	Error            *string               `json:"error,omitempty"`
+	Warnings         []string              `json:"warnings"`
+	Progress         *int                  `json:"progress,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	StartedAt        *time.Time            `json:"started_at,omitempty"`
+	FinishedAt       *time.Time            `json:"finished_at,omitempty"`
+	UpdatedAt        time.Time             `json:"updated_at"`
 }
 
 const (
@@ -94,42 +95,42 @@ const (
 // run every built-in compressor for one .bin (1 worker); custom tasks run one
 // package against one .bin (workers = package workers).
 type BenchmarkTask struct {
-	ID          uuid.UUID  `json:"id"`
-	BenchmarkID uuid.UUID  `json:"benchmark_id"`
-	Seq          int        `json:"seq"`
-	Kind         string     `json:"kind"`
-	Compressor   *string    `json:"compressor,omitempty"`
-	InstanceLabel *string   `json:"instance_label,omitempty"`
-	InputPath    string     `json:"input_path"`
-	Workers     int        `json:"workers"`
-	Status      string     `json:"status"`
-	Result      []byte     `json:"result,omitempty"`
-	Error       *string    `json:"error,omitempty"`
-	StartedAt   *time.Time `json:"started_at,omitempty"`
-	FinishedAt  *time.Time `json:"finished_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID            uuid.UUID  `json:"id"`
+	BenchmarkID   uuid.UUID  `json:"benchmark_id"`
+	Seq           int        `json:"seq"`
+	Kind          string     `json:"kind"`
+	Compressor    *string    `json:"compressor,omitempty"`
+	InstanceLabel *string    `json:"instance_label,omitempty"`
+	InputPath     string     `json:"input_path"`
+	Workers       int        `json:"workers"`
+	Status        string     `json:"status"`
+	Result        []byte     `json:"result,omitempty"`
+	Error         *string    `json:"error,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type BenchmarkResult struct {
-	ID                          uuid.UUID  `json:"id"`
-	BenchmarkID                 uuid.UUID  `json:"benchmark_id"`
-	Compressor                  string     `json:"compressor"`
-	Dataset                     string     `json:"dataset"`
-	NumValues                   *int64     `json:"num_values,omitempty"`
-	OriginalSize                *int64     `json:"original_size,omitempty"`
-	MemoryUsage                 *int64     `json:"memory_usage,omitempty"`
-	InputBuffer                 *int64     `json:"input_buffer,omitempty"`
-	CompressorInternal          *int64     `json:"compressor_internal,omitempty"`
-	InternalMemoryRatio         *float64   `json:"internal_memory_ratio,omitempty"`
-	RelativeMemoryUsage         *float64   `json:"relative_memory_usage,omitempty"`
-	UncompressedBits            *int64     `json:"uncompressed_bits,omitempty"`
-	CompressedBits              *int64     `json:"compressed_bits,omitempty"`
-	CompressionRatio            *float64   `json:"compression_ratio,omitempty"`
-	CompressionThroughputMbs    *float64   `json:"compression_throughput_mbs,omitempty"`
-	DecompressionThroughputMbs  *float64   `json:"decompression_throughput_mbs,omitempty"`
-	RandomAccessNs              *float64   `json:"random_access_ns,omitempty"`
-	RandomAccessMbs             *float64   `json:"random_access_mbs,omitempty"`
-	RangeQueries                json.RawMessage `json:"range_queries,omitempty"`
+	ID                         uuid.UUID       `json:"id"`
+	BenchmarkID                uuid.UUID       `json:"benchmark_id"`
+	Compressor                 string          `json:"compressor"`
+	Dataset                    string          `json:"dataset"`
+	NumValues                  *int64          `json:"num_values,omitempty"`
+	OriginalSize               *int64          `json:"original_size,omitempty"`
+	MemoryUsage                *int64          `json:"memory_usage,omitempty"`
+	InputBuffer                *int64          `json:"input_buffer,omitempty"`
+	CompressorInternal         *int64          `json:"compressor_internal,omitempty"`
+	InternalMemoryRatio        *float64        `json:"internal_memory_ratio,omitempty"`
+	RelativeMemoryUsage        *float64        `json:"relative_memory_usage,omitempty"`
+	UncompressedBits           *int64          `json:"uncompressed_bits,omitempty"`
+	CompressedBits             *int64          `json:"compressed_bits,omitempty"`
+	CompressionRatio           *float64        `json:"compression_ratio,omitempty"`
+	CompressionThroughputMbs   *float64        `json:"compression_throughput_mbs,omitempty"`
+	DecompressionThroughputMbs *float64        `json:"decompression_throughput_mbs,omitempty"`
+	RandomAccessNs             *float64        `json:"random_access_ns,omitempty"`
+	RandomAccessMbs            *float64        `json:"random_access_mbs,omitempty"`
+	RangeQueries               json.RawMessage `json:"range_queries,omitempty"`
 }
 
 type CompressorPackage struct {
@@ -225,13 +226,13 @@ type BenchmarkDetailResponse struct {
 }
 
 type CompareResponse struct {
-	Benchmarks []*Benchmark                   `json:"benchmarks"`
-	Results    map[string][]*BenchmarkResult  `json:"results"`
+	Benchmarks []*Benchmark                  `json:"benchmarks"`
+	Results    map[string][]*BenchmarkResult `json:"results"`
 }
 
 type RunnerStatus struct {
-	Running         int `json:"running"`
-	MaxParallelism  int `json:"max_parallelism"`
+	Running        int `json:"running"`
+	MaxParallelism int `json:"max_parallelism"`
 }
 
 type CPUStatus struct {

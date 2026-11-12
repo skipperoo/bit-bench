@@ -2,7 +2,9 @@ package compressor
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestCanonicalizeOptions(t *testing.T) {
@@ -156,5 +158,30 @@ func TestWithUniqueLabel(t *testing.T) {
 	}
 	if got := WithUniqueLabel("gzip · level 1", taken); got != "gzip · level 1" {
 		t.Errorf("unique label = %q", got)
+	}
+}
+
+func TestTruncateLabelKeepsUTF8(t *testing.T) {
+	long := strings.Repeat("a", MaxLabelLen-1) + LabelSeparator + "x"
+	got := truncateLabel(long)
+	if !utf8.ValidString(got) || len(got) > MaxLabelLen {
+		t.Fatalf("truncated label %q is invalid UTF-8 or too long", got)
+	}
+	taken := map[string]bool{got: true}
+	again := WithUniqueLabel(got, taken)
+	if !utf8.ValidString(again) || len(again) > MaxLabelLen {
+		t.Fatalf("unique label %q is invalid UTF-8 or too long", again)
+	}
+}
+
+func TestBuildLabelPackageDefaultsFromJSON(t *testing.T) {
+	// Package specs round-trip through JSON, so numeric defaults are float64.
+	schema := map[string]Option{"level": {Type: "number", Min: intPtr(1), Max: intPtr(9), Default: float64(5)}}
+	values, err := CanonicalizeOptions(schema, map[string]interface{}{"level": float64(5)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := BuildLabel("mypkg", schema, values); got != "mypkg" {
+		t.Fatalf("default option must not appear in the label, got %q", got)
 	}
 }

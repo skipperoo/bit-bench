@@ -37,35 +37,36 @@ func RunBenchmark(binaryPath, compressorList, binPath, outDir string, timeout ti
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-
-	if onCompressorStart != nil {
-		stderrPipe, err := cmd.StderrPipe()
-		if err == nil {
-			go func() {
-				scanner := bufio.NewScanner(stderrPipe)
-				for scanner.Scan() {
-					line := scanner.Text()
-					stderr.WriteString(line + "\n")
-					if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Running ") {
-						comp := strings.TrimSuffix(strings.TrimPrefix(trimmed, "Running "), "...")
-						comp = strings.TrimSpace(strings.SplitN(comp, " ", 2)[0])
-						onCompressorStart(comp)
-					}
-				}
-			}()
-		} else {
-			cmd.Stderr = &stderr
-		}
-	} else {
-		cmd.Stderr = &stderr
-	}
 	cmd.Env = append(os.Environ(),
 		"LD_LIBRARY_PATH="+filepath.Dir(binaryPath)+"/lib",
 	)
 
-	err := cmd.Run()
-	// Ensure stderr from the goroutine is fully written
-	time.Sleep(50 * time.Millisecond)
+	var err error
+	if onCompressorStart != nil {
+		// Read stderr line by line to report progress. All reads must finish
+		// before Wait, which closes the pipe.
+		stderrPipe, pipeErr := cmd.StderrPipe()
+		if pipeErr != nil {
+			return nil, fmt.Errorf("stderr pipe: %w", pipeErr)
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("run benchmark: %w", err)
+		}
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderr.WriteString(line + "\n")
+			if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Running ") {
+				comp := strings.TrimSuffix(strings.TrimPrefix(trimmed, "Running "), "...")
+				comp = strings.TrimSpace(strings.SplitN(comp, " ", 2)[0])
+				onCompressorStart(comp)
+			}
+		}
+		err = cmd.Wait()
+	} else {
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+	}
 
 	exitCode := 0
 	if err != nil {

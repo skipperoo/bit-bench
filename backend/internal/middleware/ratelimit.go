@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -47,10 +49,17 @@ func (rl *RateLimiter) Wrap(handler http.HandlerFunc) http.HandlerFunc {
 	return rl.Middleware(handler).ServeHTTP
 }
 
+// IPKeyFunc keys requests by client IP. The reverse proxy overwrites
+// X-Real-IP with the connection's address, so it cannot be spoofed by clients
+// (unlike X-Forwarded-For, which nginx appends to). Without a proxy the
+// connection address is used, stripped of its ephemeral port so that every
+// new connection from the same host shares one bucket.
 func IPKeyFunc(r *http.Request) string {
-	ip := r.Header.Get("X-Forwarded-For")
-	if ip == "" {
-		ip = r.RemoteAddr
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
 	}
-	return ip
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

@@ -85,18 +85,18 @@ func TestModelStatusValidation(t *testing.T) {
 
 func TestModelLowerIsBetter(t *testing.T) {
 	lowerIsBetter := map[string]bool{
-		"compression_ratio":             true,
-		"compressed_bits":               true,
-		"uncompressed_bits":             true,
-		"original_size":                 true,
-		"memory_usage":                  true,
-		"compressor_internal":           true,
-		"internal_memory_ratio":         true,
-		"relative_memory_usage":         true,
-		"random_access_ns":              true,
-		"compression_throughput_mbs":    false,
-		"decompression_throughput_mbs":  false,
-		"random_access_mbs":             false,
+		"compression_ratio":            true,
+		"compressed_bits":              true,
+		"uncompressed_bits":            true,
+		"original_size":                true,
+		"memory_usage":                 true,
+		"compressor_internal":          true,
+		"internal_memory_ratio":        true,
+		"relative_memory_usage":        true,
+		"random_access_ns":             true,
+		"compression_throughput_mbs":   false,
+		"decompression_throughput_mbs": false,
+		"random_access_mbs":            false,
 	}
 
 	// Verify consistency with the spec

@@ -15,6 +15,36 @@ import (
 	"bitbench/internal/service"
 )
 
+// canViewBenchmark reports whether actor may read a benchmark: its owner or an
+// administrator (the same scope as the benchmark list).
+func canViewBenchmark(actor *model.User, b *model.Benchmark) bool {
+	if actor == nil || b == nil {
+		return false
+	}
+	return actor.Role == model.RoleAdmin || b.UserID == actor.ID
+}
+
+// loadViewableBenchmark parses the {id} path value and loads the benchmark,
+// writing the error response itself when it is missing or not visible.
+func loadViewableBenchmark(w http.ResponseWriter, r *http.Request) *model.Benchmark {
+	benchID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, "invalid id", http.StatusBadRequest)
+		return nil
+	}
+	benchmark, err := service.App.Benchmark.GetBenchmarkStatus(r.Context(), benchID)
+	if err != nil {
+		writeError(w, "failed to get benchmark", http.StatusInternalServerError)
+		return nil
+	}
+	// Report foreign benchmarks as missing so ids cannot be probed.
+	if benchmark == nil || !canViewBenchmark(middleware.UserFromContext(r.Context()), benchmark) {
+		writeError(w, "benchmark not found", http.StatusNotFound)
+		return nil
+	}
+	return benchmark
+}
+
 func ListChecksums(w http.ResponseWriter, r *http.Request) {
 	checksums, err := service.App.Benchmark.ListChecksums(r.Context())
 	if err != nil {
@@ -38,8 +68,10 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 
 	// Normalization (CSV/zip/tar -> .bin) runs synchronously in this handler,
 	// so allow well beyond the server's default write timeout for large files.
+	// The server-wide ReadTimeout (60s) would also cut large uploads short.
 	if rc := http.NewResponseController(w); rc != nil {
-		_ = rc.SetWriteDeadline(time.Now().Add(10 * time.Minute))
+		_ = rc.SetReadDeadline(time.Now().Add(30 * time.Minute))
+		_ = rc.SetWriteDeadline(time.Now().Add(40 * time.Minute))
 	}
 
 	if err := r.ParseMultipartForm(100 << 20); err != nil { // 100 MB max memory
@@ -154,19 +186,12 @@ func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBenchmark(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		writeError(w, "invalid id", http.StatusBadRequest)
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
 		return
 	}
 
-	benchID, err := uuid.Parse(id)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	resp, err := service.App.Benchmark.GetBenchmark(r.Context(), benchID)
+	resp, err := service.App.Benchmark.GetBenchmark(r.Context(), benchmark.ID)
 	if err != nil {
 		writeError(w, "failed to get benchmark", http.StatusInternalServerError)
 		return
@@ -181,36 +206,26 @@ func GetBenchmark(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetBenchmarkStatus(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	benchID, err := uuid.Parse(id)
-	if err != nil {
-		writeError(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	benchmark, err := service.App.Benchmark.GetBenchmarkStatus(r.Context(), benchID)
-	if err != nil {
-		writeError(w, "failed to get status", http.StatusInternalServerError)
-		return
-	}
+	benchmark := loadViewableBenchmark(w, r)
 	if benchmark == nil {
-		writeError(w, "benchmark not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      benchmark.Status,
-		"progress":    benchmark.Progress,
-		"started_at":  benchmark.StartedAt,
-		"finished_at": benchmark.FinishedAt,
-		"error":       benchmark.Error,
-	})
+	json.NewEncoder(w).Encode(benchmarkStatusPayload(benchmark))
+}
+
+// benchmarkStatusPayload is the polling view of a benchmark, shared by the
+// status and progress endpoints.
+func benchmarkStatusPayload(b *model.Benchmark) map[string]interface{} {
+	return map[string]interface{}{
+		"benchmark_id": b.ID,
+		"status":       b.Status,
+		"progress":     b.Progress,
+		"started_at":   b.StartedAt,
+		"finished_at":  b.FinishedAt,
+		"error":        b.Error,
+	}
 }
 
 func CompareBenchmarks(w http.ResponseWriter, r *http.Request) {
@@ -221,8 +236,9 @@ func CompareBenchmarks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	idStrs := strings.Split(idsStr, ",")
-	if len(idStrs) > 5 {
-		idStrs = idStrs[:5]
+	if AppConfig != nil && AppConfig.MaxCompare > 0 && len(idStrs) > AppConfig.MaxCompare {
+		maxCompare := AppConfig.MaxCompare
+		idStrs = idStrs[:maxCompare]
 	}
 
 	ids := make([]uuid.UUID, 0, len(idStrs))
@@ -235,7 +251,7 @@ func CompareBenchmarks(w http.ResponseWriter, r *http.Request) {
 		ids = append(ids, id)
 	}
 
-	resp, err := service.App.Benchmark.CompareBenchmarks(r.Context(), ids)
+	resp, err := service.App.Benchmark.CompareBenchmarks(r.Context(), middleware.UserFromContext(r.Context()), ids)
 	if err != nil {
 		writeError(w, "failed to compare", http.StatusInternalServerError)
 		return

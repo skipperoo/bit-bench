@@ -81,14 +81,17 @@ export default function UsersPage() {
   const saveEdit = async (id: string) => {
     try {
       const body: Record<string, unknown> = { role: editRole }
-      if (isAdmin) body.group_id = editGroupId || null
+      // An empty string clears the group (null would mean "unchanged").
+      if (isAdmin) body.group_id = editGroupId
       await apiFetch(`/users/${id}`, {
         method: 'PUT',
         body: JSON.stringify(body),
       })
       setEditingId(null)
       await loadUsers()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -96,7 +99,9 @@ export default function UsersPage() {
     try {
       await apiFetch(`/users/${id}`, { method: 'DELETE' })
       loadUsers()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const handleResetPassword = async (id: string) => {
@@ -116,7 +121,9 @@ export default function UsersPage() {
         body: JSON.stringify({ reset_password: newPassword }),
       })
       loadUsers()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const canManage = (u: User) => isAdmin || u.role === 'student' || u.role === 'phd'

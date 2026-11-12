@@ -247,9 +247,16 @@ func (d *DockerRunner) Run(ctx context.Context, spec Spec) (*Result, error) {
 	hostCfg := &container.HostConfig{
 		NetworkMode:    "none",
 		ReadonlyRootfs: true,
-		Tmpfs:          map[string]string{"/tmp": "rw,size=2g"},
-		Mounts:         mounts,
-		Resources:      resources,
+		// Untrusted code: no privilege escalation through setuid binaries, and
+		// no Linux capabilities for the non-root benchmark runs.
+		SecurityOpt: []string{"no-new-privileges"},
+		Tmpfs:       map[string]string{"/tmp": "rw,size=2g"},
+		Mounts:      mounts,
+		Resources:   resources,
+	}
+
+	if user != "0" && user != "root" {
+		hostCfg.CapDrop = []string{"ALL"}
 	}
 
 	created, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{

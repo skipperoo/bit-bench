@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button'
 import EmulationNotice from '@/components/EmulationNotice'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
-import { formatMetricValue } from '@/lib/format'
-import { withDerivedMetrics } from '@/lib/metrics'
+import { formatBytes, formatMetricValue, metricLabel } from '@/lib/format'
+import { isLowerBetter, metricValue, rangeQueryMetrics, withDerivedMetrics } from '@/lib/metrics'
+import { paretoRanking } from '@/lib/pareto'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, BenchmarkResult, BenchmarkDetailResponse } from '@/types'
@@ -73,33 +74,8 @@ function LegendMarker({ name }: { name: string }) {
 
 // Shape renderer for Recharts scatter points
 function CompressorShape(scatterProps: any) {
-  const name = scatterProps.payload?.name || ''
+  const name = scatterProps.payload?.compressor || scatterProps.payload?.name || ''
   return <CompressorShapeSVG cx={scatterProps.cx} cy={scatterProps.cy} name={name} />
-}
-
-const LOWER_IS_BETTER = new Set([
-  'compression_ratio', 'compressed_bits', 'uncompressed_bits',
-  'original_size', 'memory_usage', 'compressor_internal', 'random_access_ns',
-  'bits_per_element',
-])
-
-function metricLabel(key: string): string {
-  const labels: Record<string, string> = {
-    compression_ratio: 'Compression Ratio (%)',
-    compression_throughput_mbs: 'Compression Throughput (MB/s)',
-    decompression_throughput_mbs: 'Decompression Throughput (MB/s)',
-    memory_usage: 'Memory Usage',
-    compressor_internal: 'Compressor Memory',
-    random_access_ns: 'Random Access (ns)',
-    random_access_mbs: 'Random Access (MB/s)',
-    bits_per_element: 'Bits per Element (b/e)',
-    uncompressed_bits_per_element: 'Uncompressed Container (b/e)',
-  }
-  return labels[key] || key
-}
-
-function isLowerBetter(key: string): boolean {
-  return LOWER_IS_BETTER.has(key)
 }
 
 interface RankedRow {
@@ -111,7 +87,7 @@ interface RankedRow {
 function rankResults(results: BenchmarkResult[], metric: string): RankedRow[] {
   const rows: RankedRow[] = []
   for (const r of results) {
-    const v = (r as any)[metric]
+    const v = metricValue(r, metric)
     if (v != null) {
       rows.push({ compressor: r.compressor, value: v, rank: 0 })
     }
@@ -127,31 +103,6 @@ function ParetoBadge({ dominationCount }: { dominationCount: number }) {
     return <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Pareto-optimal</Badge>
   }
   return null
-}
-
-function computePareto(results: BenchmarkResult[]): Map<string, number> {
-  const domCounts = new Map<string, number>()
-  const valid = results.filter(
-    (r) => r.compression_ratio != null && r.compression_throughput_mbs != null
-  )
-  if (valid.length === 0) return domCounts
-
-  for (const a of valid) {
-    let count = 0
-    for (const b of valid) {
-      if (a === b) continue
-      const bDominatesA = b.compression_ratio! <= a.compression_ratio! &&
-        b.compression_throughput_mbs! >= a.compression_throughput_mbs!
-      const strictlyBetter = b.compression_ratio! < a.compression_ratio! ||
-        b.compression_throughput_mbs! > a.compression_throughput_mbs!
-      if (bDominatesA && strictlyBetter) {
-        count++
-      }
-    }
-    domCounts.set(a.compressor, count)
-  }
-
-  return domCounts
 }
 
 function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
@@ -195,11 +146,11 @@ function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
   referenceLabel?: string
 }) {
   const data = results
-    .filter((r) => (r as any)[metric] != null)
+    .filter((r) => metricValue(r, metric) != null)
     .map((r) => ({
       name: renameCompressor(r.compressor),
       compressor: r.compressor,
-      [metric]: +((r as any)[metric]).toFixed(4),
+      [metric]: +metricValue(r, metric)!.toFixed(4),
     }))
 
   if (data.length === 0) return null
@@ -238,11 +189,12 @@ function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
 
 function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; metric: string }) {
   const data = results
-    .filter((r) => (r as any)[metric] != null && r.compression_ratio != null)
+    .filter((r) => metricValue(r, metric) != null && r.compression_ratio != null)
     .map((r) => ({
       x: +(r.compression_ratio! * 100).toFixed(2),
-      y: +((r as any)[metric]).toFixed(2),
+      y: +metricValue(r, metric)!.toFixed(2),
       name: renameCompressor(r.compressor),
+      compressor: r.compressor,
     }))
     .sort((a, b) => a.x - b.x)
 
@@ -287,7 +239,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               isAnimationActive={false}
             >
               {data.map((d) => (
-                <Cell key={d.name} fill={getCompressorColor(d.name)} />
+                <Cell key={d.compressor} fill={getCompressorColor(d.compressor)} />
               ))}
             </Scatter>
           </ScatterChart>
@@ -295,8 +247,8 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
         {data.map((d) => (
-          <div key={d.name} className="flex items-center gap-1.5">
-            <LegendMarker name={d.name} />
+          <div key={d.compressor} className="flex items-center gap-1.5">
+            <LegendMarker name={d.compressor} />
             <span className="text-xs text-muted-foreground">{d.name}</span>
           </div>
         ))}
@@ -316,7 +268,7 @@ function RankedTable({ results, metric, referenceMetric }: {
   const referenceValue = (compressor: string): number | undefined => {
     if (!referenceMetric) return undefined
     const r = results.find((res) => res.compressor === compressor)
-    return r ? ((r as any)[referenceMetric] as number | undefined) : undefined
+    return r ? metricValue(r, referenceMetric) : undefined
   }
   const hasReference = referenceMetric != null && ranked.some((r) => referenceValue(r.compressor) != null)
 
@@ -406,44 +358,67 @@ export default function DetailPage() {
   if (loading) return <p className="text-muted-foreground">Loading...</p>
   if (!benchmark) return <p className="text-destructive">Benchmark not found</p>
 
-  const paretoCounts = computePareto(results)
-  const paretoSorted = [...paretoCounts.entries()]
-    .sort((a, b) => a[1] - b[1] || (results.find(r => r.compressor === a[0])?.compression_ratio ?? 0) - (results.find(r => r.compressor === b[0])?.compression_ratio ?? 0))
-    .slice(0, 5)
+  const paretoSorted = paretoRanking(results).slice(0, 5)
 
-  const hasThroughput = results.some((r) => r.compression_throughput_mbs != null)
-  const hasDecompression = results.some((r) => r.decompression_throughput_mbs != null)
-  const hasMemory = results.some((r) => r.memory_usage != null)
-  const hasCompressorInternal = results.some((r) => r.compressor_internal != null)
-  const hasRandomNS = results.some((r) => r.random_access_ns != null)
-  const hasRandomMBS = results.some((r) => r.random_access_mbs != null)
-  const hasBitsPerElement = results.some((r) => r.bits_per_element != null)
+  const has = (metric: string) => results.some((r) => metricValue(r, metric) != null)
   const uncompressedBitsReference = results.find((r) => r.uncompressed_bits_per_element != null)
     ?.uncompressed_bits_per_element ?? null
 
   const metricSections = [
-    { key: 'compression_ratio', label: 'Compression Ratio', chart: 'bar' as const, show: true },
-    { key: 'bits_per_element', label: 'Bits per Element', chart: 'bar' as const, show: hasBitsPerElement },
-    { key: 'compression_throughput_mbs', label: 'Compression Throughput', chart: 'scatter' as const, show: hasThroughput },
-    { key: 'decompression_throughput_mbs', label: 'Decompression Throughput', chart: 'scatter' as const, show: hasDecompression },
-    { key: 'memory_usage', label: 'Memory Usage', chart: 'bar' as const, show: hasMemory },
-    { key: 'compressor_internal', label: 'Compressor Memory', chart: 'bar' as const, show: hasCompressorInternal },
-    { key: 'random_access_ns', label: 'Random Access (ns)', chart: 'bar' as const, show: hasRandomNS },
-    { key: 'random_access_mbs', label: 'Random Access (MB/s)', chart: 'scatter' as const, show: hasRandomMBS },
-  ]
+    { key: 'compression_ratio', label: 'Compression Ratio', chart: 'bar' as const },
+    { key: 'bits_per_element', label: 'Bits per Element', chart: 'bar' as const },
+    { key: 'compression_throughput_mbs', label: 'Compression Throughput', chart: 'scatter' as const },
+    { key: 'decompression_throughput_mbs', label: 'Decompression Throughput', chart: 'scatter' as const },
+    { key: 'memory_usage', label: 'Memory Usage', chart: 'bar' as const },
+    { key: 'compressor_internal', label: 'Compressor Memory', chart: 'bar' as const },
+    { key: 'relative_memory_usage', label: 'Relative Memory Usage', chart: 'bar' as const },
+    { key: 'internal_memory_ratio', label: 'Internal Memory Ratio', chart: 'bar' as const },
+    { key: 'random_access_ns', label: 'Random Access (ns)', chart: 'bar' as const },
+    { key: 'random_access_mbs', label: 'Random Access (MB/s)', chart: 'scatter' as const },
+    ...rangeQueryMetrics(results).map((key) => ({ key, label: metricLabel(key), chart: 'scatter' as const })),
+  ].filter((section) => has(section.key))
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">{benchmark.name}</h1>
         <div className="flex items-center gap-2 mt-1">
-          <Badge>{benchmark.status}</Badge>
+          <Badge>{benchmark.status.replace('_', ' ')}</Badge>
           <span className="text-sm text-muted-foreground">
-            {(benchmark.file_size / 1024).toFixed(1)} KB &middot; {benchmark.file_ext}
+            {formatBytes(benchmark.file_size)} &middot; {benchmark.file_ext}
+            {benchmark.file_count && benchmark.file_count > 1 ? ` · ${benchmark.file_count} files` : ''}
             {benchmark.created_at && ` · ${new Date(benchmark.created_at).toLocaleDateString()}`}
           </span>
         </div>
       </div>
+
+      {benchmark.status !== 'ready' && (
+        <Card>
+          <CardContent className="py-4 text-sm space-y-1">
+            {benchmark.status === 'queued' && <p>Waiting for a free worker…</p>}
+            {benchmark.status === 'in_progress' && (
+              <p>Running{benchmark.progress != null ? ` — ${benchmark.progress}% of tasks done` : '…'}</p>
+            )}
+            {(benchmark.status === 'failed' || benchmark.status === 'timed_out' || benchmark.status === 'cancelled') && (
+              <p className="text-destructive">
+                {benchmark.status === 'timed_out' ? 'Timed out' : benchmark.status === 'cancelled' ? 'Cancelled' : 'Failed'}
+                {benchmark.error ? `: ${benchmark.error}` : ''}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {benchmark.warnings && benchmark.warnings.length > 0 && (
+        <div role="note" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          <p className="font-medium">Some measurements are missing</p>
+          <ul className="mt-1 list-disc pl-5">
+            {benchmark.warnings.slice(0, 10).map((w) => <li key={w}>{w}</li>)}
+          </ul>
+          {benchmark.warnings.length > 10 && <p className="mt-1">…and {benchmark.warnings.length - 10} more</p>}
+          <p className="mt-1 text-xs">Averages of the affected compressors cover fewer inputs.</p>
+        </div>
+      )}
 
       {benchmark.status === 'ready' && <EmulationNotice instances={benchmark.compressors} />}
 
@@ -468,7 +443,7 @@ export default function DetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paretoSorted.map(([comp, count], i) => {
+                  {paretoSorted.map(({ compressor: comp, dominationCount: count }, i) => {
                     const r = results.find((r) => r.compressor === comp)
                     return (
                       <tr key={comp} className="border-b last:border-0">
@@ -501,7 +476,7 @@ export default function DetailPage() {
         </Card>
       )}
 
-      <Card>
+      {results.length > 0 && <Card>
         <CardHeader>
           <CardTitle className="text-base">Compression Ratio Overview</CardTitle>
         </CardHeader>
@@ -509,9 +484,9 @@ export default function DetailPage() {
           <OverviewBarChart results={results} />
           <RankedTable results={results} metric="compression_ratio" />
         </CardContent>
-      </Card>
+      </Card>}
 
-      {metricSections.filter((m) => m.show && m.key !== 'compression_ratio').map((section) => (
+      {metricSections.filter((m) => m.key !== 'compression_ratio').map((section) => (
         <Card key={section.key}>
           <button
             className="w-full text-left"

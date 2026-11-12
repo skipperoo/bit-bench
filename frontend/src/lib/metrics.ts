@@ -29,3 +29,45 @@ export function withDerivedMetrics(results: BenchmarkResult[]): BenchmarkResult[
     uncompressed_bits_per_element: uncompressedBitsPerElement(r),
   }))
 }
+
+/** Prefix of the per-range-size metrics flattened from `range_queries`. */
+export const RANGE_QUERY_PREFIX = 'range_query_'
+
+const LOWER_IS_BETTER = new Set([
+  'compression_ratio', 'compressed_bits', 'uncompressed_bits', 'original_size',
+  'memory_usage', 'compressor_internal', 'internal_memory_ratio',
+  'relative_memory_usage', 'random_access_ns', 'bits_per_element',
+])
+
+/**
+ * Ranking direction of a metric (spec §6.5, parity with `is_min_best` in the
+ * report script): sizes, memory and latencies are minimized, throughputs and
+ * range queries maximized.
+ */
+export function isLowerBetter(metric: string): boolean {
+  return LOWER_IS_BETTER.has(metric) || metric.endsWith('_ns') || metric.endsWith('_bits')
+}
+
+/**
+ * Range-query metric keys present in the results (`range_query_<N>`), sorted
+ * by range size.
+ */
+export function rangeQueryMetrics(results: BenchmarkResult[]): string[] {
+  const sizes = new Set<string>()
+  for (const r of results) {
+    for (const key of Object.keys(r.range_queries ?? {})) sizes.add(key)
+  }
+  return [...sizes]
+    .sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
+    .map((size) => `${RANGE_QUERY_PREFIX}${size}`)
+}
+
+/** Reads a numeric metric from a result, including flattened range queries. */
+export function metricValue(r: BenchmarkResult, metric: string): number | undefined {
+  if (metric.startsWith(RANGE_QUERY_PREFIX)) {
+    const v = r.range_queries?.[metric.slice(RANGE_QUERY_PREFIX.length)]
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  }
+  const v = (r as unknown as Record<string, unknown>)[metric]
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}

@@ -1,104 +1,39 @@
 import { describe, it, expect } from 'vitest'
+import { paretoRanking } from './pareto'
+import type { BenchmarkResult } from '@/types'
 
-interface ParetoInput {
-  compressor: string
-  compression_ratio: number
-  compression_throughput_mbs: number
-}
-
-// Returns number of compressors that dominate each compressor (per spec §3.5)
-function computeDominationCounts(results: ParetoInput[]): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const a of results) {
-    let dominatedBy = 0
-    for (const b of results) {
-      if (a === b) continue
-      // b dominates a iff b has ≤ ratio AND ≥ throughput, with at least one strict
-      const bDominatesA = b.compression_ratio <= a.compression_ratio &&
-        b.compression_throughput_mbs >= a.compression_throughput_mbs
-      const strictlyBetter = b.compression_ratio < a.compression_ratio ||
-        b.compression_throughput_mbs > a.compression_throughput_mbs
-      if (bDominatesA && strictlyBetter) {
-        dominatedBy++
-      }
-    }
-    counts.set(a.compressor, dominatedBy)
+function r(compressor: string, ratio: number, tp?: number): BenchmarkResult {
+  return {
+    id: compressor, benchmark_id: 'b', compressor, dataset: 'd',
+    compression_ratio: ratio, compression_throughput_mbs: tp,
   }
-  return counts
 }
 
-describe('computeDominationCounts', () => {
-  it('returns empty map for empty input', () => {
-    const result = computeDominationCounts([])
-    expect(result.size).toBe(0)
+describe('paretoRanking', () => {
+  it('counts dominating compressors and sorts by (count, ratio)', () => {
+    const ranking = paretoRanking([
+      r('slow-small', 0.2, 10),
+      r('fast-big', 0.6, 900),
+      r('dominated', 0.7, 100), // dominated by fast-big and balanced
+      r('balanced', 0.4, 300),
+    ])
+    expect(ranking.map((e) => e.compressor)).toEqual(['slow-small', 'balanced', 'fast-big', 'dominated'])
+    expect(ranking.find((e) => e.compressor === 'dominated')?.dominationCount).toBe(2)
+    expect(ranking.filter((e) => e.dominationCount === 0)).toHaveLength(3)
   })
 
-  it('single compressor is Pareto-optimal (dominated by none)', () => {
-    const result = computeDominationCounts([
-      { compressor: 'gzip_6', compression_ratio: 0.5, compression_throughput_mbs: 500 },
-    ])
-    expect(result.get('gzip_6')).toBe(0)
+  it('requires a strict improvement to dominate', () => {
+    const ranking = paretoRanking([r('a', 0.5, 100), r('b', 0.5, 100)])
+    expect(ranking.every((e) => e.dominationCount === 0)).toBe(true)
   })
 
-  it('best compressor is dominated by none', () => {
-    const result = computeDominationCounts([
-      { compressor: 'A', compression_ratio: 0.3, compression_throughput_mbs: 800 },
-      { compressor: 'B', compression_ratio: 0.5, compression_throughput_mbs: 500 },
-      { compressor: 'C', compression_ratio: 0.4, compression_throughput_mbs: 600 },
-    ])
-    // A has best ratio AND best throughput → dominated by nobody
-    expect(result.get('A')).toBe(0)
-    // B is dominated by A (better ratio AND throughput)
-    expect(result.get('B')).toBeGreaterThanOrEqual(1)
-    // C is dominated by A (better ratio AND throughput)
-    expect(result.get('C')).toBeGreaterThanOrEqual(1)
+  it('falls back to the ratio objective when no throughput is reported', () => {
+    const ranking = paretoRanking([r('x', 0.5), r('y', 0.3), r('z', 0.9)])
+    expect(ranking.map((e) => [e.compressor, e.dominationCount])).toEqual([['y', 0], ['x', 1], ['z', 2]])
   })
 
-  it('handles tiebreak correctly', () => {
-    const result = computeDominationCounts([
-      { compressor: 'A', compression_ratio: 0.5, compression_throughput_mbs: 500 },
-      { compressor: 'B', compression_ratio: 0.5, compression_throughput_mbs: 600 },
-    ])
-    // B dominates A (same ratio, better throughput)
-    expect(result.get('A')).toBe(1)
-    // A does NOT dominate B (worse throughput)
-    expect(result.get('B')).toBe(0)
-  })
-
-  it('two-way incomparable (neither dominates)', () => {
-    const result = computeDominationCounts([
-      { compressor: 'A', compression_ratio: 0.3, compression_throughput_mbs: 400 },
-      { compressor: 'B', compression_ratio: 0.5, compression_throughput_mbs: 800 },
-    ])
-    // A has better ratio; B has better throughput → neither dominates
-    expect(result.get('A')).toBe(0)
-    expect(result.get('B')).toBe(0)
-  })
-
-  it('ranks multiple compressors by domination count', () => {
-    const result = computeDominationCounts([
-      { compressor: 'A', compression_ratio: 0.2, compression_throughput_mbs: 1000 },
-      { compressor: 'B', compression_ratio: 0.3, compression_throughput_mbs: 800 },
-      { compressor: 'C', compression_ratio: 0.4, compression_throughput_mbs: 600 },
-      { compressor: 'D', compression_ratio: 0.5, compression_throughput_mbs: 400 },
-    ])
-    // A dominates everyone
-    expect(result.get('A')).toBe(0)
-    // B is dominated by A
-    expect(result.get('B')).toBe(1)
-    // C is dominated by A, B
-    expect(result.get('C')).toBe(2)
-    // D is dominated by A, B, C
-    expect(result.get('D')).toBe(3)
-  })
-
-  it('falls back to single-objective when all throughput is equal', () => {
-    const result = computeDominationCounts([
-      { compressor: 'A', compression_ratio: 0.3, compression_throughput_mbs: 500 },
-      { compressor: 'B', compression_ratio: 0.5, compression_throughput_mbs: 500 },
-    ])
-    // A dominates B (better ratio, same throughput → strict: better ratio)
-    expect(result.get('A')).toBe(0)
-    expect(result.get('B')).toBe(1)
+  it('ignores results without a ratio', () => {
+    const noRatio = { ...r('n', 0), compression_ratio: undefined }
+    expect(paretoRanking([noRatio, r('a', 0.5, 1)]).map((e) => e.compressor)).toEqual(['a'])
   })
 })

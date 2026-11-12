@@ -3,6 +3,8 @@ package model
 import (
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func init() {
@@ -97,5 +99,30 @@ func TestTokenHasJTI(t *testing.T) {
 
 	if claims1.ID == claims2.ID {
 		t.Error("each token should have a unique jti")
+	}
+}
+
+func TestTokenRequiresSecret(t *testing.T) {
+	old := jwtSecret
+	defer func() { jwtSecret = old }()
+	InitJWT("")
+	if _, err := GenerateToken("u", "e", "student", "", time.Hour); err == nil {
+		t.Fatal("GenerateToken must refuse an empty signing key")
+	}
+	if _, err := ValidateToken("a.b.c"); err == nil {
+		t.Fatal("ValidateToken must refuse an empty signing key")
+	}
+}
+
+func TestValidateTokenRejectsOtherAlgorithms(t *testing.T) {
+	InitJWT("test-secret-for-unit-tests")
+	claims := Claims{Sub: "u", RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
+	signed, err := tok.SignedString([]byte("test-secret-for-unit-tests"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ValidateToken(signed); err == nil {
+		t.Fatal("HS512 token must be rejected")
 	}
 }

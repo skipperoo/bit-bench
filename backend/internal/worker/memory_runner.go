@@ -17,12 +17,12 @@ import (
 
 // MemoryResult holds memory measurement for one compressor on one dataset.
 type MemoryResult struct {
-	Compressor        string
-	Dataset           string
-	InputBufferBytes  int64
-	PeakMemoryBytes   int64 // total heap+heap-extra+stacks after READY_FOR_COMPRESSION
+	Compressor         string
+	Dataset            string
+	InputBufferBytes   int64
+	PeakMemoryBytes    int64 // total heap+heap-extra+stacks after READY_FOR_COMPRESSION
 	CompressorInternal int64 // peak_memory - baseline_peak (or peak - input_buffer if no baseline)
-	MemoryUsage       int64 // same as peak_memory_bytes for backward compat
+	MemoryUsage        int64 // same as peak_memory_bytes for backward compat
 }
 
 // RunMemoryHarness runs the MemoryHarness binary under Valgrind Massif for a single
@@ -59,6 +59,7 @@ func RunMemoryHarness(binaryPath, compressor, binPath, massifOutPath string, tim
 	timeoutCmd.Env = cmd.Env
 
 	err := timeoutCmd.Run()
+	defer os.Remove(massifOutPath)
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 124 {
@@ -90,9 +91,6 @@ func RunMemoryHarness(binaryPath, compressor, binPath, massifOutPath string, tim
 	if peakMemory == nil {
 		return nil, fmt.Errorf("could not extract peak memory from massif output: %s", massifOutPath)
 	}
-
-	// Clean up massif output
-	os.Remove(massifOutPath)
 
 	return &MemoryResult{
 		Compressor:       compressor,
@@ -289,57 +287,6 @@ func getDataFormatForCompressor(invocation string) string {
 func sanitizeCompressorName(name string) string {
 	r := strings.NewReplacer("=", "_eq_", "/", "_", " ", "_")
 	return r.Replace(name)
-}
-
-// RunAllMemoryMeasurements runs memory measurements for all compressors
-// in a benchmark, returning results keyed by compressor name.
-func RunAllMemoryMeasurements(binaryPath string, compressors []string, binPaths []string, massifDir string, timeout time.Duration) (map[string]*MemoryResult, error) {
-	if err := os.MkdirAll(massifDir, 0755); err != nil {
-		return nil, fmt.Errorf("create massif dir: %w", err)
-	}
-
-	// We use a simple approach: measure the first .bin file for each compressor.
-	// This mirrors the Python script which averages across samples but here we
-	// just use the first bin file since multiple samples are for statistical
-	// significance in Massif, not for different data.
-	if len(binPaths) == 0 {
-		return nil, fmt.Errorf("no bin files provided")
-	}
-	binPath := binPaths[0]
-
-	results := make(map[string]*MemoryResult)
-	baselineCache := make(map[string]int64)
-
-	for _, comp := range compressors {
-		result, err := RunMemoryHarnessWithBaseline(binaryPath, comp, binPath, massifDir, timeout, baselineCache)
-		if err != nil {
-			// Log and skip failed compressors
-			fmt.Fprintf(os.Stderr, "Memory measurement failed for %s: %v\n", comp, err)
-			continue
-		}
-		// Extract base compressor name (strip =LEVEL suffix)
-		baseName := comp
-		if eqIdx := strings.IndexByte(comp, '='); eqIdx >= 0 {
-			baseName = comp[:eqIdx]
-		}
-		result.Compressor = baseName
-		results[baseName] = result
-	}
-
-	// Clean up massif dir
-	os.RemoveAll(massifDir)
-
-	if len(results) == 0 {
-		return nil, fmt.Errorf("all memory measurements failed")
-	}
-
-	return results, nil
-}
-
-// UpdateBenchmarkResultsWithMemory updates the benchmark_results table with
-// memory metrics from the memory harness measurements.
-func UpdateResultWithMemory(result *MemoryResult, inputBuffer, compressorInternal float64) {
-	// These are applied to the BenchmarkResult before DB insert
 }
 
 // computeInternalMemoryRatio computes internal_memory_ratio = compressor_internal / input_buffer
