@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chunkLabel, detectSweep } from './sweep'
+import { chunkLabel, detectSweep, orderByChunkSize } from './sweep'
 import { paretoFront } from './pareto'
 import type { Benchmark, DatasetSource } from '@/types'
 
@@ -38,5 +38,15 @@ describe('paretoFront', () => {
   it('keeps non-dominated points (min x, max y)', () => {
     const pts = [{ x: 3, y: 10 }, { x: 1, y: 2 }, { x: 2, y: 1 }, { x: 4, y: 5 }, { x: 2, y: 8 }]
     expect(paretoFront(pts)).toEqual([{ x: 1, y: 2 }, { x: 2, y: 8 }, { x: 3, y: 10 }])
+  })
+})
+
+describe('orderByChunkSize', () => {
+  it('sorts dataset runs by transform, then chunk size numerically, whole series last', () => {
+    const items = [
+      b('16k', { chunk_size: 16384 }), b('upload'), b('whole', { chunk_size: 0 }),
+      b('1k', { chunk_size: 1024 }), b('gap4k', { chunk_size: 4096, transform: 'gap' }), b('4k', { chunk_size: 4096 }),
+    ]
+    expect(orderByChunkSize(items, (x) => x).map((x) => x.id)).toEqual(['gap4k', '1k', '4k', '16k', 'whole', 'upload'])
   })
 })

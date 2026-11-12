@@ -41,3 +41,20 @@ export function chunkLabel(chunkSize: number): string {
   if (chunkSize >= 1024 && chunkSize % 1024 === 0) return `${chunkSize / 1024}Ki`
   return String(chunkSize)
 }
+
+/**
+ * Orders the benchmarks of dataset runs by transform, then chunk size
+ * numerically (whole series last), so charts, legends and tables read from
+ * small to large chunks. Benchmarks without a dataset source keep their
+ * position after the dataset ones, in their original order.
+ */
+export function orderByChunkSize<T>(items: T[], benchmark: (item: T) => Benchmark): T[] {
+  const size = (n: number) => (n === 0 ? Number.MAX_SAFE_INTEGER : n)
+  return items
+    .map((item, index) => ({ item, index, source: benchmark(item).source }))
+    .sort((a, b) => {
+      if (!a.source || !b.source) return Number(!a.source) - Number(!b.source) || a.index - b.index
+      return a.source.transform.localeCompare(b.source.transform) || size(a.source.chunk_size) - size(b.source.chunk_size) || a.index - b.index
+    })
+    .map((x) => x.item)
+}

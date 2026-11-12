@@ -108,7 +108,8 @@ export function GroupedBarChart({ compressors, series, metric }: {
             </>
           )}
           <Tooltip formatter={fmt(metric)} />
-          <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12 }} />
+          {/* itemSorter null: keep the series order (Recharts sorts by name by default). */}
+          <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12 }} itemSorter={null} />
           {series.map((s, i) => (
             <Bar key={s.id} dataKey={s.id} name={s.name} fill={BENCHMARK_COLORS[i % BENCHMARK_COLORS.length]} isAnimationActive={false} />
           ))}
