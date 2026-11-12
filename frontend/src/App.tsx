@@ -1,13 +1,24 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { AppLayout } from '@/components/layout/AppLayout'
 import LoginPage from '@/pages/LoginPage'
-import UploadPage from '@/pages/UploadPage'
+import NewExperimentPage from '@/pages/NewExperimentPage'
 import CompressorsPage from '@/pages/CompressorsPage'
-import ResultsPage from '@/pages/ResultsPage'
-import DetailPage from '@/pages/DetailPage'
-import ComparePage from '@/pages/ComparePage'
+import ExperimentsPage from '@/pages/ExperimentsPage'
+import ExperimentView from '@/pages/ExperimentView'
+import DatasetsPage from '@/pages/DatasetsPage'
 import StatusPage from '@/pages/StatusPage'
+
+/** Old /compare?ids=... links open the experiment view. */
+function LegacyCompareRedirect() {
+  const [params] = useSearchParams()
+  return <Navigate to={`/experiments/view?ids=${params.get('ids') ?? ''}`} replace />
+}
+
+function LegacyDetailRedirect() {
+  const { id } = useParams<{ id: string }>()
+  return <Navigate to={`/experiments/view?ids=${id}`} replace />
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -29,14 +40,19 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="/upload" element={<UploadPage />} />
+          <Route path="/new" element={<NewExperimentPage />} />
+          <Route path="/experiments" element={<ExperimentsPage />} />
+          <Route path="/experiments/view" element={<ExperimentView />} />
+          <Route path="/datasets" element={<DatasetsPage />} />
           <Route path="/compressors" element={<CompressorsPage />} />
-          <Route path="/results" element={<ResultsPage />} />
-          <Route path="/results/:id" element={<DetailPage />} />
-          <Route path="/compare" element={<ComparePage />} />
           <Route path="/status" element={<StatusPage />} />
+          {/* Old URLs keep working. */}
+          <Route path="/upload" element={<Navigate to="/new" replace />} />
+          <Route path="/results" element={<Navigate to="/experiments" replace />} />
+          <Route path="/results/:id" element={<LegacyDetailRedirect />} />
+          <Route path="/compare" element={<LegacyCompareRedirect />} />
         </Route>
-        <Route path="*" element={<Navigate to="/upload" replace />} />
+        <Route path="*" element={<Navigate to="/experiments" replace />} />
       </Routes>
     </BrowserRouter>
   )

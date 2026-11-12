@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,9 @@ func (r *BenchmarkRepository) Create(ctx context.Context, b *model.Benchmark) er
 	if b.ID == uuid.Nil {
 		b.ID = uuid.New()
 	}
+	if b.ExperimentID == uuid.Nil {
+		b.ExperimentID = b.ID
+	}
 	if b.FileCount < 1 {
 		b.FileCount = 1
 	}
@@ -51,11 +55,11 @@ func (r *BenchmarkRepository) Create(ctx context.Context, b *model.Benchmark) er
 	}
 
 	_, err = r.db.Exec(ctx, `
-		INSERT INTO benchmarks (id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors,
+		INSERT INTO benchmarks (id, experiment_id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors,
 		                        aggregation, measure_memory, source, warnings)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $15, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, b.ID, b.UserID, b.Name, b.OriginalFilename, b.FileSize, b.FileCount, b.FileChecksum, b.FileExt, b.Status, compressorsJSON,
-		b.Aggregation, b.MeasureMemory, sourceJSON, b.Warnings)
+		b.Aggregation, b.MeasureMemory, sourceJSON, b.Warnings, b.ExperimentID)
 	return err
 }
 
@@ -63,11 +67,11 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	b := &model.Benchmark{}
 	var compressorsJSON, sourceJSON []byte
 	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
+		SELECT id, experiment_id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
 		       aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at
 		FROM benchmarks WHERE id = $1
 	`, id).Scan(
-		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
+		&b.ID, &b.ExperimentID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 		&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
 		&b.Aggregation, &b.MeasureMemory, &sourceJSON, &b.Progress,
 		&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
@@ -106,8 +110,15 @@ type ListBenchmarksParams struct {
 	UserID *uuid.UUID
 	Cursor *time.Time
 	Search string
+	// Status filters by one or more comma-separated statuses.
 	Status string
-	Limit  int
+	// Source is "upload" or "dataset".
+	Source string
+	// Dataset filters dataset runs by dataset name.
+	Dataset string
+	// Compressor keeps benchmarks configuring this compressor name.
+	Compressor string
+	Limit      int
 }
 
 type ListBenchmarksResult struct {
@@ -120,7 +131,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		p.Limit = 20
 	}
 
-	query := `SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
+	query := `SELECT id, experiment_id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
 	                  aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at
 	           FROM benchmarks WHERE 1=1`
 	args := []any{}
@@ -142,8 +153,25 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		argIdx++
 	}
 	if p.Status != "" {
-		query += fmt.Sprintf(` AND status = $%d`, argIdx)
-		args = append(args, p.Status)
+		query += fmt.Sprintf(` AND status = ANY($%d)`, argIdx)
+		args = append(args, strings.Split(p.Status, ","))
+		argIdx++
+	}
+	switch p.Source {
+	case "upload":
+		query += ` AND source IS NULL`
+	case "dataset":
+		query += ` AND source IS NOT NULL`
+	}
+	if p.Dataset != "" {
+		query += fmt.Sprintf(` AND source->>'dataset' = $%d`, argIdx)
+		args = append(args, p.Dataset)
+		argIdx++
+	}
+	if p.Compressor != "" {
+		query += fmt.Sprintf(` AND compressors @> $%d::jsonb`, argIdx)
+		filter, _ := json.Marshal([]map[string]string{{"name": strings.ToLower(p.Compressor)}})
+		args = append(args, string(filter))
 		argIdx++
 	}
 
@@ -166,7 +194,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		b := &model.Benchmark{}
 		var compressorsJSON, sourceJSON []byte
 		err := rows.Scan(
-			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
+			&b.ID, &b.ExperimentID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 			&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
 			&b.Aggregation, &b.MeasureMemory, &sourceJSON, &b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,

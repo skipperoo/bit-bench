@@ -158,7 +158,8 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 #### 3.1.1 Login page
 - Email + password form; error states; loading state. No "register" link (staff-created accounts only, D1). If SMTP is enabled, show a "forgot password" link; if disabled, hide it.
 
-#### 3.1.2 Main / upload page
+#### 3.1.2 New experiment page (`/new`, formerly the upload page)
+- Guided layout: a step rail (1 Data, 2 Compressors, 3 Run settings) with completion marks, the three sections on one page, and a **sticky summary** (bottom bar on phones) with the Run button, the validation hint and what the run does (benchmarks, inputs, scheduler tasks, built-in/custom instances, aggregation, memory). Presets and history live in a "Load preset or recent…" panel of the compressor step; "save as preset" sits under the instance list; the picker has "Add all" per family and the instance list "Remove all". The sections below describe the controls.
 - **Data source switch**: *Upload files* (below) or *Standard dataset* (D32): dataset select (description/source from `dataset.yaml`), series checklist (invalid files listed but disabled), chunk-size chips (`whole series`, thesis presets 256…786432 samples, custom), max chunks per series, transform chips, and a plan box listing the benchmarks/inputs the run creates. Empty `DATASET_DIR` shows setup instructions.
 - **Run settings** (both sources): aggregation select (`mean`/`median`/`pooled`, D33) with its definition, Massif memory-measurement switch.
 - Brief platform introduction.
@@ -172,23 +173,28 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 - **Two-pane configuration builder**: the left pane is a searchable algorithm picker grouped by family (Custom packages first) with an **Add** action per compressor; the right pane lists the configured instances (auto label, expandable options, remove). Option widgets follow the standard rules (slider for ≤ 20 steps, otherwise number input, switch for booleans, dropdown for selects). Compressors with no effective options can be added once; identical configurations are rejected client- and server-side; a counter enforces the 64-instance cap.
 - Duplicate checksums are allowed (D6); no client-side duplicate blocking. `GET /api/v1/benchmarks/checksums` is retained for backwards compatibility.
 
-#### 3.1.3 Results page
-- Top-center search bar (search by benchmark name).
-- Square benchmark **cards**: name, file size, **status pill** (`queued` = blue, `in_progress` = yellow, `ready` = green) with a pulsing dot for non-ready states, upload datetime, started-at datetime, finished-at datetime.
-- **Compressor pills** (tag style, bottom-center): show up to 5; if more, show `+N other` with the full list on hover.
+#### 3.1.3 Experiments page (`/experiments`, replaces Results)
+- An **experiment** is one submission (`benchmarks.experiment_id`): a single upload, a "separate benchmarks" upload or a dataset run. The page is a dense table, one row per experiment (expandable to its benchmarks): name, data source line, compressors, aggregate **status pill** (`queued` blue, `in_progress` yellow, `ready` green, pulsing dot for active states), created, duration.
+- Filters (URL-synced): name search, status (active/ready/failed/cancelled), data source (uploads, any dataset, one dataset), compressor. Active rows are polled.
+- Always-visible selection checkboxes (an experiment row selects its benchmarks) and a bulk bar: **Open/Compare** (up to 32 benchmarks), **Re-run** (prefills New experiment with the benchmark's configuration and data source), **Delete** (owner).
+- Old `/results`, `/results/:id` and `/compare?ids=` URLs redirect.
 
-#### 3.1.4 Benchmark detail page
-Reproduces `final_results.html` for the single benchmark. See §3.4 for the exact chart set. When any configured user package ran under CPU emulation (D31), an amber emulation notice appears above the results listing the affected compressors and warning that throughput is distorted; the compare page shows the same notice across the selected benchmarks, and result cards carry an `emulated` badge.
+#### 3.1.4 Experiment view (`/experiments/view?ids=…`, replaces Detail and Compare)
+Reproduces `final_results.html` for one benchmark and generalizes it to several (up to 32, loaded individually so a full dataset sweep fits). See §3.4 for the metric set.
+- Header: name, status, data source, series; for several benchmarks a removable list plus an "add benchmark" picker. Warnings (missing results, failed self-tests), the emulation notice (D31) and a **live run monitor** for benchmarks that are not ready (progress, rough ETA, task table from `GET /benchmarks/{id}/tasks`, cancel).
+- **Compressor filter** sidebar (family toggles, colour markers) applied to every chart and table.
+- **Tabs** (URL `tab=`): Overview (Top-5 + ratio), Ratio, Throughput, Memory, Random access, Range queries, **Pareto** (top 5 and ratio/throughput scatters with the Pareto front), **Sweep** (when the benchmarks form a chunk-size sweep of one dataset: metric vs chunk size, one line per compressor, one chart per transform).
+- One benchmark: bar charts (horizontal above 12 compressors) or scatter vs ratio, plus ranked tables; several: grouped bars plus comparison tables (rows = benchmarks + average). Every table has **Download CSV** and **Copy LaTeX**.
 
-#### 3.1.5 Compare page
-- Select up to 5 benchmarks.
-- Render the same chart set as the detail page, overlaid/merged across the selected benchmarks (the `dataset`/benchmark dimension becomes the group key).
+#### 3.1.5 Datasets page (`/datasets`)
+- Every dataset under `DATASET_DIR` with `dataset.yaml` description/source; per series: values, value range over the whole recording, a min/max sparkline of the first 10k values (`GET /datasets/{dataset}/series/{series}/preview`), chunk counts per thesis preset size; invalid files with their reason; **Benchmark this dataset** opens New experiment with it preselected. Setup instructions when empty.
 
 #### 3.1.6 Status page
 - Work-queue depth, benchmark runner status, submitted-job statistics (counts by status). Data from `GET /api/v1/status`.
 - **CPU section** (polls every 5s): model, physical/logical cores, MHz, 1/5/15-minute load average, derived utilization, and the available instruction sets (notable SIMD flags as badges plus the full flag list).
 
 #### 3.1.7 Compressors page
+- Tabs: **Custom packages** (below) and a read-only **Built-in catalogue** (family, colour, options with ranges/defaults, which options the native harness honours).
 - Lists the compressor packages visible to the current user (own group + own + all for admin).
 - **Upload button is always visible but disabled for `student`**; the server enforces `admin`/`professor`/`phd` on upload.
 - Upload form: `.zip` package; admins additionally choose an optional visibility group (no group → admins only). The form hints that `platform: linux/arm64` in `spec.yaml` targets ARM64.
@@ -515,7 +521,11 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `GET`  | `/api/v1/datasets` | Standardized datasets under `DATASET_DIR` (`{datasets: [{name, description, source, series: [{name, values, decimals, size_bytes, error?}]}], transforms, max_runs, max_inputs_per_run, max_chunks_per_series}`); see `docs/datasets.md`. |
 | `POST` | `/api/v1/benchmarks/dataset` | JSON `{name, dataset, series?, chunk_sizes?, max_chunks, transforms?, aggregation?, measure_memory?, compressors}` → `201 {benchmarks}`: one benchmark per (transform × chunk size), inputs cut synchronously, `source` recorded (D32). |
 | `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), optional `mode=separate` (one benchmark per file named `<name> (<file stem>)`, response `{benchmarks}`), optional `aggregation` (`mean`/`median`/`pooled`) and `measure_memory` (`true`/`false`), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
-| `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
+| `GET`  | `/api/v1/benchmarks` | `?q=&status=<s1,s2>&source=upload\|dataset&dataset=&compressor=&limit=&cursor=` → `{benchmarks, next_cursor}` (own benchmarks, newest first; each carries `experiment_id`). |
+| `DELETE` | `/api/v1/benchmarks/{id}` | Delete a benchmark and its results (owner or admin). |
+| `POST` | `/api/v1/benchmarks/{id}/cancel` | Cancel a queued/running benchmark (owner or admin; `409` when finished). |
+| `GET`  | `/api/v1/benchmarks/{id}/tasks` | Task table of a running benchmark for the live view (no result payloads). |
+| `GET`  | `/api/v1/datasets/{dataset}/series/{series}/preview` | `{values, decimals, min, max, mean, head, sparkline}` for the Datasets page. |
 | `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. Owner or admin only (others get `404`); the same rule applies to `/status`, `/progress` and `/compare`. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
 | `GET`  | `/api/v1/benchmarks/compare` | `?ids=a,b,c,d,e` (≤ 5) → merged results for the compare page. |
@@ -581,7 +591,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused), `0012_benchmark_sources` (`benchmarks.aggregation`, `measure_memory`, `source JSONB`), `0013_result_self_test` (`benchmark_results.self_test_failures`).
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused), `0012_benchmark_sources` (`benchmarks.aggregation`, `measure_memory`, `source JSONB`), `0013_result_self_test` (`benchmark_results.self_test_failures`), `0014_benchmark_experiments` (`benchmarks.experiment_id`).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -848,7 +858,7 @@ random_access_ns,random_access_mbs[,range_<N>_mbs...],self_test
 | DAC | DAC | pentagon |
 | Custom | every user package | cross (plus) |
 
-Colours: built-ins keep the report palette; user packages use a separate custom palette (stable hash of the name) unless `spec.yaml` sets `color`. Several configured instances of one algorithm share its hue: the first keeps the base colour, the others get darker/lighter shades (`assignCompressorColors` in `frontend/src/lib/compressors.ts`), the same in charts, ranked tables and the upload page.
+Colours: built-ins keep the report palette; user packages use a separate custom palette (stable hash of the name) unless `spec.yaml` sets `color`. Several configured instances of one algorithm share its hue: the first keeps the base colour, the others get darker/lighter shades. **When colours clash** (the report palette reuses colours across families, e.g. Gzip/Gorilla/B*-GEF), the colours are kept and the clashing compressors get **different marker shapes** (family shape first, then triangle-down, hexagon, x, …). Shapes are drawn everywhere a colour is: scatter and sweep points, a marker at the end of each bar, legends, the compressor filter, table swatches and the instance list (`assignCompressorStyles` in `frontend/src/lib/compressors.ts`).
 
 `rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip`→`Gzip`, `dac`→`DAC`, etc. (full map in `scripts/generate_full_html_report.py` and `frontend/src/lib/compressors.ts`).
 

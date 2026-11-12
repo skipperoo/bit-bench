@@ -81,6 +81,8 @@ export interface CompressorInstance {
 
 export interface Benchmark {
   id: string
+  /** Groups the benchmarks created by one submission. */
+  experiment_id?: string
   user_id: string
   name: string
   original_filename: string

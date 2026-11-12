@@ -62,7 +62,8 @@ marker and a colour from a palette reserved for custom coders (distinct from
 every built-in colour), chosen from the package name so it stays the same on
 every page. Set `color: "#rrggbb"` to pick it yourself. Several configurations
 of the same package (or of any compressor) share its hue: the first keeps the
-base colour and the others get darker/lighter shades.
+base colour and the others get darker/lighter shades. If two compressors in
+a result end up with the same colour, they are told apart by marker shape.
 
 Option fields follow the compressor-options widget schema:
 

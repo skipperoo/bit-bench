@@ -1,0 +1,90 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import ExperimentView from './ExperimentView'
+import { apiFetch } from '@/lib/api'
+import type { Benchmark, BenchmarkResult, DatasetSource } from '@/types'
+
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+const mockedFetch = vi.mocked(apiFetch)
+
+const source = (chunk: number, transform: DatasetSource['transform'] = 'std'): DatasetSource =>
+  ({ kind: 'dataset', dataset: 'wildppg', series: ['acc'], chunk_size: chunk, max_chunks: 10, transform, inputs: 10 })
+
+function bench(id: string, name: string, extra: Partial<Benchmark> = {}): Benchmark {
+  return {
+    id, name, user_id: 'u', original_filename: 'wildppg', file_size: 1000, file_checksum: 'c', file_ext: 'dataset',
+    status: 'ready', created_at: '2026-11-12T10:00:00Z', compressors: [], ...extra,
+  }
+}
+
+function res(compressor: string, ratio: number, tp: number, extra: Partial<BenchmarkResult> = {}): BenchmarkResult {
+  return {
+    id: compressor, benchmark_id: 'b', compressor, dataset: 'd', compression_ratio: ratio,
+    compression_throughput_mbs: tp, decompression_throughput_mbs: tp * 2, num_values: 100,
+    compressed_bits: ratio * 6400, uncompressed_bits: 6400, ...extra,
+  }
+}
+
+const data: Record<string, { benchmark: Benchmark; results: BenchmarkResult[] }> = {
+  a: { benchmark: bench('a', 'wild · std · 768', { source: source(768) }), results: [res('gzip', 0.3, 10), res('zstd', 0.4, 300), res('my_codec', 0.2, 5, { self_test_failures: 2 })] },
+  b: { benchmark: bench('b', 'wild · std · 4096', { source: source(4096) }), results: [res('gzip', 0.25, 12), res('zstd', 0.35, 320)] },
+  r: { benchmark: bench('r', 'running one', { status: 'in_progress', progress: 40 }), results: [] },
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockedFetch.mockImplementation(async (path: string) => {
+    const m = /^\/benchmarks\/(\w+)(\/tasks)?$/.exec(path)
+    if (m && m[2]) return { tasks: [] } as never
+    if (m) return data[m[1]] as never
+    return {} as never
+  })
+})
+
+function renderAt(url: string) {
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <Routes><Route path="/experiments/view" element={<ExperimentView />} /></Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('ExperimentView', () => {
+  it('shows one benchmark with its Pareto top 5, metric tabs and self-test badge', async () => {
+    renderAt('/experiments/view?ids=a')
+    expect(await screen.findByRole('heading', { name: 'wild · std · 768' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Throughput' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Pareto' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Sweep' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Top 5/)).toBeInTheDocument()
+    expect(screen.getAllByText('self-test failed').length).toBeGreaterThan(0)
+  })
+
+  it('hides compressors through the filter', async () => {
+    renderAt('/experiments/view?ids=a')
+    await screen.findByRole('heading', { name: 'wild · std · 768' })
+    const filter = screen.getAllByLabelText('Compressor filter').at(-1)!
+    await userEvent.click(within(filter).getByRole('checkbox', { name: /Zstd/ }))
+    expect(within(filter).getByText('2/3')).toBeInTheDocument()
+  })
+
+  it('compares several benchmarks and detects a chunk-size sweep', async () => {
+    renderAt('/experiments/view?ids=a,b')
+    expect(await screen.findByRole('heading', { name: 'wild · std' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Benchmarks in this view' })).toHaveTextContent('wild · std · 4096')
+    expect(screen.getAllByRole('columnheader', { name: /Gzip/ }).length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('tab', { name: 'Sweep' }))
+    expect(screen.getByLabelText('Sweep metric')).toBeInTheDocument()
+    expect(screen.getByText(/wildppg · std — Compression Ratio/)).toBeInTheDocument()
+  })
+
+  it('monitors runs that are not ready', async () => {
+    renderAt('/experiments/view?ids=r')
+    expect(await screen.findByRole('region', { name: 'Run running one' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel run' })).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40')
+  })
+})

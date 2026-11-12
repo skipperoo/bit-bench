@@ -14,6 +14,7 @@ import (
 
 	"bitbench/internal/middleware"
 	"bitbench/internal/model"
+	"bitbench/internal/repository"
 	"bitbench/internal/service"
 )
 
@@ -135,6 +136,7 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 	// mode=separate: one benchmark per file, named "<name> (<file stem>)", in
 	// a single request (so the per-user upload rate limit counts it once).
 	if r.FormValue("mode") == "separate" && len(uploads) > 1 {
+		opts.ExperimentID = uuid.New()
 		created := make([]*model.Benchmark, 0, len(uploads))
 		for _, up := range uploads {
 			stem := strings.TrimSuffix(filepath.Base(up.Filename), filepath.Ext(up.Filename))
@@ -179,30 +181,33 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 }
 
 func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
-	claims := middleware.ClaimsFromContext(r.Context())
-	if claims == nil {
+	actor := middleware.UserFromContext(r.Context())
+	if actor == nil {
 		writeError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	userID, _ := uuid.Parse(claims.Sub)
 
 	q := r.URL.Query()
-	search := q.Get("q")
-	status := q.Get("status")
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	if limit <= 0 {
 		limit = 20
 	}
-
-	var cursor *time.Time
+	params := repository.ListBenchmarksParams{
+		UserID:     &actor.ID,
+		Search:     q.Get("q"),
+		Status:     q.Get("status"),
+		Source:     q.Get("source"),
+		Dataset:    q.Get("dataset"),
+		Compressor: q.Get("compressor"),
+		Limit:      limit,
+	}
 	if c := q.Get("cursor"); c != "" {
-		t, err := time.Parse(time.RFC3339Nano, c)
-		if err == nil {
-			cursor = &t
+		if t, err := time.Parse(time.RFC3339Nano, c); err == nil {
+			params.Cursor = &t
 		}
 	}
 
-	result, err := service.App.Benchmark.ListBenchmarks(r.Context(), &userID, cursor, search, status, limit)
+	result, err := service.App.Benchmark.ListBenchmarks(r.Context(), params)
 	if err != nil {
 		writeError(w, "failed to list benchmarks", http.StatusInternalServerError)
 		return
@@ -222,6 +227,39 @@ func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// DeleteBenchmark lets the owner (or an admin) delete a benchmark.
+func DeleteBenchmark(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	if err := service.App.Benchmark.DeleteBenchmark(r.Context(), benchmark.ID); err != nil {
+		writeError(w, "failed to delete benchmark", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// CancelBenchmark lets the owner (or an admin) cancel a queued or running
+// benchmark.
+func CancelBenchmark(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	ok, err := service.App.Benchmark.CancelBenchmark(r.Context(), benchmark.ID, "cancelled by user")
+	if err != nil {
+		writeError(w, "failed to cancel benchmark", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		writeError(w, "benchmark already finished", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 func GetBenchmark(w http.ResponseWriter, r *http.Request) {
@@ -317,4 +355,20 @@ func GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+// ListBenchmarkTasks returns the task table of a benchmark for the live run
+// view (owner or admin).
+func ListBenchmarkTasks(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	tasks, err := service.App.Benchmark.ListTasks(r.Context(), benchmark.ID)
+	if err != nil {
+		writeError(w, "failed to list tasks", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"tasks": tasks})
 }

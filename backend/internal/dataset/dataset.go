@@ -452,3 +452,80 @@ func NewHash() (io.Writer, func() string) {
 	h := md5.New()
 	return h, func() string { return hex.EncodeToString(h.Sum(nil)) }
 }
+
+// Preview summarizes one series for the datasets browser: the value range
+// over the whole recording and a min/max-per-bucket sparkline of its first
+// `head` values (so spikes stay visible after downsampling).
+type Preview struct {
+	Values   uint64  `json:"values"`
+	Decimals uint64  `json:"decimals"`
+	Min      int64   `json:"min"`
+	Max      int64   `json:"max"`
+	Mean     float64 `json:"mean"`
+	// Head is the number of leading values the sparkline covers.
+	Head uint64 `json:"head"`
+	// Sparkline holds (min, max) pairs, one per bucket.
+	Sparkline [][2]int64 `json:"sparkline"`
+}
+
+// PreviewSeries computes the preview of a series; points is the sparkline
+// width in buckets.
+func PreviewSeries(root, datasetName, seriesName string, head uint64, points int) (*Preview, error) {
+	if !ValidName(datasetName) || !ValidName(seriesName) {
+		return nil, fmt.Errorf("invalid name")
+	}
+	src, err := seriesPath(root, datasetName, seriesName)
+	if err != nil {
+		return nil, err
+	}
+	h, err := seqfile.ValidateBinFile(src)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(src)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	p := &Preview{Values: h.N, Decimals: h.Decimals, Min: math.MaxInt64, Max: math.MinInt64}
+	if head == 0 || head > h.N {
+		head = h.N
+	}
+	p.Head = head
+	if points < 1 {
+		points = 1
+	}
+	if uint64(points) > head {
+		points = int(head)
+	}
+	bucket := (head + uint64(points) - 1) / uint64(points)
+	p.Sparkline = make([][2]int64, 0, points)
+
+	var sum float64
+	var i uint64
+	cur := [2]int64{math.MaxInt64, math.MinInt64}
+	err = (&valueReader{r: f, offset: h.HeaderSize, count: h.N}).each(func(v int64) {
+		if v < p.Min {
+			p.Min = v
+		}
+		if v > p.Max {
+			p.Max = v
+		}
+		sum += float64(v)
+		if i < head {
+			cur[0] = min(cur[0], v)
+			cur[1] = max(cur[1], v)
+			if (i+1)%bucket == 0 || i+1 == head {
+				p.Sparkline = append(p.Sparkline, cur)
+				cur = [2]int64{math.MaxInt64, math.MinInt64}
+			}
+		}
+		i++
+	})
+	if err != nil {
+		return nil, err
+	}
+	p.Mean = sum / float64(h.N)
+	return p, nil
+}

@@ -10,13 +10,15 @@ import {
   LogOut,
   Menu,
   X,
+  Database,
 } from 'lucide-react'
 import { useState } from 'react'
 
 const navItems = [
-  { path: '/upload', label: 'Upload', icon: Upload },
+  { path: '/new', label: 'New', icon: Upload },
+  { path: '/experiments', label: 'Experiments', icon: BarChart3 },
+  { path: '/datasets', label: 'Datasets', icon: Database },
   { path: '/compressors', label: 'Compressors', icon: Boxes },
-  { path: '/results', label: 'Results', icon: BarChart3 },
   { path: '/status', label: 'Status', icon: Activity },
 ]
 
@@ -38,9 +40,9 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b sticky top-0 bg-background z-50">
+      <header className="border-b sticky top-0 bg-background z-20">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/upload" className="font-bold text-lg">
+          <Link to="/experiments" className="font-bold text-lg">
             BitBench
           </Link>
           <nav className="hidden md:flex items-center gap-1">
@@ -51,7 +53,7 @@ export function AppLayout() {
                   key={item.path}
                   to={item.path}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-                    location.pathname === item.path
+                    location.pathname.startsWith(item.path)
                       ? 'bg-secondary text-secondary-foreground'
                       : 'hover:bg-secondary/50'
                   }`}
@@ -83,7 +85,7 @@ export function AppLayout() {
                   to={item.path}
                   onClick={() => setMobileMenuOpen(false)}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${
-                    location.pathname === item.path
+                    location.pathname.startsWith(item.path)
                       ? 'bg-secondary text-secondary-foreground'
                       : ''
                   }`}

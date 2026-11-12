@@ -71,3 +71,35 @@ export function metricValue(r: BenchmarkResult, metric: string): number | undefi
   const v = (r as unknown as Record<string, unknown>)[metric]
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
+
+export type MetricChart = 'bar' | 'scatter'
+export type MetricGroup = 'ratio' | 'speed' | 'memory' | 'access' | 'range'
+
+export interface MetricDef {
+  key: string
+  chart: MetricChart
+  group: MetricGroup
+}
+
+/** Metric sections in display order (spec §3.4); range queries are appended. */
+export const METRIC_DEFS: MetricDef[] = [
+  { key: 'compression_ratio', chart: 'bar', group: 'ratio' },
+  { key: 'bits_per_element', chart: 'bar', group: 'ratio' },
+  { key: 'compression_throughput_mbs', chart: 'scatter', group: 'speed' },
+  { key: 'decompression_throughput_mbs', chart: 'scatter', group: 'speed' },
+  { key: 'memory_usage', chart: 'bar', group: 'memory' },
+  { key: 'compressor_internal', chart: 'bar', group: 'memory' },
+  { key: 'relative_memory_usage', chart: 'bar', group: 'memory' },
+  { key: 'internal_memory_ratio', chart: 'bar', group: 'memory' },
+  { key: 'random_access_ns', chart: 'bar', group: 'access' },
+  { key: 'random_access_mbs', chart: 'scatter', group: 'access' },
+]
+
+/** Metrics present in at least one result, including range-query sizes. */
+export function availableMetrics(results: BenchmarkResult[]): MetricDef[] {
+  const has = (key: string) => results.some((r) => metricValue(r, key) != null)
+  return [
+    ...METRIC_DEFS.filter((m) => has(m.key)),
+    ...rangeQueryMetrics(results).map((key) => ({ key, chart: 'scatter' as const, group: 'range' as const })),
+  ]
+}

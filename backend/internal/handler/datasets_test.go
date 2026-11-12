@@ -33,6 +33,7 @@ func setupDatasetTest(t *testing.T) (http.Handler, *config.Config) {
 		DatasetDir:     t.TempDir(),
 	}
 	model.InitJWT(cfg.JWTSecret)
+	InitHandlers(cfg)
 	service.InitServices(cfg, testDB, testRDB)
 	service.InitRepos(testDB)
 	middleware.InitAuthMiddleware(testRDB)
@@ -43,6 +44,7 @@ func setupDatasetTest(t *testing.T) (http.Handler, *config.Config) {
 		AddMiddleware(middleware.JWTAuth).
 		AddMiddleware(middleware.ResolveUser).
 		AddHandler("GET /datasets", ListDatasets).
+		AddHandler("GET /datasets/{dataset}/series/{series}/preview", PreviewDatasetSeries).
 		AddHandler("POST /benchmarks/dataset", CreateDatasetBenchmarks)
 	router := routy.NewRouter()
 	router.AddSubroute("/api/v1/", protected.Finalize())
@@ -80,6 +82,20 @@ func TestDatasetListAndRun(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list.Datasets) != 1 || len(list.Datasets[0].Series) != 2 {
 		t.Fatalf("unexpected listing %s", w.Body.String())
+	}
+
+	pw := getWithToken(handler, "/api/v1/datasets/finance/series/NVDA/preview", token)
+	var preview struct {
+		Values    uint64 `json:"values"`
+		Min, Max  int64
+		Sparkline [][2]int64 `json:"sparkline"`
+	}
+	json.Unmarshal(pw.Body.Bytes(), &preview)
+	if pw.Code != http.StatusOK || preview.Values != 1000 || preview.Min != 10000 || preview.Max != 10006 || len(preview.Sparkline) == 0 {
+		t.Fatalf("preview = %d %s", pw.Code, pw.Body.String())
+	}
+	if w := getWithToken(handler, "/api/v1/datasets/finance/series/nope/preview", token); w.Code != http.StatusNotFound {
+		t.Fatalf("missing series preview = %d, want 404", w.Code)
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{

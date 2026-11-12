@@ -171,3 +171,27 @@ func TestPlanValidation(t *testing.T) {
 		t.Error("PlannedChunks")
 	}
 }
+
+func TestPreviewSeries(t *testing.T) {
+	root := t.TempDir()
+	values := make([]int64, 1000)
+	for i := range values {
+		values[i] = int64(i % 10)
+	}
+	values[500] = -7
+	values[999] = 42
+	writeSeries(t, root, "ds", "s", values, 3)
+	p, err := PreviewSeries(root, "ds", "s", 100, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Values != 1000 || p.Decimals != 3 || p.Min != -7 || p.Max != 42 || p.Head != 100 {
+		t.Fatalf("preview = %+v", p)
+	}
+	if len(p.Sparkline) != 10 || p.Sparkline[0] != [2]int64{0, 9} {
+		t.Fatalf("sparkline = %v", p.Sparkline)
+	}
+	if _, err := PreviewSeries(root, "ds", "../s", 10, 10); err == nil {
+		t.Fatal("path traversal must be rejected")
+	}
+}

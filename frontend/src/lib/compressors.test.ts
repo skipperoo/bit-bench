@@ -77,3 +77,30 @@ describe('custom coders and configuration shades', () => {
     expect(getCompressorShape('pfordelta_optpfor')).toBe('star')
   })
 })
+
+describe('assignCompressorStyles', () => {
+  it('keeps the report colours and separates clashing colours by shape', async () => {
+    const { assignCompressorStyles } = await import('./compressors')
+    // Gzip, Gorilla and B*-GEF (Approx) all use #1f77b4 in the report palette.
+    const styles = assignCompressorStyles(['gzip', 'gorilla', 'b_star_gef_approximate', 'zstd'])
+    expect(styles.get('gzip')!.color).toBe(getCompressorColor('gzip'))
+    expect(styles.get('gorilla')!.color).toBe(getCompressorColor('gzip'))
+    const sameColour = ['gzip', 'gorilla', 'b_star_gef_approximate'].map((n) => styles.get(n)!.shape)
+    expect(new Set(sameColour).size).toBe(3)
+    expect(styles.get('zstd')!.shape).toBe(getCompressorShape('zstd'))
+  })
+
+  it('changes a shape only when it would repeat within one colour', async () => {
+    const { assignCompressorStyles } = await import('./compressors')
+    // ALP (circle) and U-GEF (Opt) (triangle) share a colour but not a shape.
+    const styles = assignCompressorStyles(['alp', 'u_gef_optimal'])
+    expect(styles.get('alp')!.shape).toBe('circle')
+    expect(styles.get('u_gef_optimal')!.shape).toBe('triangle-up')
+    // Two time-series coders with the same colour: Gorilla keeps its circle,
+    // the other gets an alternate shape.
+    const ts = assignCompressorStyles(['gorilla', 'chimp128', 'zstd', 'u_gef_approximate'])
+    const pink = ['chimp128', 'zstd', 'u_gef_approximate'].map((n) => ts.get(n)!)
+    expect(new Set(pink.map((p) => p.color)).size).toBe(1)
+    expect(new Set(pink.map((p) => p.shape)).size).toBe(3)
+  })
+})

@@ -172,6 +172,7 @@ func (s *BenchmarkService) CreateDatasetBenchmarks(ctx context.Context, actor *m
 		return nil, err
 	}
 
+	opts.ExperimentID = uuid.New()
 	created := make([]*model.Benchmark, 0, len(runs))
 	for _, run := range runs {
 		b, err := s.materializeRun(ctx, actor, ds.Name, runName(req.Name, run, len(runs) > 1), run, resolved, opts)
@@ -224,6 +225,7 @@ func (s *BenchmarkService) materializeRun(ctx context.Context, actor *model.User
 		FileExt:          "dataset",
 		Aggregation:      opts.Aggregation,
 		MeasureMemory:    opts.MeasureMemory,
+		ExperimentID:     opts.ExperimentID,
 		Warnings:         warnings,
 		Source: &model.DatasetSource{
 			Kind:      "dataset",
