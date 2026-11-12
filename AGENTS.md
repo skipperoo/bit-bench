@@ -581,7 +581,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused), `0012_benchmark_sources` (`benchmarks.aggregation`, `measure_memory`, `source JSONB`).
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused), `0012_benchmark_sources` (`benchmarks.aggregation`, `measure_memory`, `source JSONB`), `0013_result_self_test` (`benchmark_results.self_test_failures`).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -824,10 +824,11 @@ Header emitted by `BenchmarkResult::print_header` (`lossless_benchmark.cpp:210`)
 ```
 compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,
 compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,
-random_access_ns,random_access_mbs[,range_<N>_mbs...]
+random_access_ns,random_access_mbs[,range_<N>_mbs...],self_test
 ```
 
 - The trailing range columns are **dynamic** (one per range size the binary probes, `-r`, default `10,100,1000,10000,100000`). The harness names them `range_<N>_mbs`; `range_query_<N>` is accepted as an alias (user packages). The parser treats both as range-query throughputs (`mbs`, higher is better) and stores them in `benchmark_results.range_queries` as `{"<N>": <value>}`. The harness prints `0.0` for range sizes `N >= num_values` (not measured); those cells are skipped, and each range size is averaged only over the rows that measured it. The frontend exposes them as `range_query_<N>` metrics.
+- `self_test` (`ok`/`failed`, optional for user packages) records whether the decompressed data round-tripped to the input. Failed rows are kept, counted per compressor into `benchmark_results.self_test_failures` (migration `0013_result_self_test`), turned into a benchmark warning with the harness' reason, and badged in the UI. Floating-point compressors fail it when the integers are not exactly representable as doubles (beyond ±2^53). Camel clamps a precision of 0 (`decimals = 0`) to 1, so every floating-point compressor runs on integer data; datasets should use `decimals = 0` for integers (the old `decimals = 1` workaround penalised Gorilla/Chimp/Elf 2–4×).
 - Non-finite cells (`inf`/`nan`, e.g. a zero-duration timer on a tiny input) of the throughput and random-access metrics are stored as `NULL`; a non-finite `compression_ratio` is an error.
 - A configured built-in entry that produced no row for an input (the harness logs the error and continues) becomes a **benchmark warning** (`benchmarks.warnings`, shown on the detail page) instead of silently shrinking that compressor's average.
 - `compression_ratio = compressed_bits / uncompressed_bits` (lower is better). The frontend displays it as `%` (×100).

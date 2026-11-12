@@ -63,9 +63,22 @@ The BitBench `.bin` format, little endian:
 The 8-byte header without `decimals` (`N` + values) is accepted too. The header
 `N` must match the file size exactly.
 
-`decimals` matters for the floating-point compressors (ALP, Elf, Falcon,
-Camel, …), which see `value / 10^decimals`. Store prices of `48.12` as `4812`
-with `decimals = 2`.
+`decimals` matters for the floating-point compressors (Gorilla, Chimp,
+Chimp128, TSXor, Elf, Camel, Falcon, ALP), which see `value / 10^decimals`.
+Store prices of `48.12` as `4812` with `decimals = 2`.
+
+**Use `decimals = 0` for integer data** (ADC codes, counters, IDs). Every
+floating-point compressor runs on it. Earlier datasets used `decimals = 1` as a
+workaround because Camel broke at 0 (fixed: Camel always encodes at least one
+decimal digit). The workaround is not free: dividing integers by 10 creates
+values like `4812.3` that have no exact binary form, which made Gorilla, Chimp
+and Elf compress 2–4× worse on integer sensor data (ALP and Falcon are
+unaffected).
+
+Doubles hold integers exactly only up to ±2^53. For larger values the
+conversion itself loses information, so floating-point compressors cannot be
+lossless; they still run, but their results are marked as having failed the
+self-test (below).
 
 ## 3. Creating the files
 
@@ -117,13 +130,16 @@ python3 scripts/datasets/export_thesis_datasets.py pamap2  /path/to/PAMAP2_Datas
 
 The same ADC projections as `convert_ds_full.py` (WildPPG PPG 19-bit,
 accelerometer 10-bit, ECG raw 18-bit codes; PAMAP2 hand IMU 13-bit
-accelerometer/gyroscope, `decimals = 1`), but each signal is written whole:
+accelerometer/gyroscope), but each signal is written whole, with
+`decimals = 0` by default (`--decimals N` to change it; `--decimals 1`
+reproduces the header of the thesis files):
 `wildppg/{sternum_ecg,wrist_ppg_g,wrist_ppg_r,wrist_ppg_ir,wrist_acc_x,wrist_acc_y,wrist_acc_z}.bin`
 and `pamap2/wrist_{acc,gyro}_{x,y,z}.bin`.
 
-* **WildPPG** chunks cut by BitBench are byte-identical to the thesis `std`
-  and `gap` files (verified on all 938 chunk files; re-run with the opt-in
-  `TestThesisEquivalence` in `backend/internal/dataset/thesis_test.go`).
+* **WildPPG** chunks cut by BitBench contain exactly the values of the thesis
+  `std` and `gap` files (verified on all 938 chunk files; byte-identical with
+  `--decimals 1`; re-run with the opt-in `TestThesisEquivalence` in
+  `backend/internal/dataset/thesis_test.go`).
 * **PAMAP2** concatenates its NaN-free runs into one series. For large chunk
   sizes this equals the thesis fallback; for small sizes the thesis cut each run
   separately, so chunks can differ.
@@ -200,7 +216,23 @@ Valgrind Massif to measure peak memory. It is far slower than the benchmark
 itself; switch it off for large chunk sweeps (the memory metrics are then
 empty).
 
-## 6. API
+## 6. Self-test
+
+The harness checks every compressor's output: the decompressed sequence must
+equal the input. A failing compressor is **still reported** (so its numbers can
+be inspected) but marked:
+
+* the harness CSV has a trailing `self_test` column (`ok`/`failed`) and logs
+  the reason (`<name> self-test failed: decompressed value differs at index 17`);
+* BitBench stores, per result, on how many inputs the self-test failed
+  (`self_test_failures`), shows a red **self-test failed** badge next to the
+  compressor, and adds a benchmark warning with the reason and the input.
+
+Floating-point compressors also fail the self-test when the input integers are
+not exactly representable as doubles (|value| beyond 2^53 / 10^decimals).
+User packages may emit the same optional `self_test` column.
+
+## 7. API
 
 * `GET /api/v1/datasets` → `{datasets: [{name, description, source, series: [{name, values, decimals, size_bytes, error?}]}], transforms, max_runs, max_inputs_per_run, max_chunks_per_series}`
 * `POST /api/v1/benchmarks/dataset` with JSON

@@ -16,7 +16,9 @@ chunks at run time:
   version (every value >= 0), so it intentionally differs from the thesis
   files.
 
-WildPPG chunks are byte-identical to the thesis std/gap files. PAMAP2
+WildPPG chunks hold exactly the values of the thesis std/gap files (byte-identical
+with ``--decimals 1``, the header value the thesis used; the default is 0 because
+the values are integer ADC codes). PAMAP2
 chunks may differ for small sizes: the thesis cut each NaN-free run
 separately, while a single full series concatenates the valid runs.
 
@@ -44,7 +46,6 @@ ACC_ADC_BITS = 10
 ACC_ADC_MIN = -(1 << (ACC_ADC_BITS - 1))
 ACC_ADC_MAX = (1 << (ACC_ADC_BITS - 1)) - 1
 ACC_LSB_G = 0.008
-WILDPPG_DECIMALS = 1
 WILDPPG_SIGNALS = {
     "sternum": ["ecg"],
     "wrist": ["ppg_g", "ppg_r", "ppg_ir", "acc_x", "acc_y", "acc_z"],
@@ -60,7 +61,6 @@ PAMAP2_GYRO_BITS = 13
 PAMAP2_GYRO_MIN = -(1 << (PAMAP2_GYRO_BITS - 1))
 PAMAP2_GYRO_MAX = (1 << (PAMAP2_GYRO_BITS - 1)) - 1
 PAMAP2_GYRO_LSB_DPS = (2.0 * 2000.0) / (1 << PAMAP2_GYRO_BITS)
-PAMAP2_DECIMALS = 1
 PAMAP2_HAND_BASE = 4  # hand IMU block (exported as "wrist")
 PAMAP2_AXES = ("x", "y", "z")
 
@@ -74,7 +74,7 @@ def project_wildppg(values, signal_name: str) -> np.ndarray:
     return np.asarray(values, dtype=np.int64)  # ECG: raw 18-bit codes
 
 
-def export_wildppg(mat_path: Path, out_root: Path) -> None:
+def export_wildppg(mat_path: Path, out_root: Path, decimals: int) -> None:
     import scipy.io as sio
 
     mat = sio.loadmat(str(mat_path))
@@ -85,7 +85,7 @@ def export_wildppg(mat_path: Path, out_root: Path) -> None:
             series = located[signal].flatten()
             raw = project_wildppg(series[0][2][0], signal)
             path = out_dir / f"{location}_{signal}.bin"
-            n = write_series(path, raw, WILDPPG_DECIMALS)
+            n = write_series(path, raw, decimals)
             print(f"wrote {path} ({n} values, fs={series[0][0][0, 0]} Hz)")
     write_metadata(
         out_dir,
@@ -94,7 +94,7 @@ def export_wildppg(mat_path: Path, out_root: Path) -> None:
     )
 
 
-def export_pamap2(path: Path, out_root: Path) -> None:
+def export_pamap2(path: Path, out_root: Path, decimals: int) -> None:
     import pandas as pd
 
     files = [path] if path.is_file() else sorted(path.rglob("*.dat"))
@@ -127,7 +127,7 @@ def export_pamap2(path: Path, out_root: Path) -> None:
         if not parts:
             continue
         path = out_dir / f"wrist_{signal}_{axis}.bin"
-        n = write_series(path, np.concatenate(parts), PAMAP2_DECIMALS)
+        n = write_series(path, np.concatenate(parts), decimals)
         print(f"wrote {path} ({n} values from {len(parts)} NaN-free runs)")
     write_metadata(
         out_dir,
@@ -141,13 +141,19 @@ def main() -> None:
     parser.add_argument("dataset", choices=["wildppg", "pamap2"])
     parser.add_argument("input", type=Path, help="WildPPG.mat, or a PAMAP2 .dat file / directory")
     parser.add_argument("--out", type=Path, default=Path("datasets"), help="datasets root (default: ./datasets)")
+    parser.add_argument("--decimals", type=int, default=0,
+                        help="decimals written in the .bin header (default 0: the values are integer ADC codes). "
+                             "The thesis files used 1 as a workaround for Camel, which is fixed; pass "
+                             "--decimals 1 to reproduce them byte for byte.")
     args = parser.parse_args()
+    if not 0 <= args.decimals <= 18:
+        raise SystemExit("--decimals must be between 0 and 18")
     if not args.input.exists():
         raise SystemExit(f"{args.input} does not exist")
     if args.dataset == "wildppg":
-        export_wildppg(args.input, args.out)
+        export_wildppg(args.input, args.out, args.decimals)
     else:
-        export_pamap2(args.input, args.out)
+        export_pamap2(args.input, args.out, args.decimals)
 
 
 if __name__ == "__main__":

@@ -61,6 +61,9 @@ type BenchmarkRow struct {
 	InternalMemoryRatio float64
 	RelativeMemoryUsage float64
 	RangeQueries        map[string]float64
+	// SelfTestFailures counts inputs whose self-test failed (0 or 1 for a
+	// parsed row; summed by aggregation).
+	SelfTestFailures int
 	// Missing marks optional metrics whose cells were empty (not reported).
 	// Only populated by ParseCSVLenient and by tasks without memory results.
 	Missing map[string]bool
@@ -184,6 +187,15 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 				continue
 			}
 			row.RangeQueries[label] = val
+		}
+
+		// Optional self_test column ("ok"/"failed"): the native harness always
+		// writes it, user packages may.
+		if idx, ok := colIndex["self_test"]; ok && idx < len(record) {
+			switch strings.ToLower(strings.TrimSpace(record[idx])) {
+			case "failed", "fail", "false", "0":
+				row.SelfTestFailures = 1
+			}
 		}
 
 		rows = append(rows, row)
@@ -390,6 +402,10 @@ func aggregateGroup(comp string, group []BenchmarkRow, method string) BenchmarkR
 			continue
 		}
 		m.set(&out, m.reduce(samples))
+	}
+
+	for i := range group {
+		out.SelfTestFailures += group[i].SelfTestFailures
 	}
 
 	// Pooled ratio: total compressed over total uncompressed bits.

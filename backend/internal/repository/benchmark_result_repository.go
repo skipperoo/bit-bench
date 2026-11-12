@@ -46,8 +46,8 @@ func insertResult(ctx context.Context, exec dbExecer, res *model.BenchmarkResult
 			 input_buffer, compressor_internal, internal_memory_ratio, relative_memory_usage,
 			 uncompressed_bits, compressed_bits, compression_ratio,
 			 compression_throughput_mbs, decompression_throughput_mbs,
-			 random_access_ns, random_access_mbs, range_queries)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+			 random_access_ns, random_access_mbs, range_queries, self_test_failures)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (benchmark_id, compressor) DO UPDATE SET
 			compression_ratio = EXCLUDED.compression_ratio,
 			compression_throughput_mbs = EXCLUDED.compression_throughput_mbs,
@@ -59,13 +59,14 @@ func insertResult(ctx context.Context, exec dbExecer, res *model.BenchmarkResult
 			relative_memory_usage = EXCLUDED.relative_memory_usage,
 			random_access_ns = EXCLUDED.random_access_ns,
 			random_access_mbs = EXCLUDED.random_access_mbs,
-			range_queries = EXCLUDED.range_queries
+			range_queries = EXCLUDED.range_queries,
+			self_test_failures = EXCLUDED.self_test_failures
 	`, res.ID, res.BenchmarkID, res.Compressor, res.Dataset,
 		res.NumValues, res.OriginalSize, res.MemoryUsage,
 		res.InputBuffer, res.CompressorInternal, res.InternalMemoryRatio, res.RelativeMemoryUsage,
 		res.UncompressedBits, res.CompressedBits, res.CompressionRatio,
 		res.CompressionThroughputMbs, res.DecompressionThroughputMbs,
-		res.RandomAccessNs, res.RandomAccessMbs, res.RangeQueries)
+		res.RandomAccessNs, res.RandomAccessMbs, res.RangeQueries, res.SelfTestFailures)
 	return err
 }
 
@@ -75,7 +76,7 @@ func (r *BenchmarkResultRepository) FindByBenchmarkID(ctx context.Context, bench
 		       input_buffer, compressor_internal, internal_memory_ratio, relative_memory_usage,
 		       uncompressed_bits, compressed_bits, compression_ratio,
 		       compression_throughput_mbs, decompression_throughput_mbs,
-		       random_access_ns, random_access_mbs, range_queries
+		       random_access_ns, random_access_mbs, range_queries, self_test_failures
 		FROM benchmark_results WHERE benchmark_id = $1
 		ORDER BY compressor
 	`, benchmarkID)
@@ -93,7 +94,7 @@ func (r *BenchmarkResultRepository) FindByBenchmarkID(ctx context.Context, bench
 			&r.InputBuffer, &r.CompressorInternal, &r.InternalMemoryRatio, &r.RelativeMemoryUsage,
 			&r.UncompressedBits, &r.CompressedBits, &r.CompressionRatio,
 			&r.CompressionThroughputMbs, &r.DecompressionThroughputMbs,
-			&r.RandomAccessNs, &r.RandomAccessMbs, &r.RangeQueries,
+			&r.RandomAccessNs, &r.RandomAccessMbs, &r.RangeQueries, &r.SelfTestFailures,
 		); err != nil {
 			return nil, err
 		}
@@ -108,7 +109,7 @@ func (r *BenchmarkResultRepository) FindByBenchmarkIDs(ctx context.Context, ids 
 		       input_buffer, compressor_internal, internal_memory_ratio, relative_memory_usage,
 		       uncompressed_bits, compressed_bits, compression_ratio,
 		       compression_throughput_mbs, decompression_throughput_mbs,
-		       random_access_ns, random_access_mbs, range_queries
+		       random_access_ns, random_access_mbs, range_queries, self_test_failures
 		FROM benchmark_results WHERE benchmark_id = ANY($1)
 		ORDER BY benchmark_id, compressor
 	`, ids)
@@ -126,7 +127,7 @@ func (r *BenchmarkResultRepository) FindByBenchmarkIDs(ctx context.Context, ids 
 			&r.InputBuffer, &r.CompressorInternal, &r.InternalMemoryRatio, &r.RelativeMemoryUsage,
 			&r.UncompressedBits, &r.CompressedBits, &r.CompressionRatio,
 			&r.CompressionThroughputMbs, &r.DecompressionThroughputMbs,
-			&r.RandomAccessNs, &r.RandomAccessMbs, &r.RangeQueries,
+			&r.RandomAccessNs, &r.RandomAccessMbs, &r.RangeQueries, &r.SelfTestFailures,
 		); err != nil {
 			return nil, err
 		}

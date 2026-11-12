@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -460,6 +461,55 @@ func (r *BenchmarkRunner) runTask(ctx context.Context, benchmark *model.Benchmar
 	}
 }
 
+// selfTestNoteRe extracts "<entry>" and the reason from the harness log line
+// "  Running <entry>...  <Name> self-test failed: <reason>".
+var selfTestNoteRe = regexp.MustCompile(`Running (\S+?)\.\.\..*self-test failed: (.*)$`)
+
+// selfTestWarning reports the configured entries whose output did not
+// round-trip to the input, with the harness' reason when available.
+func selfTestWarning(rows []BenchmarkRow, invocations []compressorInvocation, binPath, stderr string) string {
+	notes := map[string]string{}
+	for _, line := range strings.Split(stderr, "\n") {
+		if m := selfTestNoteRe.FindStringSubmatch(line); m != nil {
+			notes[strings.ToLower(m[1])] = strings.TrimSpace(m[2])
+		}
+	}
+	labels := make(map[string]compressorInvocation, len(invocations))
+	for _, inv := range invocations {
+		labels[strings.ToLower(inv.Entry)] = inv
+	}
+	var parts []string
+	for _, row := range rows {
+		if row.SelfTestFailures == 0 {
+			continue
+		}
+		key := strings.ToLower(row.Compressor)
+		label := row.Compressor
+		if inv, ok := labels[key]; ok {
+			label = inv.Label
+		}
+		part := label + " failed its self-test"
+		if note := notes[key]; note != "" {
+			part += " (" + note + ")"
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s on %s", strings.Join(parts, "; "), filepath.Base(binPath))
+}
+
+func joinWarnings(warnings ...string) string {
+	var kept []string
+	for _, w := range warnings {
+		if w != "" {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, "; ")
+}
+
 // missingEntriesWarning lists the configured entries without a result row:
 // the harness logs a per-compressor error and continues, so a crash on one
 // input would otherwise silently shrink that compressor's average.
@@ -515,6 +565,7 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 	compressorList := strings.Join(entries, ",")
 
 	var rows []BenchmarkRow
+	var stderrOutput string
 	for attempt := 0; attempt <= r.cfg.BenchMaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Second)
@@ -547,13 +598,17 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 			return nil, "", fmt.Errorf("parse csv: %w", parseErr)
 		}
 		rows = parsed
+		stderrOutput = result.Stderr
 		break
 	}
 
 	// Memory results are keyed by the native entry; rows are then relabelled to
 	// the configured instance labels (row names may differ in case for plain
 	// entries, e.g. "NeaTS").
-	warning := missingEntriesWarning(rows, invocations, binPath)
+	warning := joinWarnings(
+		missingEntriesWarning(rows, invocations, binPath),
+		selfTestWarning(rows, invocations, binPath, stderrOutput),
+	)
 	if benchmark.MeasureMemory {
 		r.attachMemoryResults(rows, invocations, binPath, taskDir)
 	} else {

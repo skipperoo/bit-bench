@@ -241,3 +241,38 @@ func TestAggregateRowsMethods(t *testing.T) {
 		t.Errorf("unknown method should fall back to mean")
 	}
 }
+
+func TestParseCSVSelfTestColumn(t *testing.T) {
+	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs,range_10_mbs,self_test
+Gorilla,a.bin,100,800,0,6400,3200,0.5,10,20,1,2,3,failed
+gzip,a.bin,100,800,0,6400,1600,0.25,10,20,1,2,3,ok
+`
+	rows, err := ParseCSV(strings.NewReader(csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].SelfTestFailures != 1 || rows[1].SelfTestFailures != 0 {
+		t.Fatalf("self_test parsed as %d/%d", rows[0].SelfTestFailures, rows[1].SelfTestFailures)
+	}
+	if _, ok := rows[1].RangeQueries["10"]; !ok {
+		t.Fatal("self_test must not hide the range columns")
+	}
+	agg := AggregateRows(append(rows, rows[0]), AggregateMean)
+	if agg[0].SelfTestFailures != 2 {
+		t.Fatalf("failures must add up over inputs, got %d", agg[0].SelfTestFailures)
+	}
+}
+
+func TestSelfTestWarning(t *testing.T) {
+	rows := []BenchmarkRow{{Compressor: "Gorilla", SelfTestFailures: 1}, {Compressor: "gzip=level:9"}}
+	invs := []compressorInvocation{{Entry: "gorilla", Label: "gorilla"}, {Entry: "gzip=level:9", Label: "gzip · level 9"}}
+	stderr := "Processing: x\n  Running gorilla...  Gorilla self-test failed: input values are not exactly representable as doubles (|value| beyond 2^53)\n done\n"
+	got := selfTestWarning(rows, invs, "/d/in/x_3.bin", stderr)
+	want := "gorilla failed its self-test (input values are not exactly representable as doubles (|value| beyond 2^53)) on x_3.bin"
+	if got != want {
+		t.Fatalf("warning = %q\nwant      %q", got, want)
+	}
+	if selfTestWarning(rows[1:], invs, "x.bin", "") != "" {
+		t.Fatal("no warning expected without failures")
+	}
+}
