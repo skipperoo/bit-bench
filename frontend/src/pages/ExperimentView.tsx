@@ -9,7 +9,8 @@ import InstanceFilter from '@/components/InstanceFilter'
 import SelfTestBadge from '@/components/SelfTestBadge'
 import CompressorSwatch from '@/components/CompressorSwatch'
 import RunMonitor from '@/components/RunMonitor'
-import { GroupedBarChart, MetricBarChart, MetricScatterChart, SweepChart } from '@/components/charts/MetricCharts'
+import { GroupedBarChart, MetricBarChart, MetricScatterChart } from '@/components/charts/MetricCharts'
+import SweepPanel from '@/components/SweepPanel'
 import { ComparisonTable, RankedTable } from '@/components/ResultTables'
 import { apiFetch } from '@/lib/api'
 import { assignCompressorStyles, renameCompressor, shapeKey } from '@/lib/compressors'
@@ -18,19 +19,14 @@ import { usePackageColors } from '@/lib/package-colors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics'
 import type { MetricDef, MetricGroup } from '@/lib/metrics'
+import { METRIC_GROUP_LABELS } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
-import { chunkLabel, detectSweep } from '@/lib/sweep'
+import { detectSweep } from '@/lib/sweep'
 import { VIEW_LIMIT, dataSourceText, experimentName, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult } from '@/types'
 
-const GROUP_LABELS: Record<MetricGroup, string> = {
-  ratio: 'Ratio',
-  speed: 'Throughput',
-  memory: 'Memory',
-  access: 'Random access',
-  range: 'Range queries',
-}
+const GROUP_LABELS = METRIC_GROUP_LABELS
 
 interface Loaded {
   benchmark: Benchmark
@@ -85,7 +81,6 @@ export default function ExperimentView() {
   const { items, missing, loading, reload } = useExperimentData(ids)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [paretoTarget, setParetoTarget] = useState('')
-  const [sweepMetric, setSweepMetric] = useState('compression_ratio')
   usePackageColors()
 
   const ready = items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0)
@@ -121,6 +116,14 @@ export default function ExperimentView() {
   ]
   const requested = params.get('tab') ?? 'overview'
   const tab = tabItems.some((t) => t.value === requested) ? requested : 'overview'
+  // Sweep metrics the user switched off, kept in the URL like the tab.
+  const sweepHidden = useMemo(() => new Set((params.get('sweep_hide') ?? '').split(',').filter(Boolean)), [params])
+  const setSweepHidden = (hidden: Set<string>) => setParams((prev) => {
+    const n = new URLSearchParams(prev)
+    if (hidden.size) n.set('sweep_hide', [...hidden].join(','))
+    else n.delete('sweep_hide')
+    return n
+  }, { replace: true })
   const setTab = (value: string) => setParams((prev) => { const n = new URLSearchParams(prev); n.set('tab', value); return n }, { replace: true })
 
   const removeId = (id: string) => navigate(viewPath(ids.filter((x) => x !== id)) + `&tab=${tab}`)
@@ -307,32 +310,16 @@ export default function ExperimentView() {
                   </>
                 )}
                 {tab === 'sweep' && sweep && (
-                  <>
-                    <label className="flex items-center gap-2 text-sm">
-                      Metric
-                      <select aria-label="Sweep metric" className="h-8 rounded-md border border-input bg-transparent px-2 text-sm" value={sweepMetric} onChange={(e) => setSweepMetric(e.target.value)}>
-                        {metrics.map((m) => <option key={m.key} value={m.key}>{metricLabel(m.key)}</option>)}
-                      </select>
-                    </label>
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      {sweep.transforms.map((t) => {
-                        const points = sweep.byTransform.get(t)!
-                        return (
-                          <Card key={t}>
-                            <CardHeader><CardTitle className="text-base">{sweep.dataset} · {t} — {metricLabel(sweepMetric)}</CardTitle></CardHeader>
-                            <CardContent>
-                              <SweepChart
-                                chunkLabels={points.map((p) => chunkLabel(p.chunkSize))}
-                                metric={sweepMetric}
-                                colors={colors} shapes={shapes}
-                                lines={visibleNames.map((c) => ({ compressor: c, values: points.map((p) => valueOf(p.benchmark.id, c, sweepMetric)) }))}
-                              />
-                            </CardContent>
-                          </Card>
-                        )
-                      })}
-                    </div>
-                  </>
+                  <SweepPanel
+                    sweep={sweep}
+                    metrics={metrics}
+                    compressors={visibleNames}
+                    colors={colors}
+                    shapes={shapes}
+                    value={valueOf}
+                    hidden={sweepHidden}
+                    onHiddenChange={setSweepHidden}
+                  />
                 )}
               </TabPanel>
             )}
@@ -383,7 +370,7 @@ function TopFive({ entries, results, colors, shapes }: {
                     {r?.bits_per_element != null ? r.bits_per_element.toFixed(2) : '–'}
                   </td>
                   <td className="py-1.5 text-center">
-                    {e.dominationCount === 0 && <span className="rounded border border-green-200 bg-green-100 px-1.5 text-xs text-green-800">Pareto-optimal</span>}
+                    {e.dominationCount === 0 && <span className="rounded border border-green-200 bg-green-100 px-1.5 text-xs text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200">Pareto-optimal</span>}
                   </td>
                 </tr>
               )

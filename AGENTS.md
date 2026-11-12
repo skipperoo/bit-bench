@@ -183,8 +183,10 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 Reproduces `final_results.html` for one benchmark and generalizes it to several (up to 32, loaded individually so a full dataset sweep fits). See §3.4 for the metric set.
 - Header: name, status, data source, series; for several benchmarks a removable list plus an "add benchmark" picker. Warnings (missing results, failed self-tests), the emulation notice (D31) and a **live run monitor** for benchmarks that are not ready (progress, rough ETA, task table from `GET /benchmarks/{id}/tasks`, cancel).
 - **Compressor filter** sidebar (family toggles, colour markers) applied to every chart and table. Each marker is a button that opens a shape and colour picker; the choice is saved to the user's account (§6.4).
-- **Tabs** (URL `tab=`): Overview (Top-5 + ratio), Ratio, Throughput, Memory, Random access, Range queries, **Pareto** (top 5 and ratio/throughput scatters with the Pareto front), **Sweep** (when the benchmarks form a chunk-size sweep of one dataset: metric vs chunk size, one line per compressor, one chart per transform).
+- **Tabs** (URL `tab=`): Overview (Top-5 + ratio), Ratio, Throughput, Memory, Random access, Range queries, **Pareto** (top 5 and ratio/throughput scatters with the Pareto front), **Sweep** (when the benchmarks form a chunk-size sweep of one dataset: every available metric vs chunk size, one line per compressor; metric chips grouped like the tabs switch metrics off, kept in the URL as `sweep_hide=`; one transform → a grid of metric charts, several → one row per metric with a chart per transform).
 - One benchmark: bar charts (horizontal above 12 compressors) or scatter vs ratio, plus ranked tables; several: grouped bars plus comparison tables (rows = benchmarks + average). Every table has **Download CSV** and **Copy LaTeX**.
+
+- Layout: the experiments pages use a wide container (up to 120rem) so the filter sidebar, charts and comparison tables use the screen width; task pages keep `max-w-7xl`.
 
 #### 3.1.5 Datasets page (`/datasets`)
 - Every dataset under `DATASET_DIR` with `dataset.yaml` description/source; per series: values, value range over the whole recording, a min/max sparkline of the first 10k values (`GET /datasets/{dataset}/series/{series}/preview`), chunk counts per preset chunk size; invalid files with their reason; **Benchmark this dataset** opens New experiment with it preselected. Setup instructions when empty.
@@ -201,6 +203,10 @@ Reproduces `final_results.html` for one benchmark and generalizes it to several 
 - Table: name, version, language, workers, **platform** (`linux/<arch>` badge plus an `emulated` badge when the package targets a foreign platform), **status pill** (`building` yellow with pulsing dot, `ready` green, `failed` red + error), updated timestamp, actions.
 - Packages in `building` state are polled every 3s; failed packages expose their build log; delete is available to the owner, an admin, or a professor of the same group.
 - Custom packages appear in the benchmark upload page under the **Custom** family and render their `spec.yaml` options with the standard widget rules. Emulated packages are marked there too, and selecting one shows the emulation warning (D31).
+
+### 3.1.8 Theme
+
+Light (default), dark and "follow the system" via a header switch, saved per browser (`localStorage` `bitbench-theme`, applied before first paint by an inline script in `index.html`). The dark theme is a neutral graphite (`#25262a` page, `#2b2c31` raised surfaces, `#3e4046` borders, `#e8e9ec` ink), never pure black; it overrides the `--color-*` tokens under `.dark` in `frontend/src/index.css`, restyles Recharts grid/axes/tooltip, and keeps chart series colours. Fixed status/notice colours carry `dark:` variants.
 
 ### 3.2 Admin frontend (decoupled)
 

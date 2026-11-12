@@ -213,7 +213,7 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
             {runs.slice(0, 8).map((r) => (
               <li key={`${r.transform}-${r.chunkSize}`}>
                 {r.transform} · {describeChunking(r.chunkSize, selection.maxChunks)} → {r.inputs} input{r.inputs === 1 ? '' : 's'}
-                {r.skipped.length > 0 && <span className="text-amber-600"> (skips {r.skipped.length} short series)</span>}
+                {r.skipped.length > 0 && <span className="text-amber-600 dark:text-amber-400"> (skips {r.skipped.length} short series)</span>}
               </li>
             ))}
             {runs.length > 8 && <li>… {runs.length - 8} more</li>}

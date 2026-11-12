@@ -75,6 +75,15 @@ export function metricValue(r: BenchmarkResult, metric: string): number | undefi
 export type MetricChart = 'bar' | 'scatter'
 export type MetricGroup = 'ratio' | 'speed' | 'memory' | 'access' | 'range'
 
+/** Display names of the metric groups (result tabs and filters), in display order. */
+export const METRIC_GROUP_LABELS: Record<MetricGroup, string> = {
+  ratio: 'Ratio',
+  speed: 'Throughput',
+  memory: 'Memory',
+  access: 'Random access',
+  range: 'Range queries',
+}
+
 export interface MetricDef {
   key: string
   chart: MetricChart

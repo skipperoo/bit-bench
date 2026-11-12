@@ -59,7 +59,7 @@ export default function StatusPage() {
                 <CardTitle className="text-sm">Completed</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-green-600">{status.stats.ready}</p>
+                <p className="text-3xl font-bold text-green-600 dark:text-green-400">{status.stats.ready}</p>
                 <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
               </CardContent>
             </Card>
@@ -68,7 +68,7 @@ export default function StatusPage() {
                 <CardTitle className="text-sm">Queued</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-blue-600">{status.stats.queued}</p>
+                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{status.stats.queued}</p>
                 <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
               </CardContent>
             </Card>
@@ -77,7 +77,7 @@ export default function StatusPage() {
                 <CardTitle className="text-sm">In Progress</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-yellow-600">{status.stats.in_progress}</p>
+                <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">{status.stats.in_progress}</p>
                 <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
               </CardContent>
             </Card>
@@ -86,7 +86,7 @@ export default function StatusPage() {
                 <CardTitle className="text-sm">Failed</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-red-600">{status.stats.failed}</p>
+                <p className="text-3xl font-bold text-red-600 dark:text-red-400">{status.stats.failed}</p>
                 <p className="text-xs text-muted-foreground mt-1">Your benchmarks</p>
               </CardContent>
             </Card>

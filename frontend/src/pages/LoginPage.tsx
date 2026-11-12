@@ -47,12 +47,12 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-2">
           <div className="flex justify-center mb-2">
-            <div className="w-12 h-12 rounded-xl bg-neutral-900 flex items-center justify-center">
-              <span className="text-white font-bold text-lg">B</span>
+            <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-lg">B</span>
             </div>
           </div>
           <CardTitle className="text-2xl text-center">BitBench</CardTitle>
-          <p className="text-sm text-neutral-500 text-center">
+          <p className="text-sm text-muted-foreground text-center">
             Compression Benchmarking Platform
           </p>
         </CardHeader>
@@ -83,8 +83,8 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="bg-red-50 border border-red-200 rounded-md p-3 dark:bg-red-950/40 dark:border-red-800">
+                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
               </div>
             )}
 
@@ -100,8 +100,8 @@ export default function LoginPage() {
             </Button>
 
             {smtpEnabled && (
-              <p className="text-xs text-center text-neutral-400">
-                <a href="/forgot-password" className="hover:text-neutral-600 underline">
+              <p className="text-xs text-center text-muted-foreground">
+                <a href="/forgot-password" className="hover:text-foreground underline">
                   Forgot your password?
                 </a>
               </p>

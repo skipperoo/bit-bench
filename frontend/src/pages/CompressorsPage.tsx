@@ -229,7 +229,7 @@ export default function CompressorsPage() {
                           <Badge variant="outline" className="text-xs font-mono">linux/{platformArch(pkg.platform)}</Badge>
                           {pkg.emulated && (
                             <Badge
-                              className="text-xs bg-amber-100 text-amber-800 border-amber-200"
+                              className="text-xs bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-800"
                               title="Targets a different architecture than the benchmark host — runs under emulation; throughput is distorted"
                             >
                               emulated
