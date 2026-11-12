@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -140,5 +141,58 @@ func TestAverageRowsMissingPropagation(t *testing.T) {
 	}
 	if averaged[0].MemoryUsage != 100 {
 		t.Errorf("memory_usage average = %d, want 100", averaged[0].MemoryUsage)
+	}
+}
+
+// The native harness names range columns "range_<N>_mbs" and prints 0.0 for
+// range sizes that do not fit in the sequence.
+func TestParseCSVHarnessRangeColumns(t *testing.T) {
+	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs,range_10_mbs,range_100_mbs,range_1000_mbs
+gzip,a.bin,500,4000,0,32000,8000,0.25,100.0,200.0,50.0,10.0,12.5,0.0,0.0
+`
+	rows, err := ParseCSV(strings.NewReader(csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rq := rows[0].RangeQueries
+	if rq["10"] != 12.5 {
+		t.Errorf("range 10 = %v, want 12.5", rq["10"])
+	}
+	if v, ok := rq["100"]; !ok || v != 0 {
+		t.Errorf("range 100 (< num_values) must be kept, got %v (present=%v)", v, ok)
+	}
+	if _, ok := rq["1000"]; ok {
+		t.Error("range 1000 >= num_values printed as 0.0 must be skipped")
+	}
+}
+
+func TestParseCSVNonFiniteThroughputIsMissing(t *testing.T) {
+	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs
+gzip,a.bin,10,80,0,640,320,0.5,inf,nan,1.0,2.0
+`
+	rows, err := ParseCSV(strings.NewReader(csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rows[0].Missing["compression_throughput_mbs"] || !rows[0].Missing["decompression_throughput_mbs"] {
+		t.Fatalf("non-finite throughputs must be missing, got %+v", rows[0].Missing)
+	}
+	avg := AverageRows(rows)
+	if _, err := json.Marshal(avg); err != nil {
+		t.Fatalf("averaged rows must be JSON-encodable: %v", err)
+	}
+}
+
+func TestAverageRowsRangePerKeyCount(t *testing.T) {
+	rows := []BenchmarkRow{
+		{Compressor: "c", RangeQueries: map[string]float64{"10": 10, "100": 100}},
+		{Compressor: "c", RangeQueries: map[string]float64{"10": 30}},
+	}
+	avg := AverageRows(rows)
+	if got := avg[0].RangeQueries["10"]; got != 20 {
+		t.Errorf("range 10 = %v, want 20", got)
+	}
+	if got := avg[0].RangeQueries["100"]; got != 100 {
+		t.Errorf("range 100 averaged over its own rows = %v, want 100", got)
 	}
 }

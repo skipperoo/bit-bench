@@ -118,7 +118,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 
 ### 2.3 File lifecycle (per benchmark)
 
-1. **Upload** → validate types + sizes (`MAX_FILE_SIZE_MB` per file, repeated `files` allowed) → normalize **synchronously at upload** to `.bin` under `DATA_DIR/<benchmark_id>/inputs/<i>/` (CSV → one `.bin` per column; zip/tar → one per member; `.bin` copied) → compute the combined MD5 over all file contents → insert the `benchmarks` row plus one `benchmark_tasks` row per unit of work (`status='queued'`) → delete the source uploads. Duplicate checksums are allowed.
+1. **Upload** → validate types + sizes (`MAX_FILE_SIZE_MB` per file, repeated `files` allowed) → normalize **synchronously at upload** to `.bin` under `DATA_DIR/<benchmark_id>/inputs/<i>/` (CSV → one `.bin` per column; zip/tar → one per member; `.bin` copied; every resulting `.bin` is validated per §4.5, archive extraction capped at 20 × `MAX_FILE_SIZE_MB`) → compute the combined MD5 over all file contents → insert the `benchmarks` row plus one `benchmark_tasks` row per unit of work (`status='queued'`) → delete the source uploads. Duplicate checksums are allowed.
 2. **Claim** → the scheduler marks the best-fitting task `running` and (on the first claim) the benchmark `in_progress`, `started_at`.
 3. **Run** → per task: a built-in task runs every selected built-in compressor for its `.bin` via the image-built binary (`-c <names> -o <out.csv>` under `timeout BENCH_TIMEOUT_SECONDS`) plus that `.bin`'s memory harness; a custom task runs one package against one `.bin` in a sandboxed runner container (`internal/runner`).
 4. **Task result** → parsed rows are stored as JSONB on the task (`result`). Built-in output is parsed strictly; custom output leniently (empty optional metrics → `NULL`).
@@ -136,7 +136,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 ### 2.5 Redis usage
 
 - **JWT blocklist**: on logout, `SET jwt_blocklist:<jti> 1 EX <remaining_ttl>`. Every protected request checks `EXISTS jwt_blocklist:<jti>`.
-- **Rate limiting**: login (5/min/IP), upload (10/min/user). Token-bucket or fixed window in Redis.
+- **Rate limiting**: login (5/min/IP), fixed window in Redis. The client IP is `X-Real-IP` (overwritten by nginx, so not client-controlled) or the connection address without its port; `X-Forwarded-For` is ignored. Upload rate limiting is not implemented (the "separate benchmarks" mode issues one request per file).
 - Redis data is **ephemeral** (no persistent volume required).
 
 ---
@@ -508,7 +508,7 @@ func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 | `GET`  | `/api/v1/benchmarks/checksums` | `[{"checksum":"<md5>"}, ...]` retained for backwards compatibility (duplicates are allowed, D6). |
 | `POST` | `/api/v1/benchmarks` | Multipart: `name`, repeated `files` (legacy `file` accepted), `compressors` (JSON array of `{"name": ..., "options": {...}}`; the legacy `{"<name>": {<option>: <value>}}` map is accepted and converted). Validates type/size, canonicalizes every instance, rejects duplicate configurations and more than 64 instances, normalizes every file to `.bin` synchronously (long per-request write deadline), creates the `queued` benchmark plus its task rows, and records the configuration in the user's history. Compressor names must be built-ins or ready packages visible to the user. |
 | `GET`  | `/api/v1/benchmarks` | `?q=<name>&status=<...>&page=<n>&size=<n>` → paginated card data. |
-| `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. |
+| `GET`  | `/api/v1/benchmarks/{id}` | Full results: all `benchmark_results` rows + selected compressors + metadata. Owner or admin only (others get `404`); the same rule applies to `/status`, `/progress` and `/compare`. |
 | `GET`  | `/api/v1/benchmarks/{id}/status` | `{status, started_at, finished_at, error?}`. |
 | `GET`  | `/api/v1/benchmarks/compare` | `?ids=a,b,c,d,e` (≤ 5) → merged results for the compare page. |
 | `GET`  | `/api/v1/status` | `{queue_depth, runner:{running, max_parallelism}, stats:{queued, in_progress, ready, failed, timed_out, cancelled}, cpu:{model, physical_cores, logical_cores, mhz, load1, load5, load15, utilization, flags}}`. |
@@ -552,10 +552,12 @@ One scheduler loop plus one goroutine per running task, with an in-process count
 
 Accepted uploads:
 
-- **`.bin`** — binary integer sequence. **TWO valid header formats** (auto-detected by file size, matching `compression/README.md`):
+- **`.bin`** — binary integer sequence. **TWO valid header formats** (detected from the header, exactly like the native loader):
   - **Standard (16-byte header):** `uint64 N` + `uint64 decimals` + `N × int64` values. File size = `16 + 8N`.
   - **Simple (8-byte header):** `uint64 N` + `N × int64` values. File size = `8 + 8N`.
-  - Validation: compute `N` from `(file_size - 16) / 8` and `(file_size - 8) / 8`; accept if either yields an exact integer ≥ 0. Reject otherwise.
+  - Validation: read `N` from the first 8 bytes; the file is standard when `file_size == 16 + 8N`, simple when `file_size == 8 + 8N`; reject anything else and `N = 0`. (Size alone is ambiguous: `16 + 8(N-1) == 8 + 8N`.)
+- **`.csv`** cells must be integers (integral floats such as `3.0` are accepted, `1.5` is rejected); empty cells are skipped so columns may differ in length; column names are sanitized and de-duplicated for the `.bin` file names.
+- **`.zip`/`.tar`**: only regular `.bin` members (case-insensitive) are used; `__MACOSX/` and hidden `._*` files are skipped; members with the same base name get unique names.
 - **`.csv`** — each column is a sequence; the backend materializes one `.bin` per column (16-byte header, `decimals=0`) and runs all; results averaged.
 - **`.zip` / `.tar`** — containing multiple `.bin`; extract and run each; results averaged.
 
@@ -571,7 +573,7 @@ Client-side pre-checks (frontend): extension allow-list + size ≤ `MAX_FILE_SIZ
 
 ## 5. Database Schema
 
-**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history).
+**Files:** `backend/internal/config/migrations/NNNN_description.sql`, embedded into the binary (`//go:embed`) and applied idempotently at backend startup by `config.RunMigrations` (tracked in `_migrations`). Plain PostgreSQL (D7). Uses `uuid-ossp`. Current chain: `0001_initial`, `0002_memory_columns`, `0003_progress_column`, `0004_polish` (drops the checksum uniqueness, adds `last_bench_config`), `0005_roles`, `0006_compressor_packages`, `0007_benchmark_tasks` (adds `benchmarks.file_count` and the task queue), `0008_instance_labels` (adds `benchmark_tasks.instance_label`), `0009_benchmark_presets` (presets and configuration history), `0010_benchmark_warnings` (`benchmarks.warnings TEXT[]`), `0011_user_email_active_unique` (case-insensitive email uniqueness among active users only, so a soft-deleted user's address can be reused).
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -814,10 +816,12 @@ Header emitted by `BenchmarkResult::print_header` (`lossless_benchmark.cpp:210`)
 ```
 compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,
 compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,
-random_access_ns,random_access_mbs[,range_query_<N>...]
+random_access_ns,random_access_mbs[,range_<N>_mbs...]
 ```
 
-- The trailing `range_query_<N>` columns are **dynamic** (one per range size the binary probes). The parser MUST treat any column starting with `range_query_` as a range-query throughput (`mbs`, higher is better) and store them in `benchmark_results.range_queries` as `{"<N>": <value>}`.
+- The trailing range columns are **dynamic** (one per range size the binary probes, `-r`, default `10,100,1000,10000,100000`). The harness names them `range_<N>_mbs`; `range_query_<N>` is accepted as an alias (user packages). The parser treats both as range-query throughputs (`mbs`, higher is better) and stores them in `benchmark_results.range_queries` as `{"<N>": <value>}`. The harness prints `0.0` for range sizes `N >= num_values` (not measured); those cells are skipped, and each range size is averaged only over the rows that measured it. The frontend exposes them as `range_query_<N>` metrics.
+- Non-finite cells (`inf`/`nan`, e.g. a zero-duration timer on a tiny input) of the throughput and random-access metrics are stored as `NULL`; a non-finite `compression_ratio` is an error.
+- A configured built-in entry that produced no row for an input (the harness logs the error and continues) becomes a **benchmark warning** (`benchmarks.warnings`, shown on the detail page) instead of silently shrinking that compressor's average.
 - `compression_ratio = compressed_bits / uncompressed_bits` (lower is better). The frontend displays it as `%` (×100).
 - Rows are grouped by `compressor`; when a benchmark produces multiple `.bin` files (CSV columns / zip contents), all rows for a compressor are **averaged** (numeric columns) into one stored row (D6). The `dataset` column of the stored row = the normalized benchmark label (original filename stem).
 - **The `compressor` column carries the configured entry** for instances that set options (`gzip=level:9`, `neats=lossy:true;max_bpc:16`); plain entries keep the harness' historical labels (`gzip`, `NeaTS`, `Gorilla` — D29). The backend matches entries to configured instances case-insensitively and stores the instance's brief label in `benchmark_results.compressor` (≤ 64 chars).

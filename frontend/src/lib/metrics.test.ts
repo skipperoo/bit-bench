@@ -54,3 +54,25 @@ describe('withDerivedMetrics', () => {
     expect(derived.uncompressed_bits_per_element).toBeUndefined()
   })
 })
+
+describe('ranking direction and range queries', () => {
+  it('minimizes sizes, memory and latencies; maximizes throughputs', async () => {
+    const { isLowerBetter } = await import('./metrics')
+    expect(isLowerBetter('compression_ratio')).toBe(true)
+    expect(isLowerBetter('relative_memory_usage')).toBe(true)
+    expect(isLowerBetter('decode_ns')).toBe(true)
+    expect(isLowerBetter('compression_throughput_mbs')).toBe(false)
+    expect(isLowerBetter('range_query_100')).toBe(false)
+  })
+
+  it('lists range sizes numerically and reads their values', async () => {
+    const { rangeQueryMetrics, metricValue } = await import('./metrics')
+    const rows = [
+      result({ range_queries: { '1000': 5, '10': 1 } }),
+      result({ range_queries: { '100': 2 } }),
+    ]
+    expect(rangeQueryMetrics(rows)).toEqual(['range_query_10', 'range_query_100', 'range_query_1000'])
+    expect(metricValue(rows[0], 'range_query_1000')).toBe(5)
+    expect(metricValue(rows[1], 'range_query_1000')).toBeUndefined()
+  })
+})

@@ -289,19 +289,21 @@ func (s *CompressorService) verifyEntrypoint(pkgDir, entrypoint string) error {
 }
 
 func (s *CompressorService) markFailed(ctx context.Context, id uuid.UUID, msg string) error {
-	errMsg := msg
-	if err := s.repo.UpdateStatus(ctx, id, "failed", &errMsg, nil, ""); err != nil {
-		return err
-	}
-	return fmt.Errorf("%s", msg)
+	return s.markFailedWithLog(ctx, id, msg, "")
 }
 
+// markFailedWithLog records a failed build. The workspace path is kept so a
+// later delete or replace still removes the extracted package from disk.
 func (s *CompressorService) markFailedWithLog(ctx context.Context, id uuid.UUID, msg, logs string) error {
 	errMsg := msg
-	if err := s.repo.UpdateStatus(ctx, id, "failed", &errMsg, nil, logs); err != nil {
+	var builtPath *string
+	if pkg, err := s.repo.FindByID(ctx, id); err == nil && pkg != nil {
+		builtPath = pkg.BuiltPath
+	}
+	if err := s.repo.UpdateStatus(ctx, id, "failed", &errMsg, builtPath, logs); err != nil {
 		return err
 	}
-	return fmt.Errorf("%s", msg)
+	return errors.New(msg)
 }
 
 // ListVisible returns packages visible to the acting user.

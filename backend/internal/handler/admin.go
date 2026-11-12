@@ -48,8 +48,16 @@ func AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	if req.Email == "" || req.Password == "" {
 		writeError(w, "email and password are required", http.StatusBadRequest)
+		return
+	}
+	if existing, err := service.UserRepo.FindByEmail(r.Context(), req.Email); err != nil {
+		writeError(w, "failed to create user", http.StatusInternalServerError)
+		return
+	} else if existing != nil {
+		writeError(w, "email already exists", http.StatusConflict)
 		return
 	}
 
@@ -89,11 +97,13 @@ func AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role:               req.Role,
 		MustChangePassword: false,
 	}
-	if req.GroupID != nil {
+	if req.GroupID != nil && *req.GroupID != "" {
 		gid, err := uuid.Parse(*req.GroupID)
-		if err == nil {
-			user.GroupID = &gid
+		if err != nil {
+			writeError(w, "invalid group_id", http.StatusBadRequest)
+			return
 		}
+		user.GroupID = &gid
 	}
 
 	if err := service.UserRepo.Create(r.Context(), user); err != nil {
@@ -195,6 +205,12 @@ func AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role != nil && !model.IsValidRole(*req.Role) {
 		writeError(w, "invalid role", http.StatusBadRequest)
 		return
+	}
+	if req.GroupID != nil && *req.GroupID != "" {
+		if _, err := uuid.Parse(*req.GroupID); err != nil {
+			writeError(w, "invalid group_id", http.StatusBadRequest)
+			return
+		}
 	}
 
 	if actor.ID == userID && req.Role != nil && *req.Role != actor.Role {

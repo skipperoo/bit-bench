@@ -157,11 +157,17 @@ func (r *BenchmarkTaskRepository) ClaimNext(ctx context.Context, freeWorkers int
 	return task, nil
 }
 
-func (r *BenchmarkTaskRepository) Complete(ctx context.Context, id uuid.UUID, result []byte) error {
+// Complete stores a task's result rows. A non-empty warning is kept in the
+// error column of the done task and surfaced on the benchmark at finalize.
+func (r *BenchmarkTaskRepository) Complete(ctx context.Context, id uuid.UUID, result []byte, warning string) error {
+	var warn *string
+	if warning != "" {
+		warn = &warning
+	}
 	_, err := r.db.Exec(ctx, `
-		UPDATE benchmark_tasks SET status = 'done', result = $2, error = NULL, finished_at = NOW()
+		UPDATE benchmark_tasks SET status = 'done', result = $2, error = $3, finished_at = NOW()
 		WHERE id = $1
-	`, id, result)
+	`, id, result, warn)
 	return err
 }
 
@@ -231,29 +237,6 @@ func (r *BenchmarkTaskRepository) Counts(ctx context.Context, benchmarkID uuid.U
 		return nil, err
 	}
 	return counts, nil
-}
-
-// DoneResults returns the result payloads of all completed tasks.
-func (r *BenchmarkTaskRepository) DoneResults(ctx context.Context, benchmarkID uuid.UUID) ([][]byte, error) {
-	rows, err := r.db.Query(ctx, `
-		SELECT result FROM benchmark_tasks
-		WHERE benchmark_id = $1 AND status = 'done' AND result IS NOT NULL
-		ORDER BY seq ASC
-	`, benchmarkID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results [][]byte
-	for rows.Next() {
-		var result []byte
-		if err := rows.Scan(&result); err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-	return results, rows.Err()
 }
 
 // ListByBenchmark returns all tasks of a benchmark in order.

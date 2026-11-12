@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -186,7 +187,7 @@ func BuildLabel(name string, schema map[string]Option, values map[string]interfa
 	for _, optionName := range names {
 		opt := schema[optionName]
 		value, ok := values[optionName]
-		if !ok || value == opt.Default {
+		if !ok || optionValueEqual(value, opt.Default) {
 			continue
 		}
 		switch v := value.(type) {
@@ -233,7 +234,7 @@ func BuildInvocation(name string, schema map[string]Option, values map[string]in
 			continue
 		}
 		value, ok := values[optionName]
-		if !ok || value == schema[optionName].Default {
+		if !ok || optionValueEqual(value, schema[optionName].Default) {
 			continue
 		}
 		parts = append(parts, optionName+":"+formatOptionValue(value))
@@ -257,11 +258,49 @@ func formatOptionValue(value interface{}) string {
 	}
 }
 
-func truncateLabel(label string) string {
-	if len(label) <= MaxLabelLen {
-		return label
+// optionValueEqual compares option values across numeric representations:
+// package defaults decoded from JSON are float64, canonical values are int.
+func optionValueEqual(a, b interface{}) bool {
+	if af, ok := toFloat(a); ok {
+		bf, ok := toFloat(b)
+		return ok && af == bf
 	}
-	return label[:MaxLabelLen]
+	return a == b
+}
+
+func toFloat(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
+
+func truncateLabel(label string) string {
+	return truncateUTF8(label, MaxLabelLen)
+}
+
+// truncateUTF8 cuts s to at most maxBytes without splitting a rune (labels
+// contain the multi-byte " · " separator; an invalid UTF-8 label would be
+// rejected by PostgreSQL when the results are stored).
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // WithUniqueLabel appends a numeric suffix when the label is already taken.
@@ -272,10 +311,7 @@ func WithUniqueLabel(label string, taken map[string]bool) string {
 	}
 	for i := 2; ; i++ {
 		suffix := fmt.Sprintf(" #%d", i)
-		base := label
-		if len(base)+len(suffix) > MaxLabelLen {
-			base = base[:MaxLabelLen-len(suffix)]
-		}
+		base := truncateUTF8(label, MaxLabelLen-len(suffix))
 		candidate := base + suffix
 		if !taken[candidate] {
 			taken[candidate] = true

@@ -10,18 +10,28 @@ import (
 func TestRateLimiterKeyFunc(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "192.168.1.1:12345"
-	key := IPKeyFunc(r)
-	if key != "192.168.1.1:12345" {
-		t.Errorf("IPKeyFunc = %q, want 192.168.1.1:12345", key)
+	if key := IPKeyFunc(r); key != "192.168.1.1" {
+		t.Errorf("IPKeyFunc = %q, want 192.168.1.1 (port stripped)", key)
 	}
 }
 
-func TestRateLimiterKeyFuncWithForwardedFor(t *testing.T) {
+func TestRateLimiterKeyFuncUsesRealIP(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
-	r.Header.Set("X-Forwarded-For", "10.0.0.1")
-	key := IPKeyFunc(r)
-	if key != "10.0.0.1" {
+	r.RemoteAddr = "172.18.0.5:40000"
+	r.Header.Set("X-Real-IP", "10.0.0.1")
+	if key := IPKeyFunc(r); key != "10.0.0.1" {
 		t.Errorf("IPKeyFunc = %q, want 10.0.0.1", key)
+	}
+}
+
+func TestRateLimiterKeyFuncIgnoresForwardedFor(t *testing.T) {
+	// X-Forwarded-For is client-controlled (nginx appends to it), so rotating
+	// it must not yield a fresh rate-limit bucket.
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.168.1.1:12345"
+	r.Header.Set("X-Forwarded-For", "10.0.0.1")
+	if key := IPKeyFunc(r); key != "192.168.1.1" {
+		t.Errorf("IPKeyFunc = %q, want 192.168.1.1", key)
 	}
 }
 

@@ -49,6 +49,15 @@ func (s *BenchmarkService) SetRunningFunc(fn func() int) {
 	s.runningFunc = fn
 }
 
+// maxExtractedBytes caps how much one archive may expand to (zip-bomb guard):
+// 20x the per-file upload limit.
+func (s *BenchmarkService) maxExtractedBytes() int64 {
+	if s.cfg.MaxFileSizeMB <= 0 {
+		return 0
+	}
+	return s.cfg.MaxFileSizeMB * 20 * 1024 * 1024
+}
+
 // fileChecksum computes MD5 hex of reader content.
 func fileChecksum(r io.Reader) (string, error) {
 	h := md5.New()
@@ -166,7 +175,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		dst.Close()
 
 		inputDir := filepath.Join(workRoot, "inputs", fmt.Sprintf("%02d", i))
-		bins, err := seqfile.NormalizeFile(srcPath, inputDir, ext)
+		bins, err := seqfile.NormalizeFileLimit(srcPath, inputDir, ext, s.maxExtractedBytes())
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("normalize %s: %w", file.Filename, err)
@@ -382,9 +391,11 @@ func (s *BenchmarkService) GetBenchmarkStatus(ctx context.Context, id uuid.UUID)
 	return s.benchRepo.FindByID(ctx, id)
 }
 
-func (s *BenchmarkService) CompareBenchmarks(ctx context.Context, ids []uuid.UUID) (*model.CompareResponse, error) {
-	if len(ids) > 5 {
-		ids = ids[:5]
+// CompareBenchmarks loads the ready benchmarks among ids that actor may view
+// (own benchmarks; every benchmark for admins).
+func (s *BenchmarkService) CompareBenchmarks(ctx context.Context, actor *model.User, ids []uuid.UUID) (*model.CompareResponse, error) {
+	if max := s.cfg.MaxCompare; max > 0 && len(ids) > max {
+		ids = ids[:max]
 	}
 
 	benchmarks := make([]*model.Benchmark, 0, len(ids))
@@ -393,9 +404,13 @@ func (s *BenchmarkService) CompareBenchmarks(ctx context.Context, ids []uuid.UUI
 		if err != nil {
 			return nil, err
 		}
-		if b != nil && b.Status == "ready" {
-			benchmarks = append(benchmarks, b)
+		if b == nil || b.Status != "ready" || actor == nil {
+			continue
 		}
+		if actor.Role != model.RoleAdmin && b.UserID != actor.ID {
+			continue
+		}
+		benchmarks = append(benchmarks, b)
 	}
 
 	resultIDs := make([]uuid.UUID, len(benchmarks))

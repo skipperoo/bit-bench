@@ -41,7 +41,9 @@ export default function BenchmarksPage() {
     try {
       await apiFetch(`/benchmarks/${id}/cancel`, { method: 'POST' })
       load()
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -49,20 +51,30 @@ export default function BenchmarksPage() {
     try {
       await apiFetch(`/benchmarks/${id}`, { method: 'DELETE' })
       setBenchmarks((prev) => prev.filter((b) => b.id !== id))
-    } catch {}
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const handleBatchDelete = async () => {
     if (selected.size === 0) return
     if (!confirm(`Delete ${selected.size} benchmark(s)?`)) return
     try {
-      await apiFetch('/benchmarks/batch-delete', {
+      const res = await apiFetch<{ deleted: number; errors?: string[] } | undefined>('/benchmarks/batch-delete', {
         method: 'POST',
         body: JSON.stringify({ ids: Array.from(selected) }),
       })
-      setBenchmarks((prev) => prev.filter((b) => !selected.has(b.id)))
       setSelected(new Set())
-    } catch {}
+      if (res?.errors?.length) {
+        // Partial failure: reload to show what is actually left.
+        alert(`Deleted ${res.deleted}; failed:\n${res.errors.join('\n')}`)
+        load()
+      } else {
+        setBenchmarks((prev) => prev.filter((b) => !selected.has(b.id)))
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Request failed')
+    }
   }
 
   const toggleSelect = (id: string) => {

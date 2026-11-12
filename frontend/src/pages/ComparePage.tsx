@@ -10,7 +10,7 @@ import EmulationNotice from '@/components/EmulationNotice'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
-import { withDerivedMetrics } from '@/lib/metrics'
+import { isLowerBetter, metricValue, rangeQueryMetrics, withDerivedMetrics } from '@/lib/metrics'
 import { buildLatexTable, copyToClipboard } from '@/lib/latex'
 import type { LatexTableRow } from '@/lib/latex'
 import type { Benchmark, CompareResponse, BenchmarkResult } from '@/types'
@@ -68,9 +68,11 @@ function getMetricDefs(results: BenchmarkResult[]): MetricDef[] {
       if (typeof v === 'number' && !EXCLUDED_METRICS.has(k)) keys.add(k)
     }
   }
+  for (const key of rangeQueryMetrics(results)) keys.add(key)
   const order = [
     'compression_ratio', 'bits_per_element', 'compression_throughput_mbs', 'decompression_throughput_mbs',
     'memory_usage', 'compressor_internal', 'random_access_ns', 'random_access_mbs',
+    ...rangeQueryMetrics(results),
   ]
   return [...keys]
     .sort((a, b) => {
@@ -89,13 +91,14 @@ function ComparisonBarChart({ benchmarks, results }: { benchmarks: Benchmark[]; 
   const compList = [...compressors]
 
   // Group by compressor: x-axis = compressor, bars = benchmarks
+  // Bars are keyed by benchmark id: two benchmarks may share a name.
   const data = compList.map((c) => {
     const point: Record<string, any> = { name: renameCompressor(c) }
     for (const b of benchmarks) {
       const benchResults = results.get(b.id) || []
       const r = benchResults.find((br) => br.compressor === c)
       if (r?.compression_ratio != null) {
-        point[b.name] = +(r.compression_ratio * 100).toFixed(2)
+        point[b.id] = +(r.compression_ratio * 100).toFixed(2)
       }
     }
     return point
@@ -113,7 +116,7 @@ function ComparisonBarChart({ benchmarks, results }: { benchmarks: Benchmark[]; 
           <Tooltip formatter={(v: any) => `${Number(v).toFixed(2)}%`} />
           <Legend verticalAlign="bottom" height={36} />
           {benchmarks.map((b, i) => (
-            <Bar key={b.id} dataKey={b.name} fill={BENCHMARK_COLORS[i % BENCHMARK_COLORS.length]} name={b.name} />
+            <Bar key={b.id} dataKey={b.id} fill={BENCHMARK_COLORS[i % BENCHMARK_COLORS.length]} name={b.name} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -142,11 +145,7 @@ function MetricComparisonTable({
       label: b.name,
       values: compList.map((c) => {
         const r = benchResults.find((br) => br.compressor === c)
-        if (!r) return null
-        const val = (r as any)[metric]
-        if (val == null) return null
-        if (metric === 'compression_ratio') return +(val * 100).toFixed(2)
-        return val
+        return r ? metricValue(r, metric) ?? null : null
       }),
     }
   })
@@ -202,7 +201,11 @@ function MetricComparisonTable({
           variant="outline"
           size="sm"
           onClick={async () => {
-            const latex = buildLatexTable(allRows, colNames, caption, lowerIsBetter)
+            // The LaTeX export shows ratios as percentages, like the report.
+            const latexRows = metric === 'compression_ratio'
+              ? allRows.map((row) => ({ ...row, values: row.values.map((v) => (v == null ? null : +(v * 100).toFixed(2))) }))
+              : allRows
+            const latex = buildLatexTable(latexRows, colNames, caption, lowerIsBetter)
             await copyToClipboard(latex)
           }}
         >
@@ -222,13 +225,6 @@ export default function ComparePage() {
   if (benchmarks.length === 0) return <p className="text-muted-foreground p-6">No data to compare.</p>
 
   const allResults = [...results.values()].flat()
-
-  const LOWER_IS_BETTER = new Set([
-    'compression_ratio', 'compressed_bits', 'uncompressed_bits',
-    'original_size', 'memory_usage', 'compressor_internal',
-    'random_access_ns', 'internal_memory_ratio', 'relative_memory_usage',
-    'bits_per_element',
-  ])
 
   const metrics = getMetricDefs(allResults)
   const uncompressedReference = allResults.find((r) => r.uncompressed_bits_per_element != null)
@@ -254,9 +250,12 @@ export default function ComparePage() {
         </CardHeader>
         <CardContent>
           <ComparisonBarChart benchmarks={benchmarks} results={results} />
-      <div className="flex justify-end mt-2 mb-4">
-            <Button variant="outline" size="sm">Copy LaTeX</Button>
-          </div>
+          <MetricComparisonTable
+            metric="compression_ratio"
+            benchmarks={benchmarks}
+            results={results}
+            lowerIsBetter
+          />
         </CardContent>
       </Card>
 
@@ -276,7 +275,7 @@ export default function ComparePage() {
               metric={metric.key}
               benchmarks={benchmarks}
               results={results}
-              lowerIsBetter={LOWER_IS_BETTER.has(metric.key)}
+              lowerIsBetter={isLowerBetter(metric.key)}
             />
           </CardContent>
         </Card>

@@ -47,12 +47,12 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	b := &model.Benchmark{}
 	var compressorsJSON []byte
 	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error,
+		SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
 		       progress, created_at, started_at, finished_at, updated_at
 		FROM benchmarks WHERE id = $1
 	`, id).Scan(
 		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
-		&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
+		&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
 		&b.Progress,
 		&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 	)
@@ -67,20 +67,6 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 		return nil, err
 	}
 	b.Compressors = instances
-	return b, nil
-}
-
-func (r *BenchmarkRepository) FindByChecksum(ctx context.Context, checksum string) (*model.Benchmark, error) {
-	b := &model.Benchmark{}
-	err := r.db.QueryRow(ctx, `
-		SELECT id FROM benchmarks WHERE file_checksum = $1 LIMIT 1
-	`, checksum).Scan(&b.ID)
-	if err == pgx.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	return b, nil
 }
 
@@ -102,7 +88,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		p.Limit = 20
 	}
 
-	query := `SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error,
+	query := `SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
 	                  progress, created_at, started_at, finished_at, updated_at
 	           FROM benchmarks WHERE 1=1`
 	args := []any{}
@@ -149,7 +135,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		var compressorsJSON []byte
 		err := rows.Scan(
 			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
-			&b.FileExt, &b.Status, &compressorsJSON, &b.Error,
+			&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
 			&b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 		)
@@ -194,6 +180,16 @@ func (r *BenchmarkRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 
 	query += ` WHERE id = $2`
 	_, err := r.db.Exec(ctx, query, args...)
+	return err
+}
+
+// UpdateStatusIfActive is UpdateStatus restricted to queued/in_progress
+// benchmarks, so a late task failure cannot overwrite a cancellation.
+func (r *BenchmarkRepository) UpdateStatusIfActive(ctx context.Context, id uuid.UUID, status string, errMsg *string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE benchmarks SET status = $2, error = COALESCE($3, error), finished_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND status IN ('queued', 'in_progress')
+	`, id, status, errMsg)
 	return err
 }
 

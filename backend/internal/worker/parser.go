@@ -4,9 +4,42 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 )
+
+// rangeColumnLabel extracts the range size from a range-query column. The
+// native harness emits "range_<N>_mbs"; "range_query_<N>" is the documented
+// alias accepted from user packages.
+func rangeColumnLabel(col string) (string, bool) {
+	switch {
+	case strings.HasPrefix(col, "range_query_"):
+		return strings.TrimPrefix(col, "range_query_"), true
+	case strings.HasPrefix(col, "range_query "):
+		return strings.TrimPrefix(col, "range_query "), true
+	case strings.HasPrefix(col, "range_") && strings.HasSuffix(col, "_mbs") && len(col) > len("range__mbs"):
+		return strings.TrimSuffix(strings.TrimPrefix(col, "range_"), "_mbs"), true
+	}
+	return "", false
+}
+
+// optionalFloat parses an optional metric cell. Empty (lenient only) and
+// non-finite values (a zero-duration timer yields +Inf) are reported as
+// missing so they are stored as NULL instead of breaking JSON encoding.
+func optionalFloat(record []string, colIndex map[string]int, col string, lenient bool) (float64, bool, error) {
+	if lenient && cellEmpty(record, colIndex, col) {
+		return 0, false, nil
+	}
+	v, err := parseFloat(record, colIndex, col)
+	if err != nil {
+		return 0, false, err
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false, nil
+	}
+	return v, true, nil
+}
 
 type BenchmarkRow struct {
 	Compressor                 string
@@ -19,8 +52,8 @@ type BenchmarkRow struct {
 	CompressionRatio           float64
 	CompressionThroughputMbs   float64
 	DecompressionThroughputMbs float64
-	RandomAccessNs           float64
-	RandomAccessMbs          float64
+	RandomAccessNs             float64
+	RandomAccessMbs            float64
 	// Memory metrics measured by the native harness (built-in tasks only).
 	InputBuffer         int64
 	CompressorInternal  int64
@@ -52,12 +85,12 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 	}
 
 	colIndex := make(map[string]int)
-	rangeCols := make([]int, 0)
+	rangeCols := make(map[int]string)
 	for i, col := range header {
 		col = strings.TrimSpace(col)
 		colIndex[col] = i
-		if strings.HasPrefix(col, "range_query_") || strings.HasPrefix(col, "range_query ") {
-			rangeCols = append(rangeCols, i)
+		if label, ok := rangeColumnLabel(col); ok {
+			rangeCols[i] = label
 		}
 	}
 
@@ -84,12 +117,10 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 		lineNum++
 
 		row := BenchmarkRow{
-			Compressor:   record[colIndex["compressor"]],
+			Compressor:   strings.TrimSpace(record[colIndex["compressor"]]),
 			Dataset:      record[colIndex["dataset"]],
 			RangeQueries: make(map[string]float64),
-		}
-		if lenient {
-			row.Missing = make(map[string]bool)
+			Missing:      make(map[string]bool),
 		}
 
 		if row.NumValues, err = parseInt(record, colIndex, "num_values"); err != nil {
@@ -112,33 +143,45 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 		if row.CompressionRatio, err = parseFloat(record, colIndex, "compression_ratio"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
-		if row.CompressionThroughputMbs, err = parseFloat(record, colIndex, "compression_throughput_mbs"); err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNum, err)
+		if math.IsNaN(row.CompressionRatio) || math.IsInf(row.CompressionRatio, 0) {
+			return nil, fmt.Errorf("line %d: compression_ratio is not finite", lineNum)
 		}
-		if row.DecompressionThroughputMbs, err = parseFloat(record, colIndex, "decompression_throughput_mbs"); err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNum, err)
-		}
-		if lenient && cellEmpty(record, colIndex, "random_access_ns") {
-			row.Missing["random_access_ns"] = true
-		} else if row.RandomAccessNs, err = parseFloat(record, colIndex, "random_access_ns"); err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNum, err)
-		}
-		if lenient && cellEmpty(record, colIndex, "random_access_mbs") {
-			row.Missing["random_access_mbs"] = true
-		} else if row.RandomAccessMbs, err = parseFloat(record, colIndex, "random_access_mbs"); err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNum, err)
+		for _, metric := range []struct {
+			col string
+			dst *float64
+		}{
+			{"compression_throughput_mbs", &row.CompressionThroughputMbs},
+			{"decompression_throughput_mbs", &row.DecompressionThroughputMbs},
+			{"random_access_ns", &row.RandomAccessNs},
+			{"random_access_mbs", &row.RandomAccessMbs},
+		} {
+			// Throughputs are mandatory cells even in lenient mode.
+			allowEmpty := lenient && (metric.col == "random_access_ns" || metric.col == "random_access_mbs")
+			v, ok, err := optionalFloat(record, colIndex, metric.col, allowEmpty)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+			if ok {
+				*metric.dst = v
+			} else {
+				row.Missing[metric.col] = true
+			}
 		}
 
-		// Parse range query columns
-		for _, idx := range rangeCols {
-			colName := strings.TrimSpace(header[idx])
-			val, err := strconv.ParseFloat(strings.TrimSpace(record[idx]), 64)
-			if err != nil {
-				continue // skip unparseable range values
+		// Range-query throughputs. The harness prints 0.0 for range sizes that
+		// do not fit in the sequence (range >= num_values); those are not
+		// measurements and are skipped, like unparseable or non-finite cells.
+		for idx, label := range rangeCols {
+			if idx >= len(record) {
+				continue
 			}
-			// Extract the range label (e.g., "range_query_1M" -> "1M")
-			label := strings.TrimPrefix(colName, "range_query_")
-			label = strings.TrimPrefix(label, "range_query ")
+			val, err := strconv.ParseFloat(strings.TrimSpace(record[idx]), 64)
+			if err != nil || math.IsNaN(val) || math.IsInf(val, 0) {
+				continue
+			}
+			if size, err := strconv.ParseInt(label, 10, 64); err == nil && size >= row.NumValues && val == 0 {
+				continue
+			}
 			row.RangeQueries[label] = val
 		}
 
@@ -173,123 +216,120 @@ func parseFloat(record []string, colIndex map[string]int, col string) (float64, 
 }
 
 // AverageRows averages all rows per compressor into one row per compressor.
+// Every optional metric is averaged over the rows that reported it, and a
+// metric missing from every row stays missing (stored as NULL).
 func AverageRows(rows []BenchmarkRow) []BenchmarkRow {
+	order := make([]string, 0)
 	groups := make(map[string][]BenchmarkRow)
 	for _, r := range rows {
+		if _, ok := groups[r.Compressor]; !ok {
+			order = append(order, r.Compressor)
+		}
 		groups[r.Compressor] = append(groups[r.Compressor], r)
 	}
 
-	var result []BenchmarkRow
-	for comp, group := range groups {
-		avg := BenchmarkRow{
-			Compressor:   comp,
-			Dataset:      group[0].Dataset,
-			RangeQueries: make(map[string]float64),
-			Missing:      make(map[string]bool),
-		}
+	result := make([]BenchmarkRow, 0, len(order))
+	for _, comp := range order {
+		result = append(result, averageGroup(comp, groups[comp]))
+	}
+	return result
+}
 
-		var numValuesSum, originalSizeSum, memoryUsageSum int64
-		var uncompressedSum, compressedSum int64
-		var ratioSum, tpSum, decompSum, ransSum, rambsSum float64
-		var inputBufferSum, compressorInternalSum int64
-		var internalRatioSum, relativeMemorySum float64
-		n := len(group)
-		memoryCount, ransCount, rambsCount := 0, 0, 0
-		inputBufferCount, compressorInternalCount := 0, 0
-		internalRatioCount, relativeMemoryCount := 0, 0
+// metricAccumulator collects the reported values of one metric.
+type metricAccumulator struct {
+	sum   float64
+	count int
+}
 
-		for _, r := range group {
-			numValuesSum += r.NumValues
-			originalSizeSum += r.OriginalSize
-			if !r.Missing["memory_usage"] {
-				memoryUsageSum += r.MemoryUsage
-				memoryCount++
-			}
-			if !r.Missing["input_buffer"] {
-				inputBufferSum += r.InputBuffer
-				inputBufferCount++
-			}
-			if !r.Missing["compressor_internal"] {
-				compressorInternalSum += r.CompressorInternal
-				compressorInternalCount++
-			}
-			if !r.Missing["internal_memory_ratio"] {
-				internalRatioSum += r.InternalMemoryRatio
-				internalRatioCount++
-			}
-			if !r.Missing["relative_memory_usage"] {
-				relativeMemorySum += r.RelativeMemoryUsage
-				relativeMemoryCount++
-			}
-			uncompressedSum += r.UncompressedBits
-			compressedSum += r.CompressedBits
-			ratioSum += r.CompressionRatio
-			tpSum += r.CompressionThroughputMbs
-			decompSum += r.DecompressionThroughputMbs
-			if !r.Missing["random_access_ns"] {
-				ransSum += r.RandomAccessNs
-				ransCount++
-			}
-			if !r.Missing["random_access_mbs"] {
-				rambsSum += r.RandomAccessMbs
-				rambsCount++
-			}
+func (a *metricAccumulator) add(v float64) { a.sum += v; a.count++ }
 
-			for k, v := range r.RangeQueries {
-				avg.RangeQueries[k] += v
-			}
-		}
+// mean returns the average and whether any row reported the metric.
+func (a *metricAccumulator) mean() (float64, bool) {
+	if a.count == 0 {
+		return 0, false
+	}
+	return a.sum / float64(a.count), true
+}
 
-		avg.NumValues = numValuesSum / int64(n)
-		avg.OriginalSize = originalSizeSum / int64(n)
-		avg.UncompressedBits = uncompressedSum / int64(n)
-		avg.CompressedBits = compressedSum / int64(n)
-		avg.CompressionRatio = ratioSum / float64(n)
-		avg.CompressionThroughputMbs = tpSum / float64(n)
-		avg.DecompressionThroughputMbs = decompSum / float64(n)
-
-		if memoryCount > 0 {
-			avg.MemoryUsage = memoryUsageSum / int64(memoryCount)
-		} else {
-			avg.Missing["memory_usage"] = true
-		}
-		if inputBufferCount > 0 {
-			avg.InputBuffer = inputBufferSum / int64(inputBufferCount)
-		} else {
-			avg.Missing["input_buffer"] = true
-		}
-		if compressorInternalCount > 0 {
-			avg.CompressorInternal = compressorInternalSum / int64(compressorInternalCount)
-		} else {
-			avg.Missing["compressor_internal"] = true
-		}
-		if internalRatioCount > 0 {
-			avg.InternalMemoryRatio = internalRatioSum / float64(internalRatioCount)
-		} else {
-			avg.Missing["internal_memory_ratio"] = true
-		}
-		if relativeMemoryCount > 0 {
-			avg.RelativeMemoryUsage = relativeMemorySum / float64(relativeMemoryCount)
-		} else {
-			avg.Missing["relative_memory_usage"] = true
-		}
-		if ransCount > 0 {
-			avg.RandomAccessNs = ransSum / float64(ransCount)
-		} else {
-			avg.Missing["random_access_ns"] = true
-		}
-		if rambsCount > 0 {
-			avg.RandomAccessMbs = rambsSum / float64(rambsCount)
-		} else {
-			avg.Missing["random_access_mbs"] = true
-		}
-
-		for k := range avg.RangeQueries {
-			avg.RangeQueries[k] /= float64(n)
-		}
-
-		result = append(result, avg)
+func averageGroup(comp string, group []BenchmarkRow) BenchmarkRow {
+	avg := BenchmarkRow{
+		Compressor:   comp,
+		Dataset:      group[0].Dataset,
+		RangeQueries: make(map[string]float64),
+		Missing:      make(map[string]bool),
 	}
 
-	return result
+	type intMetric struct {
+		key string
+		get func(*BenchmarkRow) int64
+		set func(*BenchmarkRow, int64)
+	}
+	type floatMetric struct {
+		key string
+		get func(*BenchmarkRow) float64
+		set func(*BenchmarkRow, float64)
+	}
+	// Metrics whose key is "" are always reported (mandatory columns).
+	ints := []intMetric{
+		{"", func(r *BenchmarkRow) int64 { return r.NumValues }, func(r *BenchmarkRow, v int64) { r.NumValues = v }},
+		{"", func(r *BenchmarkRow) int64 { return r.OriginalSize }, func(r *BenchmarkRow, v int64) { r.OriginalSize = v }},
+		{"", func(r *BenchmarkRow) int64 { return r.UncompressedBits }, func(r *BenchmarkRow, v int64) { r.UncompressedBits = v }},
+		{"", func(r *BenchmarkRow) int64 { return r.CompressedBits }, func(r *BenchmarkRow, v int64) { r.CompressedBits = v }},
+		{"memory_usage", func(r *BenchmarkRow) int64 { return r.MemoryUsage }, func(r *BenchmarkRow, v int64) { r.MemoryUsage = v }},
+		{"input_buffer", func(r *BenchmarkRow) int64 { return r.InputBuffer }, func(r *BenchmarkRow, v int64) { r.InputBuffer = v }},
+		{"compressor_internal", func(r *BenchmarkRow) int64 { return r.CompressorInternal }, func(r *BenchmarkRow, v int64) { r.CompressorInternal = v }},
+	}
+	floats := []floatMetric{
+		{"", func(r *BenchmarkRow) float64 { return r.CompressionRatio }, func(r *BenchmarkRow, v float64) { r.CompressionRatio = v }},
+		{"compression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.CompressionThroughputMbs }, func(r *BenchmarkRow, v float64) { r.CompressionThroughputMbs = v }},
+		{"decompression_throughput_mbs", func(r *BenchmarkRow) float64 { return r.DecompressionThroughputMbs }, func(r *BenchmarkRow, v float64) { r.DecompressionThroughputMbs = v }},
+		{"random_access_ns", func(r *BenchmarkRow) float64 { return r.RandomAccessNs }, func(r *BenchmarkRow, v float64) { r.RandomAccessNs = v }},
+		{"random_access_mbs", func(r *BenchmarkRow) float64 { return r.RandomAccessMbs }, func(r *BenchmarkRow, v float64) { r.RandomAccessMbs = v }},
+		{"internal_memory_ratio", func(r *BenchmarkRow) float64 { return r.InternalMemoryRatio }, func(r *BenchmarkRow, v float64) { r.InternalMemoryRatio = v }},
+		{"relative_memory_usage", func(r *BenchmarkRow) float64 { return r.RelativeMemoryUsage }, func(r *BenchmarkRow, v float64) { r.RelativeMemoryUsage = v }},
+	}
+
+	for _, m := range ints {
+		var acc metricAccumulator
+		for i := range group {
+			if m.key == "" || !group[i].Missing[m.key] {
+				acc.add(float64(m.get(&group[i])))
+			}
+		}
+		if v, ok := acc.mean(); ok {
+			m.set(&avg, int64(math.Round(v)))
+		} else {
+			avg.Missing[m.key] = true
+		}
+	}
+	for _, m := range floats {
+		var acc metricAccumulator
+		for i := range group {
+			if m.key == "" || !group[i].Missing[m.key] {
+				acc.add(m.get(&group[i]))
+			}
+		}
+		if v, ok := acc.mean(); ok {
+			m.set(&avg, v)
+		} else {
+			avg.Missing[m.key] = true
+		}
+	}
+
+	// Each range size is averaged over the rows that measured it.
+	ranges := make(map[string]*metricAccumulator)
+	for i := range group {
+		for k, v := range group[i].RangeQueries {
+			if ranges[k] == nil {
+				ranges[k] = &metricAccumulator{}
+			}
+			ranges[k].add(v)
+		}
+	}
+	for k, acc := range ranges {
+		if v, ok := acc.mean(); ok {
+			avg.RangeQueries[k] = v
+		}
+	}
+	return avg
 }

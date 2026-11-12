@@ -171,7 +171,7 @@ func (r *BenchmarkRunner) processTask(ctx context.Context, task *model.Benchmark
 		return
 	}
 
-	rows, err := r.runTask(ctx, benchmark, task)
+	rows, warning, err := r.runTask(ctx, benchmark, task)
 	if err != nil {
 		r.handleTaskError(ctx, task, err)
 		return
@@ -182,7 +182,7 @@ func (r *BenchmarkRunner) processTask(ctx context.Context, task *model.Benchmark
 		r.handleTaskError(ctx, task, fmt.Errorf("encode task result: %w", err))
 		return
 	}
-	if err := r.taskRepo.Complete(ctx, task.ID, payload); err != nil {
+	if err := r.taskRepo.Complete(ctx, task.ID, payload, warning); err != nil {
 		logger.Error("complete task", "task", task.ID, "error", err)
 	}
 	_ = r.benchRepo.UpdateProgressFromTasks(ctx, task.BenchmarkID)
@@ -198,7 +198,8 @@ func (r *BenchmarkRunner) handleTaskError(ctx context.Context, task *model.Bench
 		status = "timed_out"
 		msg = fmt.Sprintf("timeout after %ds", int(r.cfg.BenchTimeout.Seconds()))
 	}
-	_ = r.benchRepo.UpdateStatus(ctx, task.BenchmarkID, status, &msg)
+	// Never overwrite a terminal status (e.g. an admin cancellation).
+	_ = r.benchRepo.UpdateStatusIfActive(ctx, task.BenchmarkID, status, &msg)
 	_ = r.taskRepo.CancelQueuedForBenchmark(ctx, task.BenchmarkID)
 	logger.Warn("benchmark task failed", "task", task.ID, "benchmark", task.BenchmarkID, "error", msg)
 	r.finalize(ctx, task.BenchmarkID)
@@ -334,14 +335,23 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 			_ = tx.Rollback(ctx)
 			msg := fmt.Sprintf("persist results: %v", err)
 			_ = r.benchRepo.UpdateStatus(ctx, benchmarkID, "failed", &msg)
+			// Drop the task rows and inputs too: nothing will finalize a
+			// failed benchmark again.
+			_ = r.taskRepo.DeleteByBenchmark(ctx, benchmarkID)
+			r.cleanupWorkdir(benchmarkID)
 			return
 		}
 	}
 
+	warnings, err := taskWarningsTx(ctx, tx, benchmarkID)
+	if err != nil {
+		logger.Error("finalize load warnings", "benchmark", benchmarkID, "error", err)
+		return
+	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE benchmarks SET status = 'ready', error = NULL, finished_at = NOW(), progress = 100, updated_at = NOW()
+		UPDATE benchmarks SET status = 'ready', error = NULL, warnings = $2, finished_at = NOW(), progress = 100, updated_at = NOW()
 		WHERE id = $1
-	`, benchmarkID); err != nil {
+	`, benchmarkID, warnings); err != nil {
 		logger.Error("finalize ready", "benchmark", benchmarkID, "error", err)
 		return
 	}
@@ -379,6 +389,30 @@ func taskCountsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) (*repos
 	return counts, nil
 }
 
+// taskWarningsTx returns the distinct warnings recorded by completed tasks
+// (e.g. a compressor that produced no result for one input).
+func taskWarningsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT error FROM benchmark_tasks
+		WHERE benchmark_id = $1 AND status = 'done' AND error IS NOT NULL AND error <> ''
+		ORDER BY error
+	`, benchmarkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	warnings := []string{}
+	for rows.Next() {
+		var w string
+		if err := rows.Scan(&w); err != nil {
+			return nil, err
+		}
+		warnings = append(warnings, w)
+	}
+	return warnings, rows.Err()
+}
+
 func doneResultsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([][]byte, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT result FROM benchmark_tasks
@@ -401,16 +435,17 @@ func doneResultsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([][]b
 	return results, rows.Err()
 }
 
-// runTask executes one task and returns its parsed result rows.
-func (r *BenchmarkRunner) runTask(ctx context.Context, benchmark *model.Benchmark, task *model.BenchmarkTask) ([]BenchmarkRow, error) {
+// runTask executes one task and returns its parsed result rows plus an
+// optional non-fatal warning recorded on the benchmark.
+func (r *BenchmarkRunner) runTask(ctx context.Context, benchmark *model.Benchmark, task *model.BenchmarkTask) ([]BenchmarkRow, string, error) {
 	binPath := filepath.Join(r.cfg.DataDir, task.InputPath)
 	if _, err := os.Stat(binPath); err != nil {
-		return nil, fmt.Errorf("task input missing: %w", err)
+		return nil, "", fmt.Errorf("task input missing: %w", err)
 	}
 
 	taskDir := filepath.Join(r.cfg.DataDir, task.BenchmarkID.String(), "tasks", task.ID.String())
 	if err := os.MkdirAll(taskDir, 0755); err != nil {
-		return nil, fmt.Errorf("create task dir: %w", err)
+		return nil, "", fmt.Errorf("create task dir: %w", err)
 	}
 	defer os.RemoveAll(taskDir)
 
@@ -418,10 +453,31 @@ func (r *BenchmarkRunner) runTask(ctx context.Context, benchmark *model.Benchmar
 	case model.TaskKindBuiltin:
 		return r.runBuiltinTask(ctx, benchmark, binPath, taskDir)
 	case model.TaskKindCustom:
-		return r.runCustomTask(ctx, benchmark, task, binPath, taskDir)
+		rows, err := r.runCustomTask(ctx, benchmark, task, binPath, taskDir)
+		return rows, "", err
 	default:
-		return nil, fmt.Errorf("unknown task kind %q", task.Kind)
+		return nil, "", fmt.Errorf("unknown task kind %q", task.Kind)
 	}
+}
+
+// missingEntriesWarning lists the configured entries without a result row:
+// the harness logs a per-compressor error and continues, so a crash on one
+// input would otherwise silently shrink that compressor's average.
+func missingEntriesWarning(rows []BenchmarkRow, invocations []compressorInvocation, binPath string) string {
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		seen[strings.ToLower(row.Compressor)] = true
+	}
+	var missing []string
+	for _, inv := range invocations {
+		if !seen[strings.ToLower(inv.Entry)] {
+			missing = append(missing, inv.Label)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("no result for %s on %s", strings.Join(missing, ", "), filepath.Base(binPath))
 }
 
 // compressorInvocation is one configured built-in compressor of a task.
@@ -432,7 +488,7 @@ type compressorInvocation struct {
 
 // runBuiltinTask runs every configured built-in instance for one .bin plus the
 // memory measurements for that .bin.
-func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.Benchmark, binPath, taskDir string) ([]BenchmarkRow, error) {
+func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.Benchmark, binPath, taskDir string) ([]BenchmarkRow, string, error) {
 	var invocations []compressorInvocation
 	for _, inst := range benchmark.Compressors {
 		if !compressor.IsValid(inst.Name) {
@@ -445,12 +501,12 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 		})
 	}
 	if len(invocations) == 0 {
-		return nil, fmt.Errorf("no built-in compressors selected")
+		return nil, "", fmt.Errorf("no built-in compressors selected")
 	}
 
 	binaryPath, err := r.resolveBinary()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	entries := make([]string, 0, len(invocations))
 	for _, inv := range invocations {
@@ -466,29 +522,29 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 
 		result, err := RunBenchmark(binaryPath, compressorList, binPath, taskDir, r.cfg.BenchTimeout, nil)
 		if err != nil {
-			return nil, fmt.Errorf("exec error: %w", err)
+			return nil, "", fmt.Errorf("exec error: %w", err)
 		}
 		if result.ExitCode == 124 {
-			return nil, errTaskTimeout
+			return nil, "", errTaskTimeout
 		}
 		if result.ExitCode != 0 {
 			if attempt == r.cfg.BenchMaxRetries {
-				return nil, fmt.Errorf("exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
+				return nil, "", fmt.Errorf("exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
 			}
 			continue
 		}
 		if result.CSVPath == "" {
-			return nil, fmt.Errorf("no CSV output produced")
+			return nil, "", fmt.Errorf("no CSV output produced")
 		}
 
 		f, err := os.Open(result.CSVPath)
 		if err != nil {
-			return nil, fmt.Errorf("open csv: %w", err)
+			return nil, "", fmt.Errorf("open csv: %w", err)
 		}
 		parsed, parseErr := ParseCSV(f)
 		f.Close()
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse csv: %w", parseErr)
+			return nil, "", fmt.Errorf("parse csv: %w", parseErr)
 		}
 		rows = parsed
 		break
@@ -497,6 +553,7 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 	// Memory results are keyed by the native entry; rows are then relabelled to
 	// the configured instance labels (row names may differ in case for plain
 	// entries, e.g. "NeaTS").
+	warning := missingEntriesWarning(rows, invocations, binPath)
 	r.attachMemoryResults(rows, invocations, binPath, taskDir)
 	labels := make(map[string]string, len(invocations))
 	for _, inv := range invocations {
@@ -507,7 +564,7 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 			rows[i].Compressor = label
 		}
 	}
-	return rows, nil
+	return rows, warning, nil
 }
 
 // attachMemoryResults runs the Massif-based memory harness for every configured
@@ -721,17 +778,21 @@ func (r *BenchmarkRunner) resolveMemoryBinary() (string, error) {
 func rowToResult(benchmarkID uuid.UUID, dataset string, row BenchmarkRow) *model.BenchmarkResult {
 	rangeJSON, _ := json.Marshal(row.RangeQueries)
 	res := &model.BenchmarkResult{
-		BenchmarkID:                benchmarkID,
-		Compressor:                 row.Compressor,
-		Dataset:                    dataset,
-		NumValues:                  int64Ptr(row.NumValues),
-		OriginalSize:               int64Ptr(row.OriginalSize),
-		UncompressedBits:           int64Ptr(row.UncompressedBits),
-		CompressedBits:             int64Ptr(row.CompressedBits),
-		CompressionRatio:           float64Ptr(row.CompressionRatio),
-		CompressionThroughputMbs:   float64Ptr(row.CompressionThroughputMbs),
-		DecompressionThroughputMbs: float64Ptr(row.DecompressionThroughputMbs),
-		RangeQueries:               rangeJSON,
+		BenchmarkID:      benchmarkID,
+		Compressor:       row.Compressor,
+		Dataset:          dataset,
+		NumValues:        int64Ptr(row.NumValues),
+		OriginalSize:     int64Ptr(row.OriginalSize),
+		UncompressedBits: int64Ptr(row.UncompressedBits),
+		CompressedBits:   int64Ptr(row.CompressedBits),
+		CompressionRatio: float64Ptr(row.CompressionRatio),
+		RangeQueries:     rangeJSON,
+	}
+	if !row.Missing["compression_throughput_mbs"] {
+		res.CompressionThroughputMbs = float64Ptr(row.CompressionThroughputMbs)
+	}
+	if !row.Missing["decompression_throughput_mbs"] {
+		res.DecompressionThroughputMbs = float64Ptr(row.DecompressionThroughputMbs)
 	}
 	if !row.Missing["memory_usage"] {
 		res.MemoryUsage = int64Ptr(row.MemoryUsage)
@@ -770,10 +831,6 @@ func markMissing(row *BenchmarkRow, key string) {
 		row.Missing = make(map[string]bool)
 	}
 	row.Missing[key] = true
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func int64Ptr(i int64) *int64 {
