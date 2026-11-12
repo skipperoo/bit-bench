@@ -135,6 +135,8 @@ export interface BenchmarkResult {
   random_access_ns?: number
   random_access_mbs?: number
   range_queries?: Record<string, number>
+  /** Inputs on which the decompressed data did not match the input. */
+  self_test_failures?: number
   // Derived client-side by `withDerivedMetrics` (lib/metrics.ts).
   bits_per_element?: number
   uncompressed_bits_per_element?: number

@@ -7,6 +7,8 @@
 #include <array>
 #include <cstdint>
 #include <atomic>
+#include <cmath>
+#include <iostream>
 #include <map>
 #include <ostream>
 #include <string>
@@ -27,6 +29,20 @@ struct BenchmarkResult {
     double random_access_ns{};
     double random_access_mbs{};
     std::vector<std::pair<size_t, double>> range_query_throughputs; // (range_size, MB/s)
+    // Self-test: the decompressed sequence must equal the input. A failure is
+    // still reported (self_test=failed in the CSV) so the numbers can be
+    // inspected, but the result is not a lossless measurement.
+    bool self_test_failed{false};
+    std::string self_test_note;
+
+    // Marks the self-test failed; the first reason is kept and logged.
+    void fail_self_test(const std::string &note) {
+        if (!self_test_failed) {
+            self_test_note = note;
+            std::cerr << "  " << compressor << " self-test failed: " << note << std::endl;
+        }
+        self_test_failed = true;
+    }
 
     void print_header(std::ostream &out, const std::vector<size_t> &range_sizes = {}) const;
     void print(std::ostream &out, const std::vector<size_t> &range_sizes = {}) const;
@@ -40,6 +56,10 @@ struct BenchmarkData {
     std::vector<double> double_data;
     int64_t decimals{};
     int64_t min_val{};
+    // False when converting the integers to doubles (value / 10^decimals)
+    // loses information, i.e. |value| beyond 2^53: floating-point compressors
+    // then cannot be lossless with respect to the original integers.
+    bool double_exact{true};
     size_t uncompressed_bits{};
 
     // Indices
@@ -56,10 +76,20 @@ struct BenchmarkData {
         double divisor = static_cast<double>(divisor_int);
 
         double_data.resize(shifted_data.size());
+        double_exact = true;
+        constexpr double exact_limit = 9007199254740992.0; // 2^53
         for (size_t i = 0; i < shifted_data.size(); ++i) {
             // raw_data[i] = shifted_data[i] + min_val
             // double_data[i] = raw_data[i] / divisor
-            double_data[i] = static_cast<double>(shifted_data[i] + min_val) / divisor;
+            const int64_t raw = shifted_data[i] + min_val;
+            double_data[i] = static_cast<double>(raw) / divisor;
+            if (double_exact) {
+                const double back = double_data[i] * divisor;
+                if (std::abs(static_cast<double>(raw)) > exact_limit ||
+                    std::llround(back) != raw) {
+                    double_exact = false;
+                }
+            }
         }
 
         // Free shifted_data

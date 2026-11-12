@@ -12,6 +12,7 @@
  */
 
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <chrono>
 #include <atomic>
@@ -217,8 +218,11 @@ void BenchmarkResult::print_header(std::ostream &out, const std::vector<size_t> 
     for (auto range : range_sizes) {
         out << ",range_" << range << "_mbs";
     }
+    out << ",self_test";
     out << std::endl;
 }
+
+
 
 void BenchmarkResult::print(std::ostream &out, const std::vector<size_t> &range_sizes) const {
     out << std::fixed << std::setprecision(4);
@@ -241,6 +245,7 @@ void BenchmarkResult::print(std::ostream &out, const std::vector<size_t> &range_
             out << ",0.0";
         }
     }
+    out << "," << (self_test_failed ? "failed" : "ok");
     out << std::endl;
 }
 
@@ -320,7 +325,7 @@ BenchmarkResult benchmark_neats_impl(const std::vector<T> &processed_data,
     
     for (size_t i = 0; i < processed_data.size(); ++i) {
         if (processed_data[i] != decompressed[i]) {
-            std::cerr << "NeaTS decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -442,7 +447,7 @@ BenchmarkResult benchmark_gef(const std::string &compressor_name,
     
     for (size_t i = 0; i < data.size(); ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << compressor_name << " decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -540,7 +545,7 @@ BenchmarkResult benchmark_dac(const BenchmarkData &bench_data,
     
     for (size_t i = 0; i < data.size(); ++i) {
         if (u_data[i] != decompressed[i]) {
-            std::cerr << "DAC decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -679,10 +684,10 @@ BenchmarkResult benchmark_bitstream_compressor(const std::string &compressor_nam
         bool match = (std::abs(data[i] - decompressed[i]) < 1e-9);
 
         if (!match) {
-            std::cerr << compressor_name << " decompression error at " << i 
-                      << " Expected: " << std::setprecision(20) << data[i] 
-                      << " Got: " << decompressed[i] 
-                      << " Diff: " << std::abs(data[i] - decompressed[i]) << std::endl;
+            std::ostringstream note;
+            note << "decompressed value differs at index " << i << " (expected "
+                 << std::setprecision(20) << data[i] << ", got " << decompressed[i] << ")";
+            result.fail_self_test(note.str());
             break;
         }
     }
@@ -852,7 +857,7 @@ BenchmarkResult benchmark_tsxor(const BenchmarkData &bench_data,
     
     for (size_t i = 0; i < n; ++i) {
         if (std::abs(data[i] - decompressed[i]) >= 1e-9) {
-            std::cerr << "TSXor decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -1036,7 +1041,7 @@ BenchmarkResult benchmark_falcon(const BenchmarkData &bench_data,
 
     for (size_t i = 0; i < n; ++i) {
         if (std::abs(data[i] - decompressed[i]) >= 1e-9) {
-            std::cerr << "Falcon (Chunked) decompression error at index " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -1232,7 +1237,7 @@ BenchmarkResult benchmark_pfordelta(const std::string &codec_name,
 
     for (size_t i = 0; i < n; ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << "PForDelta decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -1396,7 +1401,7 @@ BenchmarkResult benchmark_gzip(const std::string &compressor_name,
 
     for (size_t i = 0; i < n; ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << compressor_name << " decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -1529,7 +1534,7 @@ BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
 
         int ret = bz3_compress(bz3_block_size, data_bytes.data(), compressed.data(), data_bytes.size(), &out_size);
         if (ret != BZ3_OK) {
-            std::cerr << compressor_name << " compression error: " << ret << std::endl;
+            result.fail_self_test("compression error " + std::to_string(ret));
             compressed.clear();
             total_compressed_bits += 0;
             compressed_blocks[ib] = std::move(compressed);
@@ -1562,7 +1567,7 @@ BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
         int ret = bz3_decompress(compressed_blocks[ib].data(), decompressed_bytes.data(),
                                  compressed_blocks[ib].size(), &decomp_size);
         if (ret != BZ3_OK) {
-            std::cerr << compressor_name << " decompression error at block " << ib << ": " << ret << std::endl;
+            result.fail_self_test("decompression error " + std::to_string(ret) + " at block " + std::to_string(ib));
             break;
         }
 
@@ -1583,7 +1588,7 @@ BenchmarkResult benchmark_bzip3(const std::string &compressor_name,
 
     for (size_t i = 0; i < n; ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << compressor_name << " decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -1787,7 +1792,7 @@ BenchmarkResult benchmark_squash(const std::string &compressor_name,
     
     for (size_t i = 0; i < n; ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << compressor_name << " decompression error at " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -2307,6 +2312,11 @@ int main(int argc, char *argv[]) {
                 } else {
                     std::cerr << " unknown compressor, skipping" << std::endl;
                     continue;
+                }
+                if (!bench_data.double_exact) {
+                    // The compressor saw doubles that already differ from the
+                    // input integers: whatever it reports is not lossless.
+                    result.fail_self_test("input values are not exactly representable as doubles (|value| beyond 2^53)");
                 }
                 result.original_size = bench_data.original_size;
                 if (comp.find('=') != std::string::npos) {

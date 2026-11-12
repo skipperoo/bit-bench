@@ -272,7 +272,13 @@ public:
     int max_precision = DECIMAL_MAX_COUNT;
     
     explicit CompressorCamel(const T& value, int max_prec = DECIMAL_MAX_COUNT) {
-        if (max_prec >= 0 && max_prec < DECIMAL_MAX_COUNT) {
+        // Camel always encodes at least one decimal digit (integers are stored
+        // as decimal_count=1, value 0). A precision of 0, e.g. from a .bin with
+        // decimals=0, made the encoder skip the decimal field that the decoder
+        // still reads, desynchronizing the stream; clamp it to 1.
+        if (max_prec == 0) {
+            max_precision = 1;
+        } else if (max_prec > 0 && max_prec < DECIMAL_MAX_COUNT) {
             max_precision = max_prec;
         }
         addValue(value);

@@ -1,5 +1,6 @@
 // ALP benchmark - uses the ALP library for floating-point compression.
 
+#include <string>
 #include "benchmark_common.hpp"
 #include "alp.hpp"
 
@@ -220,7 +221,7 @@ BenchmarkResult benchmark_alp(const BenchmarkData &bench_data,
     // Verify correctness
     for (size_t i = 0; i < n_full; ++i) {
         if (data[i] != decompressed[i]) {
-            std::cerr << "ALP verification failed at index " << i << std::endl;
+            result.fail_self_test("decompressed value differs at index " + std::to_string(i));
             break;
         }
     }
@@ -282,8 +283,7 @@ BenchmarkResult benchmark_alp(const BenchmarkData &bench_data,
             const double got = vec_buf[offset];
             const double expected = data[idx];
             if (got != expected) {
-                std::cerr << "ALP random access mismatch at idx=" << idx
-                          << " expected=" << expected << " got=" << got << std::endl;
+                result.fail_self_test("random access returned a wrong value at index " + std::to_string(idx));
                 break;
             }
         }

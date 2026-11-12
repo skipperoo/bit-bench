@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import EmulationNotice from '@/components/EmulationNotice'
 import CompressorSwatch from '@/components/CompressorSwatch'
+import SelfTestBadge from '@/components/SelfTestBadge'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor, getCompressorShape, assignCompressorColors } from '@/lib/compressors'
 import { usePackageColors } from '@/lib/package-colors'
@@ -326,6 +327,7 @@ function RankedTable({ results, metric, referenceMetric, colors }: {
                   <span className="inline-flex items-center gap-1.5">
                     <CompressorSwatch name={r.compressor} color={colors?.get(r.compressor)} />
                     {renameCompressor(r.compressor)}
+                    <SelfTestBadge failures={results.find((res) => res.compressor === r.compressor)?.self_test_failures} />
                   </span>
                 </td>
                 <td className="text-right py-1">
@@ -484,7 +486,12 @@ export default function DetailPage() {
                     return (
                       <tr key={comp} className="border-b last:border-0">
                         <td className="py-2 text-muted-foreground">{i + 1}</td>
-                        <td className="py-2 font-mono">{renameCompressor(comp)}</td>
+                        <td className="py-2 font-mono">
+                          <span className="inline-flex items-center gap-1.5">
+                            {renameCompressor(comp)}
+                            <SelfTestBadge failures={r?.self_test_failures} />
+                          </span>
+                        </td>
                         <td className="text-right py-2">
                           {r?.compression_ratio != null ? (r.compression_ratio * 100).toFixed(2) : '-'}
                         </td>

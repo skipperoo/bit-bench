@@ -157,6 +157,9 @@ Write a CSV to the `-o` path with exactly this header:
 compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs
 ```
 
+- Optional trailing columns: range-query throughputs (see below) and
+  `self_test` (`ok`/`failed`): write `failed` when your decoder's output did
+  not match the input; the result is kept but marked "self-test failed".
 - `compressor`: the package `name` (the platform normalizes it anyway).
 - `dataset`: ignored by the platform; the benchmark label is used instead.
 - Required metrics: `num_values`, `original_size`, `uncompressed_bits`,

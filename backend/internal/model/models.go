@@ -150,6 +150,9 @@ type BenchmarkResult struct {
 	RandomAccessNs             *float64        `json:"random_access_ns,omitempty"`
 	RandomAccessMbs            *float64        `json:"random_access_mbs,omitempty"`
 	RangeQueries               json.RawMessage `json:"range_queries,omitempty"`
+	// SelfTestFailures counts the inputs on which the compressor's output did
+	// not round-trip to the input (the result is not a lossless measurement).
+	SelfTestFailures int `json:"self_test_failures"`
 }
 
 type CompressorPackage struct {
