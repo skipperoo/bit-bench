@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -36,24 +37,39 @@ func (r *BenchmarkRepository) Create(ctx context.Context, b *model.Benchmark) er
 	b.CreatedAt = time.Now()
 	b.UpdatedAt = time.Now()
 
+	if b.Aggregation == "" {
+		b.Aggregation = "mean"
+	}
+	var sourceJSON []byte
+	if b.Source != nil {
+		if sourceJSON, err = json.Marshal(b.Source); err != nil {
+			return err
+		}
+	}
+	if b.Warnings == nil {
+		b.Warnings = []string{}
+	}
+
 	_, err = r.db.Exec(ctx, `
-		INSERT INTO benchmarks (id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, b.ID, b.UserID, b.Name, b.OriginalFilename, b.FileSize, b.FileCount, b.FileChecksum, b.FileExt, b.Status, compressorsJSON)
+		INSERT INTO benchmarks (id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors,
+		                        aggregation, measure_memory, source, warnings)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	`, b.ID, b.UserID, b.Name, b.OriginalFilename, b.FileSize, b.FileCount, b.FileChecksum, b.FileExt, b.Status, compressorsJSON,
+		b.Aggregation, b.MeasureMemory, sourceJSON, b.Warnings)
 	return err
 }
 
 func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Benchmark, error) {
 	b := &model.Benchmark{}
-	var compressorsJSON []byte
+	var compressorsJSON, sourceJSON []byte
 	err := r.db.QueryRow(ctx, `
 		SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
-		       progress, created_at, started_at, finished_at, updated_at
+		       aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at
 		FROM benchmarks WHERE id = $1
 	`, id).Scan(
 		&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 		&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
-		&b.Progress,
+		&b.Aggregation, &b.MeasureMemory, &sourceJSON, &b.Progress,
 		&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -67,7 +83,23 @@ func (r *BenchmarkRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 		return nil, err
 	}
 	b.Compressors = instances
+	if err := decodeSource(b, sourceJSON); err != nil {
+		return nil, err
+	}
 	return b, nil
+}
+
+// decodeSource fills b.Source from the source JSONB column (NULL for uploads).
+func decodeSource(b *model.Benchmark, raw []byte) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var src model.DatasetSource
+	if err := json.Unmarshal(raw, &src); err != nil {
+		return fmt.Errorf("decode benchmark source: %w", err)
+	}
+	b.Source = &src
+	return nil
 }
 
 type ListBenchmarksParams struct {
@@ -89,7 +121,7 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 	}
 
 	query := `SELECT id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
-	                  progress, created_at, started_at, finished_at, updated_at
+	                  aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at
 	           FROM benchmarks WHERE 1=1`
 	args := []any{}
 	argIdx := 1
@@ -132,11 +164,11 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 			continue
 		}
 		b := &model.Benchmark{}
-		var compressorsJSON []byte
+		var compressorsJSON, sourceJSON []byte
 		err := rows.Scan(
 			&b.ID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 			&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
-			&b.Progress,
+			&b.Aggregation, &b.MeasureMemory, &sourceJSON, &b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
 		)
 		if err != nil {
@@ -147,6 +179,9 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 			return nil, err
 		}
 		b.Compressors = instances
+		if err := decodeSource(b, sourceJSON); err != nil {
+			return nil, err
+		}
 		result.Benchmarks = append(result.Benchmarks, b)
 	}
 

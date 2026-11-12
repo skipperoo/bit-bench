@@ -90,12 +90,50 @@ func ValidateFileExt(ext string) bool {
 	return allowedExts[strings.ToLower(ext)]
 }
 
+// BenchmarkOptions are the per-benchmark run settings shared by uploads and
+// dataset runs.
+type BenchmarkOptions struct {
+	// Aggregation combines per-input rows ("mean", "median", "pooled");
+	// empty means "mean".
+	Aggregation string
+	// MeasureMemory runs the Valgrind Massif memory harness for built-ins.
+	MeasureMemory bool
+}
+
+// DefaultBenchmarkOptions are the settings used when a client sends none.
+func DefaultBenchmarkOptions() BenchmarkOptions {
+	return BenchmarkOptions{Aggregation: "mean", MeasureMemory: true}
+}
+
+func (o *BenchmarkOptions) normalize() error {
+	o.Aggregation = strings.ToLower(strings.TrimSpace(o.Aggregation))
+	if o.Aggregation == "" {
+		o.Aggregation = "mean"
+	}
+	switch o.Aggregation {
+	case "mean", "median", "pooled":
+		return nil
+	}
+	return fmt.Errorf("unknown aggregation %q (want mean, median or pooled)", o.Aggregation)
+}
+
+// CreateBenchmark creates a benchmark from uploaded files with the default
+// options.
 func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.User, name string, files []UploadedFile, compressorsJSON []byte) (*model.Benchmark, error) {
+	return s.CreateBenchmarkWithOptions(ctx, actor, name, files, compressorsJSON, DefaultBenchmarkOptions())
+}
+
+// CreateBenchmarkWithOptions validates and normalizes uploaded files to .bin
+// inputs and enqueues one benchmark.
+func (s *BenchmarkService) CreateBenchmarkWithOptions(ctx context.Context, actor *model.User, name string, files []UploadedFile, compressorsJSON []byte, opts BenchmarkOptions) (*model.Benchmark, error) {
 	if actor == nil {
 		return nil, fmt.Errorf("unauthorized")
 	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("at least one file is required")
+	}
+	if err := opts.normalize(); err != nil {
+		return nil, err
 	}
 
 	// Validate extensions and per-file sizes.
@@ -123,29 +161,11 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 	if err != nil {
 		return nil, err
 	}
-	instances := make([]compressor.Instance, 0, len(resolved))
-	builtinCount := 0
-	customCount := 0
-	for _, r := range resolved {
-		instances = append(instances, r.Instance)
-		if r.Package == nil {
-			builtinCount++
-		} else {
-			customCount++
-		}
-	}
-	if builtinCount == 0 && customCount == 0 {
-		return nil, fmt.Errorf("no compressors selected")
-	}
 
 	benchmarkID := uuid.New()
 	workRoot := filepath.Join(s.cfg.DataDir, benchmarkID.String())
-	if err := os.MkdirAll(workRoot, 0755); err != nil {
-		return nil, fmt.Errorf("create data dir: %w", err)
-	}
 	srcDir := filepath.Join(workRoot, "sources")
 	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		os.RemoveAll(workRoot)
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 	cleanup := func() { os.RemoveAll(workRoot) }
@@ -182,22 +202,59 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		}
 		binPaths = append(binPaths, bins...)
 	}
-	checksum := hex.EncodeToString(hasher.Sum(nil))
 
-	// One built-in task per .bin (all built-in instances batched) plus one task
-	// per (custom package instance x .bin), each costing its worker count.
+	// Sources are no longer needed once normalized.
+	os.RemoveAll(srcDir)
+
+	benchmark := &model.Benchmark{
+		ID:               benchmarkID,
+		UserID:           actor.ID,
+		Name:             name,
+		OriginalFilename: filepath.Base(files[0].Filename),
+		FileSize:         totalSize,
+		FileCount:        len(files),
+		FileChecksum:     hex.EncodeToString(hasher.Sum(nil)),
+		FileExt:          strings.ToLower(filepath.Ext(files[0].Filename)),
+		Aggregation:      opts.Aggregation,
+		MeasureMemory:    opts.MeasureMemory,
+	}
+	if err := s.enqueue(ctx, benchmark, binPaths, resolved); err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	s.recordHistory(ctx, actor, benchmark.Compressors)
+	return benchmark, nil
+}
+
+// enqueue inserts a benchmark plus its tasks: one built-in task per .bin (all
+// built-in instances batched) and one task per (custom package instance x
+// .bin), each costing its worker count.
+func (s *BenchmarkService) enqueue(ctx context.Context, benchmark *model.Benchmark, binPaths []string, resolved []resolvedInstance) error {
+	instances := make([]compressor.Instance, 0, len(resolved))
+	builtinCount := 0
+	for _, r := range resolved {
+		instances = append(instances, r.Instance)
+		if r.Package == nil {
+			builtinCount++
+		}
+	}
+	if len(instances) == 0 {
+		return fmt.Errorf("no compressors selected")
+	}
+	benchmark.Compressors = instances
+
 	var tasks []*model.BenchmarkTask
 	seq := 0
 	for _, binPath := range binPaths {
 		rel, err := filepath.Rel(s.cfg.DataDir, binPath)
 		if err != nil {
-			cleanup()
-			return nil, fmt.Errorf("resolve task input: %w", err)
+			return fmt.Errorf("resolve task input: %w", err)
 		}
 		if builtinCount > 0 {
 			seq++
 			tasks = append(tasks, &model.BenchmarkTask{
-				BenchmarkID: benchmarkID,
+				BenchmarkID: benchmark.ID,
 				Seq:         seq,
 				Kind:        model.TaskKindBuiltin,
 				InputPath:   rel,
@@ -212,7 +269,7 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 			pkgName := r.Instance.Name
 			label := r.Instance.Label
 			tasks = append(tasks, &model.BenchmarkTask{
-				BenchmarkID:   benchmarkID,
+				BenchmarkID:   benchmark.ID,
 				Seq:           seq,
 				Kind:          model.TaskKindCustom,
 				Compressor:    &pkgName,
@@ -223,43 +280,27 @@ func (s *BenchmarkService) CreateBenchmark(ctx context.Context, actor *model.Use
 		}
 	}
 	if len(tasks) == 0 {
-		cleanup()
-		return nil, fmt.Errorf("no benchmark tasks produced")
-	}
-
-	// Sources are no longer needed once normalized.
-	os.RemoveAll(srcDir)
-
-	benchmark := &model.Benchmark{
-		ID:               benchmarkID,
-		UserID:           actor.ID,
-		Name:             name,
-		OriginalFilename: filepath.Base(files[0].Filename),
-		FileSize:         totalSize,
-		FileCount:        len(files),
-		FileChecksum:     checksum,
-		FileExt:          strings.ToLower(filepath.Ext(files[0].Filename)),
-		Compressors:      instances,
+		return fmt.Errorf("no benchmark tasks produced")
 	}
 
 	if err := s.benchRepo.Create(ctx, benchmark); err != nil {
-		cleanup()
-		return nil, fmt.Errorf("create benchmark: %w", err)
+		return fmt.Errorf("create benchmark: %w", err)
 	}
 	if err := s.taskRepo.CreateBatch(ctx, tasks); err != nil {
-		_ = s.benchRepo.Delete(ctx, benchmarkID)
-		cleanup()
-		return nil, fmt.Errorf("create tasks: %w", err)
+		_ = s.benchRepo.Delete(ctx, benchmark.ID)
+		return fmt.Errorf("create tasks: %w", err)
 	}
+	return nil
+}
 
-	// Record the configuration in the user's history (best effort).
-	if s.presets != nil {
-		if err := s.presets.RecordHistory(ctx, actor.ID, instances); err != nil {
-			logger.Warn("record config history", "user", actor.ID, "error", err)
-		}
+// recordHistory stores the configuration in the user's history (best effort).
+func (s *BenchmarkService) recordHistory(ctx context.Context, actor *model.User, instances []compressor.Instance) {
+	if s.presets == nil {
+		return
 	}
-
-	return benchmark, nil
+	if err := s.presets.RecordHistory(ctx, actor.ID, instances); err != nil {
+		logger.Warn("record config history", "user", actor.ID, "error", err)
+	}
 }
 
 // resolvedInstance pairs a validated instance with its option schema and, for

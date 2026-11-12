@@ -292,6 +292,26 @@ with open("column.bin", "wb") as f:
         f.write(struct.pack("<q", v))
 ```
 
+### Standardized Datasets
+
+Besides uploads, BitBench can benchmark **standardized datasets** stored on the
+server, like the thesis `run_all_benchmarks.sh` sweeps. Put each full
+recording, uncut, in `./datasets/<dataset>/<series>.bin` (mounted read-only into
+the backend by `docker-compose.yml`), then pick **Standard dataset** on the
+upload page and choose the chunk size in samples (or the whole series), max
+chunks per series, the `std`/`gap`/`gap_shifted` transform and how results are
+aggregated (mean, median or pooled). Each transform × chunk-size combination
+becomes one benchmark you can compare.
+
+```bash
+python3 scripts/datasets/make_synthetic.py                       # sample data
+python3 scripts/datasets/make_dataset.py csv prices.csv --dataset finance --columns NVDA,SPCX --decimals 2
+python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat
+```
+
+See [`docs/datasets.md`](docs/datasets.md) for the layout, the tools and the
+exact definitions of the transforms and aggregation methods.
+
 ---
 
 ## Building & Running
@@ -339,6 +359,8 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 | `BENCH_TIMEOUT_SECONDS` | `3600`                           | Per-benchmark subprocess timeout                    |
 | `BENCH_MAX_RETRIES`     | `2`                              | Number of retries on non-zero exit                  |
 | `DATA_DIR`              | `/data/benchmarks`               | Ephemeral workspace for uploaded files              |
+| `DATASET_DIR`           | `/data/datasets`                 | Standardized datasets (`./datasets`, read-only)     |
+| `LISTEN_ADDR`           | `:8080`                          | Backend HTTP listen address                         |
 | `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                        |
 | `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages        |
 | `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)       |
@@ -420,6 +442,7 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 │   └── Dockerfile           # Debian + Python/C/C++/Go/Rust toolchains
 │
 ├── docs/
+│   ├── datasets.md          # Standardized datasets: layout, tools, chunking, aggregation
 │   └── user-compressors.md  # Package format, contract and limits
 │
 ├── examples/

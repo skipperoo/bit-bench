@@ -216,10 +216,10 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 	}
 	defer tx.Rollback(ctx)
 
-	var status, originalFilename, fileExt string
+	var status, originalFilename, fileExt, aggregation string
 	err = tx.QueryRow(ctx, `
-		SELECT status, original_filename, file_ext FROM benchmarks WHERE id = $1 FOR UPDATE
-	`, benchmarkID).Scan(&status, &originalFilename, &fileExt)
+		SELECT status, original_filename, file_ext, aggregation FROM benchmarks WHERE id = $1 FOR UPDATE
+	`, benchmarkID).Scan(&status, &originalFilename, &fileExt, &aggregation)
 	if err == pgx.ErrNoRows {
 		return
 	}
@@ -327,7 +327,7 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 	}
 
 	dataset := strings.TrimSuffix(originalFilename, "."+strings.TrimPrefix(fileExt, "."))
-	averaged := AverageRows(rows)
+	averaged := AggregateRows(rows, aggregation)
 	for _, row := range averaged {
 		res := rowToResult(benchmarkID, dataset, row)
 		if err := r.resultRepo.InsertTx(ctx, tx, res); err != nil {
@@ -349,7 +349,7 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 		return
 	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE benchmarks SET status = 'ready', error = NULL, warnings = $2, finished_at = NOW(), progress = 100, updated_at = NOW()
+		UPDATE benchmarks SET status = 'ready', error = NULL, warnings = warnings || $2::text[], finished_at = NOW(), progress = 100, updated_at = NOW()
 		WHERE id = $1
 	`, benchmarkID, warnings); err != nil {
 		logger.Error("finalize ready", "benchmark", benchmarkID, "error", err)
@@ -554,7 +554,13 @@ func (r *BenchmarkRunner) runBuiltinTask(ctx context.Context, benchmark *model.B
 	// the configured instance labels (row names may differ in case for plain
 	// entries, e.g. "NeaTS").
 	warning := missingEntriesWarning(rows, invocations, binPath)
-	r.attachMemoryResults(rows, invocations, binPath, taskDir)
+	if benchmark.MeasureMemory {
+		r.attachMemoryResults(rows, invocations, binPath, taskDir)
+	} else {
+		for i := range rows {
+			markMemoryMissing(&rows[i])
+		}
+	}
 	labels := make(map[string]string, len(invocations))
 	for _, inv := range invocations {
 		labels[strings.ToLower(inv.Entry)] = inv.Label

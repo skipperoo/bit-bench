@@ -28,12 +28,15 @@ type Config struct {
 	JWTSecret string
 	JWTExpiry time.Duration
 
+	ListenAddr string
+
 	MaxParallelism  int
 	MaxFileSizeMB   int64
 	MaxCompare      int
 	BenchTimeout    time.Duration
 	BenchMaxRetries int
 	DataDir         string
+	DatasetDir      string
 	BenchBinaryPath string
 
 	CompressorDir    string
@@ -69,12 +72,15 @@ func LoadConfig() *Config {
 		JWTSecret: readSecret("jwt_secret"),
 		JWTExpiry: getDuration("JWT_EXPIRY", 24*time.Hour),
 
+		ListenAddr: getEnv("LISTEN_ADDR", ":8080"),
+
 		MaxParallelism:  max(1, getInt("MAX_PARALLELISM", runtime.GOMAXPROCS(0))),
 		MaxFileSizeMB:   int64(getInt("MAX_FILE_SIZE_MB", 500)),
 		MaxCompare:      getInt("MAX_COMPARE_BENCHMARKS", 5),
 		BenchTimeout:    getDuration("BENCH_TIMEOUT_SECONDS", 3600*time.Second),
 		BenchMaxRetries: getInt("BENCH_MAX_RETRIES", 2),
 		DataDir:         getEnv("DATA_DIR", "/data/benchmarks"),
+		DatasetDir:      getEnv("DATASET_DIR", "/data/datasets"),
 		BenchBinaryPath: getEnv("BENCH_BINARY_PATH", "/app/bin/LosslessBenchmarkFull"),
 
 		CompressorDir:    getEnv("COMPRESSOR_DIR", "/data/compressors"),

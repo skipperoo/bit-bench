@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 )
@@ -194,5 +195,49 @@ func TestAverageRowsRangePerKeyCount(t *testing.T) {
 	}
 	if got := avg[0].RangeQueries["100"]; got != 100 {
 		t.Errorf("range 100 averaged over its own rows = %v, want 100", got)
+	}
+}
+
+func TestAggregateRowsMethods(t *testing.T) {
+	rows := []BenchmarkRow{
+		{Compressor: "c", NumValues: 100, UncompressedBits: 6400, CompressedBits: 640, CompressionRatio: 0.1,
+			CompressionThroughputMbs: 100, DecompressionThroughputMbs: 400, RandomAccessMbs: 10,
+			RangeQueries: map[string]float64{"10": 10}, Missing: map[string]bool{}},
+		{Compressor: "c", NumValues: 300, UncompressedBits: 19200, CompressedBits: 9600, CompressionRatio: 0.5,
+			CompressionThroughputMbs: 300, DecompressionThroughputMbs: 400, RandomAccessMbs: 30,
+			RangeQueries: map[string]float64{"10": 30}, Missing: map[string]bool{}},
+		{Compressor: "c", NumValues: 200, UncompressedBits: 12800, CompressedBits: 3200, CompressionRatio: 0.25,
+			CompressionThroughputMbs: 200, DecompressionThroughputMbs: 400, RandomAccessMbs: 15,
+			RangeQueries: map[string]float64{"10": 15}, Missing: map[string]bool{}},
+	}
+
+	mean := AggregateRows(rows, AggregateMean)[0]
+	if math.Abs(mean.CompressionRatio-(0.1+0.5+0.25)/3) > 1e-12 || mean.NumValues != 200 {
+		t.Errorf("mean: ratio %v num %d", mean.CompressionRatio, mean.NumValues)
+	}
+
+	median := AggregateRows(rows, AggregateMedian)[0]
+	if median.CompressionRatio != 0.25 || median.CompressionThroughputMbs != 200 || median.RangeQueries["10"] != 15 {
+		t.Errorf("median: %+v", median)
+	}
+
+	pooled := AggregateRows(rows, AggregatePooled)[0]
+	if pooled.NumValues != 600 || pooled.CompressedBits != 13440 || pooled.UncompressedBits != 38400 {
+		t.Errorf("pooled sums: %+v", pooled)
+	}
+	if want := 13440.0 / 38400.0; math.Abs(pooled.CompressionRatio-want) > 1e-12 {
+		t.Errorf("pooled ratio %v, want %v", pooled.CompressionRatio, want)
+	}
+	// 600 values in 100/100 + 300/300 + 200/200 = 3 time units -> 200.
+	if math.Abs(pooled.CompressionThroughputMbs-200) > 1e-9 {
+		t.Errorf("pooled throughput %v, want 200", pooled.CompressionThroughputMbs)
+	}
+	// Equal work per input: harmonic mean of 10, 30, 15 = 3/(1/10+1/30+1/15) = 15.
+	if math.Abs(pooled.RandomAccessMbs-15) > 1e-9 || math.Abs(pooled.RangeQueries["10"]-15) > 1e-9 {
+		t.Errorf("pooled harmonic means: ra %v range %v", pooled.RandomAccessMbs, pooled.RangeQueries["10"])
+	}
+
+	if got := AggregateRows(rows, "bogus")[0].CompressionRatio; got != mean.CompressionRatio {
+		t.Errorf("unknown method should fall back to mean")
 	}
 }

@@ -122,7 +122,15 @@ func CreateBenchmark(w http.ResponseWriter, r *http.Request) {
 		uploads = append(uploads, service.UploadedFile{Reader: file, Filename: header.Filename})
 	}
 
-	benchmark, err := service.App.Benchmark.CreateBenchmark(r.Context(), actor, name, uploads, []byte(compressorsStr))
+	opts := service.DefaultBenchmarkOptions()
+	if agg := r.FormValue("aggregation"); agg != "" {
+		opts.Aggregation = agg
+	}
+	if mm := r.FormValue("measure_memory"); mm != "" {
+		opts.MeasureMemory = mm == "true" || mm == "1"
+	}
+
+	benchmark, err := service.App.Benchmark.CreateBenchmarkWithOptions(r.Context(), actor, name, uploads, []byte(compressorsStr), opts)
 	if err != nil {
 		msg := err.Error()
 		// Detect stale JWT after DB reset
