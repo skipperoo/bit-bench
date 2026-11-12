@@ -361,8 +361,9 @@ function RankedTable({ results, metric, referenceMetric, colors }: {
   )
 }
 
-export default function DetailPage() {
-  const { id } = useParams<{ id: string }>()
+export default function DetailPage({ idOverride }: { idOverride?: string } = {}) {
+  const params = useParams<{ id: string }>()
+  const id = idOverride ?? params.id
   const [benchmark, setBenchmark] = useState<Benchmark | null>(null)
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [loading, setLoading] = useState(true)

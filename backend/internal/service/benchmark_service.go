@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -98,6 +97,9 @@ type BenchmarkOptions struct {
 	Aggregation string
 	// MeasureMemory runs the Valgrind Massif memory harness for built-ins.
 	MeasureMemory bool
+	// ExperimentID groups benchmarks created by one submission; zero means a
+	// new experiment containing only this benchmark.
+	ExperimentID uuid.UUID
 }
 
 // DefaultBenchmarkOptions are the settings used when a client sends none.
@@ -217,6 +219,7 @@ func (s *BenchmarkService) CreateBenchmarkWithOptions(ctx context.Context, actor
 		FileExt:          strings.ToLower(filepath.Ext(files[0].Filename)),
 		Aggregation:      opts.Aggregation,
 		MeasureMemory:    opts.MeasureMemory,
+		ExperimentID:     opts.ExperimentID,
 	}
 	if err := s.enqueue(ctx, benchmark, binPaths, resolved); err != nil {
 		cleanup()
@@ -398,14 +401,21 @@ func resolveInstances(ctx context.Context, pkgRepo *repository.CompressorPackage
 	return resolved, nil
 }
 
-func (s *BenchmarkService) ListBenchmarks(ctx context.Context, userID *uuid.UUID, cursor *time.Time, search, status string, limit int) (*repository.ListBenchmarksResult, error) {
-	return s.benchRepo.List(ctx, repository.ListBenchmarksParams{
-		UserID: userID,
-		Cursor: cursor,
-		Search: search,
-		Status: status,
-		Limit:  limit,
-	})
+func (s *BenchmarkService) ListBenchmarks(ctx context.Context, p repository.ListBenchmarksParams) (*repository.ListBenchmarksResult, error) {
+	return s.benchRepo.List(ctx, p)
+}
+
+// DeleteBenchmark removes a benchmark, its results and its work directory.
+// Running tasks finish on their own; their results are discarded.
+func (s *BenchmarkService) DeleteBenchmark(ctx context.Context, id uuid.UUID) error {
+	os.RemoveAll(filepath.Join(s.cfg.DataDir, id.String()))
+	return s.benchRepo.Delete(ctx, id)
+}
+
+// CancelBenchmark cancels a queued or running benchmark; it reports false when
+// the benchmark already finished.
+func (s *BenchmarkService) CancelBenchmark(ctx context.Context, id uuid.UUID, reason string) (bool, error) {
+	return s.benchRepo.Cancel(ctx, id, reason)
 }
 
 func (s *BenchmarkService) GetBenchmark(ctx context.Context, id uuid.UUID) (*model.BenchmarkDetailResponse, error) {

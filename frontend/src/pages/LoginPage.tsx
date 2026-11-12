@@ -34,7 +34,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       })
       setToken(res.token)
-      navigate('/upload')
+      navigate('/experiments')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -44,7 +44,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-neutral-50 to-neutral-100 p-4">
-      <Card className="w-full max-w-sm shadow-lg">
+      <Card className="w-full max-w-sm">
         <CardHeader className="space-y-2">
           <div className="flex justify-center mb-2">
             <div className="w-12 h-12 rounded-xl bg-neutral-900 flex items-center justify-center">

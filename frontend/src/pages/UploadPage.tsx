@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -156,8 +156,18 @@ const FileRow = memo(function FileRow({ file, index, status, removable, onRemove
   )
 })
 
+interface RerunState {
+  name?: string
+  compressors?: CompressorInstance[] | { name: string; options: Record<string, unknown> }[]
+  aggregation?: Aggregation
+  measureMemory?: boolean
+  source?: { dataset: string; series: string[]; chunk_size: number; max_chunks: number; transform: string }
+}
+
 export default function UploadPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const rerun = (location.state as { rerun?: RerunState } | null)?.rerun
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
@@ -201,6 +211,31 @@ export default function UploadPage() {
   }, [])
 
   useEffect(() => { loadCompressors() }, [loadCompressors])
+
+  // Re-run: start from the configuration of an existing benchmark.
+  useEffect(() => {
+    if (!rerun || restoredRef.current || Object.keys(compressors).length === 0) return
+    restoredRef.current = true
+    const drafts: InstanceDraft[] = []
+    for (const item of rerun.compressors ?? []) {
+      const schema = compressors[item.name]
+      if (schema) drafts.push({ name: item.name, options: canonicalOptions(schema, item.options || {}) })
+    }
+    setInstances(drafts.slice(0, MAX_INSTANCES_PER_BENCHMARK))
+    if (rerun.name) setName(`${rerun.name} (re-run)`)
+    if (rerun.aggregation) setAggregation(rerun.aggregation)
+    if (rerun.measureMemory != null) setMeasureMemory(rerun.measureMemory)
+    if (rerun.source) {
+      setSource('dataset')
+      setDatasetSelection({
+        dataset: rerun.source.dataset,
+        series: rerun.source.series,
+        chunkSizes: [rerun.source.chunk_size],
+        maxChunks: rerun.source.max_chunks,
+        transforms: [rerun.source.transform as DatasetSelection['transforms'][number]],
+      })
+    }
+  }, [rerun, compressors])
 
   // Restore the last used configuration once the registry is available.
   useEffect(() => {
@@ -470,7 +505,7 @@ export default function UploadPage() {
     })
     if (res?.error) throw new Error(`Created ${res.benchmarks.length} benchmark(s), then: ${res.error}`)
     setUploadPhase('done')
-    navigate('/results')
+    navigate('/experiments')
   }
 
   const handleSubmit = async () => {
@@ -522,7 +557,7 @@ export default function UploadPage() {
       )
       if (res?.error) throw new Error(`Created ${res.benchmarks?.length ?? 0} benchmark(s), then: ${res.error}`)
       setUploadPhase('done')
-      navigate('/results')
+      navigate('/experiments')
     } catch (err) {
       setUploadPhase('error')
       setError(err instanceof Error ? err.message : 'Upload failed')

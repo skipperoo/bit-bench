@@ -61,8 +61,10 @@ type User struct {
 }
 
 type Benchmark struct {
-	ID               uuid.UUID             `json:"id"`
-	UserID           uuid.UUID             `json:"user_id"`
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+	// ExperimentID groups the benchmarks created by one submission.
+	ExperimentID     uuid.UUID             `json:"experiment_id"`
 	Name             string                `json:"name"`
 	OriginalFilename string                `json:"original_filename"`
 	FileSize         int64                 `json:"file_size"`

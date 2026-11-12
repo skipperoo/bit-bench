@@ -30,7 +30,7 @@ function Slider({ min, max, step = 1, value, onChange, className }: SliderProps)
         />
       </div>
       <div
-        className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary border-2 border-background shadow"
+        className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary border-2 border-background"
         style={{ left: `calc(${percentage}% - 8px)` }}
       />
     </div>
