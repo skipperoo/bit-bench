@@ -1,10 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+
+	"bitbench/internal/model"
 )
 
 func TestRateLimiterKeyFunc(t *testing.T) {
@@ -70,5 +76,27 @@ func TestRateLimiterWrap(t *testing.T) {
 	}
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestUserKeyFunc(t *testing.T) {
+	r := httptest.NewRequest("POST", "/", nil)
+	r.RemoteAddr = "10.1.1.1:5000"
+	if got := UserKeyFunc(r); got != "ip:10.1.1.1" {
+		t.Errorf("anonymous key = %q", got)
+	}
+	u := &model.User{ID: uuid.MustParse("11111111-1111-1111-1111-111111111111")}
+	r = r.WithContext(context.WithValue(r.Context(), UserKey, u))
+	if got := UserKeyFunc(r); got != "user:11111111-1111-1111-1111-111111111111" {
+		t.Errorf("user key = %q", got)
+	}
+}
+
+func TestRateLimiterDisabledWithZeroLimit(t *testing.T) {
+	rl := NewRateLimiter(redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}), 0, time.Minute, IPKeyFunc)
+	called := false
+	rl.Wrap(func(w http.ResponseWriter, r *http.Request) { called = true })(httptest.NewRecorder(), httptest.NewRequest("POST", "/", nil))
+	if !called {
+		t.Fatal("a zero limit must disable rate limiting without touching Redis")
 	}
 }

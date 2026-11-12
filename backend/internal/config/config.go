@@ -30,6 +30,9 @@ type Config struct {
 
 	ListenAddr string
 
+	// UploadRateLimit caps benchmark/package uploads per user per minute
+	// (0 disables).
+	UploadRateLimit int
 	MaxParallelism  int
 	MaxFileSizeMB   int64
 	MaxCompare      int
@@ -74,6 +77,7 @@ func LoadConfig() *Config {
 
 		ListenAddr: getEnv("LISTEN_ADDR", ":8080"),
 
+		UploadRateLimit: max(0, getInt("UPLOAD_RATE_LIMIT", 10)),
 		MaxParallelism:  max(1, getInt("MAX_PARALLELISM", runtime.GOMAXPROCS(0))),
 		MaxFileSizeMB:   int64(getInt("MAX_FILE_SIZE_MB", 500)),
 		MaxCompare:      getInt("MAX_COMPARE_BENCHMARKS", 5),

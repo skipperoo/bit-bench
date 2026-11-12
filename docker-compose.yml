@@ -87,6 +87,8 @@ services:
       # container (cgroup-aware). Uncomment to pin an explicit cap.
       # - MAX_PARALLELISM=8
       - MAX_FILE_SIZE_MB=500
+      # Uploads per user per minute (benchmarks, dataset runs, packages); 0 disables.
+      - UPLOAD_RATE_LIMIT=10
       - BENCH_TIMEOUT_SECONDS=3600
       - BENCH_MAX_RETRIES=2
       - DATA_DIR=/data/benchmarks

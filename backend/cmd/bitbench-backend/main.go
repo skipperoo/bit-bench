@@ -78,8 +78,11 @@ func main() {
 	recoverMw := routy.NewRecoverMiddleware(nil)
 	loggingMw := routy.NewLoggingMiddleware(middleware.LoggingFunc)
 
-	rl := middleware.NewRateLimiter(rdb, 5, time.Minute, middleware.IPKeyFunc)
+	rl := middleware.NewRateLimiter(rdb, 5, time.Minute, middleware.IPKeyFunc).WithPrefix("login:")
 	loginHandler := rl.Wrap(handler.Login)
+	// Uploads: one counter per user shared by benchmark, dataset and package
+	// submissions ("separate benchmarks" uploads are a single request).
+	uploadRL := middleware.NewRateLimiter(rdb, cfg.UploadRateLimit, time.Minute, middleware.UserKeyFunc).WithPrefix("upload:")
 
 	router := routy.NewRouter()
 	router.
@@ -98,7 +101,7 @@ func main() {
 		AddHandler("PUT   /me/config", handler.SaveLastConfig).
 		AddHandler("GET   /me", handler.Me).
 		AddHandler("GET   /compressors", handler.ListCompressors).
-		AddHandler("POST  /compressors/packages", middleware.RequireUploader(handler.UploadCompressorPackage)).
+		AddHandler("POST  /compressors/packages", middleware.RequireUploader(uploadRL.Wrap(handler.UploadCompressorPackage))).
 		AddHandler("GET   /compressors/packages", handler.ListCompressorPackages).
 		AddHandler("GET   /compressors/packages/{id}", handler.GetCompressorPackage).
 		AddHandler("DELETE /compressors/packages/{id}", handler.DeleteCompressorPackage).
@@ -108,8 +111,8 @@ func main() {
 		AddHandler("DELETE /presets/{id}", handler.DeletePreset).
 		AddHandler("GET   /config-history", handler.ListConfigHistory).
 		AddHandler("GET   /benchmarks/checksums", handler.ListChecksums).
-		AddHandler("POST  /benchmarks", handler.CreateBenchmark).
-		AddHandler("POST  /benchmarks/dataset", handler.CreateDatasetBenchmarks).
+		AddHandler("POST  /benchmarks", uploadRL.Wrap(handler.CreateBenchmark)).
+		AddHandler("POST  /benchmarks/dataset", uploadRL.Wrap(handler.CreateDatasetBenchmarks)).
 		AddHandler("GET   /datasets", handler.ListDatasets).
 		AddHandler("GET   /benchmarks", handler.ListBenchmarks).
 		AddHandler("GET   /benchmarks/{id}", handler.GetBenchmark).

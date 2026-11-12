@@ -361,6 +361,7 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 | `DATA_DIR`              | `/data/benchmarks`               | Ephemeral workspace for uploaded files              |
 | `DATASET_DIR`           | `/data/datasets`                 | Standardized datasets (`./datasets`, read-only)     |
 | `LISTEN_ADDR`           | `:8080`                          | Backend HTTP listen address                         |
+| `UPLOAD_RATE_LIMIT`     | `10`                             | Uploads per user per minute (0 disables)            |
 | `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                        |
 | `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages        |
 | `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)       |
