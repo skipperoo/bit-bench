@@ -100,6 +100,8 @@ func main() {
 		AddHandler("PUT   /auth/password", handler.ChangePassword).
 		AddHandler("PUT   /me/config", handler.SaveLastConfig).
 		AddHandler("GET   /me", handler.Me).
+		AddHandler("GET   /me/chart-shapes", handler.GetChartShapes).
+		AddHandler("PUT   /me/chart-shapes", handler.PutChartShapes).
 		AddHandler("GET   /compressors", handler.ListCompressors).
 		AddHandler("POST  /compressors/packages", middleware.RequireUploader(uploadRL.Wrap(handler.UploadCompressorPackage))).
 		AddHandler("GET   /compressors/packages", handler.ListCompressorPackages).
