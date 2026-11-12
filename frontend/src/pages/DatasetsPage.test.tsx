@@ -39,7 +39,7 @@ describe('DatasetsPage', () => {
     const card = await screen.findByRole('region', { name: 'Dataset finance' })
     expect(within(card).getByText('Daily closes')).toBeInTheDocument()
     expect(await within(card).findByText('48.12 … 50.30')).toBeInTheDocument()
-    expect(within(card).getByText(/768:13/)).toBeInTheDocument()
+    expect(within(card).getByText(/768→13/)).toBeInTheDocument()
     expect(within(card).getByText('invalid .bin file')).toBeInTheDocument()
     await userEvent.click(within(card).getByRole('button', { name: /Benchmark this dataset/ }))
     expect(screen.getByText('new experiment for finance')).toBeInTheDocument()

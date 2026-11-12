@@ -6,9 +6,10 @@ import { getCompressorFamily, renameCompressor } from '@/lib/compressors'
  * Checklist of the compressors/instances of a result set, grouped by family.
  * Hidden instances are removed from every chart and table of the view.
  */
-export default function InstanceFilter({ names, colors, hidden, onChange }: {
+export default function InstanceFilter({ names, colors, shapes, hidden, onChange }: {
   names: string[]
   colors: Map<string, string>
+  shapes?: Map<string, string>
   hidden: Set<string>
   onChange: (hidden: Set<string>) => void
 }) {
@@ -57,7 +58,7 @@ export default function InstanceFilter({ names, colors, hidden, onChange }: {
             {members.map((m) => (
               <label key={m} className="flex items-center gap-2 pl-5 cursor-pointer">
                 <input type="checkbox" checked={!hidden.has(m)} onChange={(e) => set([m], e.target.checked)} />
-                <LegendMarker name={m} color={colors.get(m) ?? '#64748b'} />
+                <LegendMarker name={m} color={colors.get(m) ?? '#64748b'} shape={shapes?.get(m)} />
                 <span className="font-mono text-xs truncate" title={renameCompressor(m)}>{renameCompressor(m)}</span>
               </label>
             ))}

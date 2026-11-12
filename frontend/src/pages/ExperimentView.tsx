@@ -12,7 +12,7 @@ import RunMonitor from '@/components/RunMonitor'
 import { GroupedBarChart, MetricBarChart, MetricScatterChart, SweepChart } from '@/components/charts/MetricCharts'
 import { ComparisonTable, RankedTable } from '@/components/ResultTables'
 import { apiFetch } from '@/lib/api'
-import { assignCompressorColors, renameCompressor } from '@/lib/compressors'
+import { assignCompressorStyles, renameCompressor } from '@/lib/compressors'
 import { usePackageColors } from '@/lib/package-colors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics'
@@ -90,7 +90,9 @@ export default function ExperimentView() {
   const ready = items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0)
   const multi = ready.length > 1
   const allNames = useMemo(() => [...new Set(ready.flatMap((i) => i.results.map((r) => r.compressor)))].sort(), [ready])
-  const colors = assignCompressorColors(allNames)
+  const styles = assignCompressorStyles(allNames)
+  const colors = new Map([...styles].map(([n, st]) => [n, st.color]))
+  const shapes = new Map([...styles].map(([n, st]) => [n, st.shape]))
   const visibleNames = allNames.filter((n) => !hidden.has(n))
   const visible = ready.map((i) => ({ ...i, results: i.results.filter((r) => !hidden.has(r.compressor)) }))
   const allVisibleResults = visible.flatMap((i) => i.results)
@@ -144,7 +146,7 @@ export default function ExperimentView() {
               benchmarks={visible.map((v) => ({ id: v.benchmark.id, name: v.benchmark.name }))}
               compressors={visibleNames}
               metric={m.key}
-              colors={colors}
+              colors={colors} shapes={shapes}
               value={(b, c) => valueOf(b, c, m.key)}
             />
           </CardContent>
@@ -163,20 +165,20 @@ export default function ExperimentView() {
             <MetricBarChart
               rows={present.map((r) => ({ compressor: r.compressor, value: metricValue(r, m.key)! }))}
               metric={m.key}
-              colors={colors}
+              colors={colors} shapes={shapes}
               reference={uncompressedRef != null ? { y: uncompressedRef, label: `input container ${uncompressedRef.toFixed(0)} b/e` } : undefined}
             />
           ) : (
             <MetricScatterChart
               rows={present.filter((r) => r.compression_ratio != null).map((r) => ({ compressor: r.compressor, ratio: r.compression_ratio!, value: metricValue(r, m.key)! }))}
               metric={m.key}
-              colors={colors}
+              colors={colors} shapes={shapes}
             />
           )}
           <RankedTable
             title={title}
             metric={m.key}
-            colors={colors}
+            colors={colors} shapes={shapes}
             referenceMetric={m.key === 'bits_per_element' ? 'uncompressed_bits_per_element' : undefined}
             rows={present.map((r) => ({
               compressor: r.compressor,
@@ -247,10 +249,10 @@ export default function ExperimentView() {
           <aside className="lg:sticky lg:top-16 lg:self-start">
             <details className="lg:hidden rounded-md border border-border p-3">
               <summary className="flex items-center gap-2 text-sm cursor-pointer"><SlidersHorizontal className="w-4 h-4" />Filter compressors ({visibleNames.length}/{allNames.length})</summary>
-              <div className="mt-3"><InstanceFilter names={allNames} colors={colors} hidden={hidden} onChange={setHidden} /></div>
+              <div className="mt-3"><InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} /></div>
             </details>
             <div className="hidden lg:block rounded-md border border-border p-3 max-h-[calc(100vh-6rem)] overflow-y-auto">
-              <InstanceFilter names={allNames} colors={colors} hidden={hidden} onChange={setHidden} />
+              <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} />
             </div>
           </aside>
 
@@ -262,7 +264,7 @@ export default function ExperimentView() {
               <TabPanel value={tab} idPrefix="exp" className="space-y-4">
                 {tab === 'overview' && (
                   <>
-                    {!multi && topFive.length > 0 && <TopFive entries={topFive} results={paretoItem!.results} colors={colors} />}
+                    {!multi && topFive.length > 0 && <TopFive entries={topFive} results={paretoItem!.results} colors={colors} shapes={shapes} />}
                     {metrics.filter((m) => m.key === 'compression_ratio').map(metricCard)}
                   </>
                 )}
@@ -277,7 +279,7 @@ export default function ExperimentView() {
                         </select>
                       </label>
                     )}
-                    <TopFive entries={topFive} results={paretoItem.results} colors={colors} />
+                    <TopFive entries={topFive} results={paretoItem.results} colors={colors} shapes={shapes} />
                     {(['compression_throughput_mbs', 'decompression_throughput_mbs'] as const).map((key) => {
                       const rows = paretoItem.results
                         .filter((r) => r.compression_ratio != null && metricValue(r, key) != null)
@@ -285,7 +287,7 @@ export default function ExperimentView() {
                       return rows.length ? (
                         <Card key={key}>
                           <CardHeader><CardTitle className="text-base">{metricLabel(key)} vs ratio — dashed: Pareto front</CardTitle></CardHeader>
-                          <CardContent><MetricScatterChart rows={rows} metric={key} colors={colors} front /></CardContent>
+                          <CardContent><MetricScatterChart rows={rows} metric={key} colors={colors} shapes={shapes} front /></CardContent>
                         </Card>
                       ) : null
                     })}
@@ -309,7 +311,7 @@ export default function ExperimentView() {
                               <SweepChart
                                 chunkLabels={points.map((p) => chunkLabel(p.chunkSize))}
                                 metric={sweepMetric}
-                                colors={colors}
+                                colors={colors} shapes={shapes}
                                 lines={visibleNames.map((c) => ({ compressor: c, values: points.map((p) => valueOf(p.benchmark.id, c, sweepMetric)) }))}
                               />
                             </CardContent>
@@ -328,10 +330,11 @@ export default function ExperimentView() {
   )
 }
 
-function TopFive({ entries, results, colors }: {
+function TopFive({ entries, results, colors, shapes }: {
   entries: { compressor: string; dominationCount: number }[]
   results: BenchmarkResult[]
   colors: Map<string, string>
+  shapes?: Map<string, string>
 }) {
   return (
     <Card>
@@ -356,7 +359,7 @@ function TopFive({ entries, results, colors }: {
                   <td className="py-1.5 text-muted-foreground">{i + 1}</td>
                   <td className="py-1.5 font-mono">
                     <span className="inline-flex items-center gap-1.5">
-                      <CompressorSwatch name={e.compressor} color={colors.get(e.compressor)} />
+                      <CompressorSwatch name={e.compressor} color={colors.get(e.compressor)} shape={shapes?.get(e.compressor)} />
                       {renameCompressor(e.compressor)}
                       <SelfTestBadge failures={r?.self_test_failures} />
                     </span>

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import StatusPill from '@/components/StatusPill'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
-import { VIEW_LIMIT, benchmarkDurationMs, dataSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
+import { VIEW_LIMIT, benchmarkDurationMs, dataSourceText, experimentSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
 import type { DatasetListResponse } from '@/lib/datasets'
@@ -210,7 +210,7 @@ export default function ExperimentsPage() {
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left">
                 <th className="w-8 p-2"><span className="sr-only">Select</span></th>
-                <th className="p-2 font-medium">Name</th>
+                <th className="p-2 font-medium min-w-[12rem]">Name</th>
                 <th className="p-2 font-medium">Data</th>
                 <th className="p-2 font-medium">Compressors</th>
                 <th className="p-2 font-medium">Status</th>
@@ -254,7 +254,7 @@ export default function ExperimentsPage() {
                           {group && <span className="text-xs text-muted-foreground">({exp.benchmarks.length})</span>}
                         </div>
                       </td>
-                      <td className="p-2 text-xs text-muted-foreground">{dataSourceText(first)}{group && first.source ? ' · …' : ''}</td>
+                      <td className="p-2 text-xs text-muted-foreground">{experimentSourceText(exp.benchmarks)}</td>
                       <td className="p-2 text-xs font-mono">{compressorSummary(first)}</td>
                       <td className="p-2"><StatusPill status={exp.status} progress={group ? undefined : first.progress} /></td>
                       <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">{new Date(exp.createdAt).toLocaleString()}</td>

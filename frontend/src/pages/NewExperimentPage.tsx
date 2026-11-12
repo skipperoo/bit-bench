@@ -11,7 +11,7 @@ import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Tra
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
-import { assignCompressorColors, packageColor, registerCompressorColors, renameCompressor } from '@/lib/compressors'
+import { assignCompressorStyles, packageColor, registerCompressorColors, renameCompressor } from '@/lib/compressors'
 import CompressorSwatch from '@/components/CompressorSwatch'
 import { formatBytes } from '@/lib/format'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
@@ -283,7 +283,7 @@ export default function NewExperimentPage() {
   // Same colour assignment as the result charts (shades per configuration).
   // Not memoized: package colours are registered asynchronously and the
   // computation is trivial.
-  const instanceColors = assignCompressorColors(
+  const instanceStyles = assignCompressorStyles(
     instances.map((inst) => buildLabel(inst.name, compressors[inst.name] || {}, inst.options)),
   )
 
@@ -793,7 +793,7 @@ export default function NewExperimentPage() {
             {/* File format info */}
             <div className="text-xs text-muted-foreground bg-secondary/30 rounded-lg p-3 space-y-1">
               <p><strong>Accepted formats:</strong> <code>.bin</code> (binary integer sequences), <code>.csv</code> (one column per sequence), <code>.zip</code> / <code>.tar</code> (multiple <code>.bin</code> inside).</p>
-              <p><strong>Binary header:</strong> 16-byte <code>(N + decimals + N×int64)</code> or 8-byte <code>(N + N×int64)</code> — auto-detected.</p>
+              <p><strong>Binary header:</strong> 16-byte <code>(N + decimals + N×int64)</code> or 8-byte <code>(N + N×int64)</code>, recognised from the header N.</p>
               <p>Select multiple files to average results or run sequential benchmarks.</p>
             </div>
 
@@ -1133,7 +1133,7 @@ export default function NewExperimentPage() {
                             onClick={() => setExpandedInstance(expanded ? null : index)}
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
-                              <CompressorSwatch name={rawLabel} color={instanceColors.get(rawLabel)} />
+                              <CompressorSwatch name={rawLabel} color={instanceStyles.get(rawLabel)?.color} shape={instanceStyles.get(rawLabel)?.shape} />
                               <span className={`font-mono text-sm truncate ${expanded ? 'font-semibold' : ''}`}>{label}</span>
                               {emulated && (
                                 <span
@@ -1182,7 +1182,7 @@ export default function NewExperimentPage() {
           </div>
 
           {validationError && (
-            <p className="text-xs text-destructive mt-2">{validationError}</p>
+            <p className={`text-xs mt-2 ${instances.length === 0 ? 'text-muted-foreground' : 'text-destructive'}`}>{validationError}</p>
           )}
           <div className="mt-3 max-w-xl">
             <form onSubmit={handleSavePreset} className="flex items-end gap-2 pt-3 border-t border-border">

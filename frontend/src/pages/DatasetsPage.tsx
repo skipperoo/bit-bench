@@ -103,7 +103,7 @@ function DatasetCard({ dataset }: { dataset: StandardDataset }) {
                       </td>
                       <td className="p-2">{p && p !== 'error' ? <Sparkline points={p.sparkline} /> : null}</td>
                       <td className="p-2 text-xs font-mono text-muted-foreground">
-                        {sizes.map((preset) => `${formatCount(preset.samples)}:${chunkCount(s.values, preset.samples)}`).join('  ')}
+                        {sizes.map((preset) => `${preset.samples}→${chunkCount(s.values, preset.samples)}`).join('  ')}
                       </td>
                     </>
                   )}

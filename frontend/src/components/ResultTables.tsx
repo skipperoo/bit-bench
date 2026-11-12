@@ -32,10 +32,11 @@ export interface RankedRow {
 }
 
 /** One benchmark: compressors ranked by a metric (best bold, 2nd underlined, 3rd italic). */
-export function RankedTable({ rows, metric, colors, referenceMetric, title }: {
+export function RankedTable({ rows, metric, colors, shapes, referenceMetric, title }: {
   rows: RankedRow[]
   metric: string
   colors: Map<string, string>
+  shapes?: Map<string, string>
   referenceMetric?: string
   title: string
 }) {
@@ -63,7 +64,7 @@ export function RankedTable({ rows, metric, colors, referenceMetric, title }: {
                 <td className="py-1 text-muted-foreground tabular-nums">{ranks[i]}</td>
                 <td className={`py-1 font-mono ${rankClass(ranks[i] ?? 99)}`}>
                   <span className="inline-flex items-center gap-1.5">
-                    <CompressorSwatch name={r.compressor} color={colors.get(r.compressor)} />
+                    <CompressorSwatch name={r.compressor} color={colors.get(r.compressor)} shape={shapes?.get(r.compressor)} />
                     {renameCompressor(r.compressor)}
                     <SelfTestBadge failures={r.selfTestFailures} />
                   </span>
@@ -102,12 +103,13 @@ export function RankedTable({ rows, metric, colors, referenceMetric, title }: {
  * Several benchmarks: rows = benchmarks (+ average), columns = compressors,
  * ranked per row like the report tables.
  */
-export function ComparisonTable({ benchmarks, compressors, value, metric, colors }: {
+export function ComparisonTable({ benchmarks, compressors, value, metric, colors, shapes }: {
   benchmarks: { id: string; name: string }[]
   compressors: string[]
   value: (benchmarkId: string, compressor: string) => number | null
   metric: string
   colors: Map<string, string>
+  shapes?: Map<string, string>
 }) {
   if (compressors.length === 0) return null
   const lower = isLowerBetter(metric)
@@ -130,7 +132,7 @@ export function ComparisonTable({ benchmarks, compressors, value, metric, colors
               {compressors.map((c) => (
                 <th key={c} className="text-right p-2 font-mono text-xs font-medium">
                   <span className="inline-flex items-center gap-1 justify-end">
-                    <CompressorSwatch name={c} color={colors.get(c)} />{renameCompressor(c)}
+                    <CompressorSwatch name={c} color={colors.get(c)} shape={shapes?.get(c)} />{renameCompressor(c)}
                   </span>
                 </th>
               ))}

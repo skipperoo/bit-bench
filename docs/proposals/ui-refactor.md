@@ -1,7 +1,11 @@
 # UI refactor proposal
 
-Status: **proposal**, nothing below is implemented yet (except where marked
-*done*). It builds on the current pages, `DESIGN.md` ("The Lab Bench") and the
+Status: **implemented** (all five steps, `refactor/ui`). Deviations from the
+proposal: the "wizard" is a guided single page (step rail + sections + sticky
+summary) rather than one step per screen, so nothing is hidden behind "Next";
+the experiment view loads up to 32 benchmarks; sweep charts use evenly spaced
+chunk sizes (the whole series is a category of its own) instead of a log axis.
+The text below is the original proposal. It builds on the current pages, `DESIGN.md` ("The Lab Bench") and the
 Revision 7 features (standardized datasets, aggregation, custom-coder colours).
 
 ## Problems today

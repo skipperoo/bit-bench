@@ -99,3 +99,13 @@ export function formatDuration(ms?: number): string {
   if (m < 60) return `${m}m ${s % 60}s`
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
+
+/** Data-source line of a whole experiment (dataset runs list their spread). */
+export function experimentSourceText(benchmarks: Benchmark[]): string {
+  if (benchmarks.length === 1 || !benchmarks.every((b) => b.source)) return dataSourceText(benchmarks[0])
+  const first = benchmarks[0].source!
+  const transforms = [...new Set(benchmarks.map((b) => b.source!.transform))].sort()
+  const sizes = [...new Set(benchmarks.map((b) => b.source!.chunk_size))].sort((a, b) => a - b)
+  const chunks = sizes.map((n) => (n === 0 ? 'whole' : n.toLocaleString())).join(', ')
+  return `${first.dataset} (${first.series.length} series) · ${transforms.join(', ')} · ${chunks} samples · ${benchmarks.length} benchmarks`
+}

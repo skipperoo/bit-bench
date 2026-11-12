@@ -5,7 +5,7 @@ import {
 import { renameCompressor } from '@/lib/compressors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { paretoFront } from '@/lib/pareto'
-import { LegendMarker, ScatterMarker } from '@/components/charts/CompressorMarker'
+import { LegendMarker, MarkerShape, ScatterMarker } from '@/components/charts/CompressorMarker'
 import { BENCHMARK_COLORS, HORIZONTAL_THRESHOLD } from '@/lib/charts'
 
 
@@ -17,10 +17,12 @@ export interface BarRow {
 }
 
 /** One bar per compressor, coloured like the compressor. */
-export function MetricBarChart({ rows, metric, colors, reference }: {
+export function MetricBarChart({ rows, metric, colors, shapes, reference }: {
   rows: BarRow[]
   metric: string
   colors: Map<string, string>
+  /** Marker shape per compressor, drawn at the end of each bar. */
+  shapes?: Map<string, string>
   reference?: { y: number; label: string }
 }) {
   if (rows.length === 0) return null
@@ -30,7 +32,7 @@ export function MetricBarChart({ rows, metric, colors, reference }: {
   return (
     <div style={{ height }} data-testid={`bar-${metric}`}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ left: 8, right: 24, top: 12, bottom: horizontal ? 8 : 90 }}>
+        <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ left: 8, right: horizontal ? 32 : 24, top: 24, bottom: horizontal ? 8 : 90 }}>
           <CartesianGrid strokeDasharray="3 3" />
           {horizontal ? (
             <>
@@ -49,7 +51,21 @@ export function MetricBarChart({ rows, metric, colors, reference }: {
               ? <ReferenceLine x={reference.y} stroke="#64748b" strokeDasharray="4 4" label={{ value: reference.label, fontSize: 11, fill: '#64748b', position: 'top' }} />
               : <ReferenceLine y={reference.y} stroke="#64748b" strokeDasharray="4 4" label={{ value: reference.label, fontSize: 11, fill: '#64748b', position: 'insideTopRight' }} />
           )}
-          <Bar dataKey="value" name={metricLabel(metric)} isAnimationActive={false}>
+          <Bar
+            dataKey="value"
+            name={metricLabel(metric)}
+            isAnimationActive={false}
+            // The compressor's marker at the end of the bar: bars that share a
+            // colour stay distinguishable by shape.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            label={(props: any) => {
+              const d = data[props.index]
+              if (!d || props.x == null) return <g />
+              const cx = horizontal ? props.x + props.width + 9 : props.x + props.width / 2
+              const cy = horizontal ? props.y + props.height / 2 : props.y - 9
+              return <MarkerShape cx={cx} cy={cy} r={4.5} name={d.compressor} shape={shapes?.get(d.compressor)} color={colors.get(d.compressor) ?? '#64748b'} />
+            }}
+          >
             {data.map((d) => <Cell key={d.compressor} fill={colors.get(d.compressor) ?? '#64748b'} />)}
           </Bar>
         </BarChart>
@@ -78,7 +94,7 @@ export function GroupedBarChart({ compressors, series, metric }: {
   return (
     <div style={{ height }} data-testid={`grouped-${metric}`}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ left: 8, right: 24, top: 12, bottom: horizontal ? 8 : 90 }}>
+        <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ left: 8, right: horizontal ? 32 : 24, top: 24, bottom: horizontal ? 8 : 90 }}>
           <CartesianGrid strokeDasharray="3 3" />
           {horizontal ? (
             <>
@@ -113,10 +129,11 @@ export interface ScatterRow {
  * Metric vs compression ratio, one marker per compressor (family shape +
  * colour). With `front`, the Pareto front (min ratio, max metric) is drawn.
  */
-export function MetricScatterChart({ rows, metric, colors, front = false }: {
+export function MetricScatterChart({ rows, metric, colors, shapes, front = false }: {
   rows: ScatterRow[]
   metric: string
   colors: Map<string, string>
+  shapes?: Map<string, string>
   front?: boolean
 }) {
   if (rows.length === 0) return null
@@ -127,6 +144,7 @@ export function MetricScatterChart({ rows, metric, colors, front = false }: {
       x: r.ratio * 100,
       y: r.value,
       color: colors.get(r.compressor) ?? '#64748b',
+      shape: shapes?.get(r.compressor),
     }))
     .sort((a, b) => a.x - b.x)
   const frontPoints = front ? paretoFront(points) : []
@@ -168,7 +186,7 @@ export function MetricScatterChart({ rows, metric, colors, front = false }: {
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1">
         {points.map((p) => (
           <span key={p.compressor} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <LegendMarker name={p.compressor} color={p.color} />{p.name}
+            <LegendMarker name={p.compressor} color={p.color} shape={p.shape} />{p.name}
           </span>
         ))}
       </div>
@@ -177,11 +195,12 @@ export function MetricScatterChart({ rows, metric, colors, front = false }: {
 }
 
 /** Metric vs chunk size, one line per compressor (thesis scaling plots). */
-export function SweepChart({ chunkLabels, lines, metric, colors }: {
+export function SweepChart({ chunkLabels, lines, metric, colors, shapes }: {
   chunkLabels: string[]
   lines: { compressor: string; values: (number | null)[] }[]
   metric: string
   colors: Map<string, string>
+  shapes?: Map<string, string>
 }) {
   if (lines.length === 0) return null
   const data = chunkLabels.map((label, i) => {
@@ -204,7 +223,11 @@ export function SweepChart({ chunkLabels, lines, metric, colors }: {
               name={renameCompressor(l.compressor)}
               stroke={colors.get(l.compressor) ?? '#64748b'}
               strokeWidth={2}
-              dot={{ r: 3 }}
+              // Family marker on every point: colours alone can repeat.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              dot={(props: any) => (props.cx == null || props.value == null ? <g key={props.key} /> : (
+                <g key={props.key}><MarkerShape cx={props.cx} cy={props.cy} r={4} name={l.compressor} shape={shapes?.get(l.compressor)} color={colors.get(l.compressor) ?? '#64748b'} /></g>
+              ))}
               connectNulls
               isAnimationActive={false}
             />

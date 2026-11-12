@@ -246,3 +246,38 @@ export function packageColor(spec: unknown): string | undefined {
   }
   return undefined
 }
+
+export interface CompressorStyle {
+  color: string
+  shape: string
+}
+
+/**
+ * Shapes used to tell apart compressors that share a colour. The report
+ * palette reuses colours across families (Gzip, Gorilla and B*-GEF are all
+ * #1f77b4; ALP, DAC and U-GEF (Opt) share #bcbd22): colours are kept for
+ * parity with the thesis plots, and shapes disambiguate.
+ */
+export const ALTERNATE_SHAPES = ['triangle-down', 'hexagon', 'x', 'square', 'diamond', 'star', 'pentagon', 'triangle-up', 'circle', 'cross']
+
+/**
+ * Colour and marker shape for every compressor label of a result set:
+ * colours as in assignCompressorColors, shapes by family, and whenever
+ * several labels share a colour, each of them gets a different shape.
+ */
+export function assignCompressorStyles(names: string[]): Map<string, CompressorStyle> {
+  const colors = assignCompressorColors(names)
+  const byColor = new Map<string, string[]>()
+  for (const [name, color] of colors) byColor.set(color, [...(byColor.get(color) ?? []), name])
+  const styles = new Map<string, CompressorStyle>()
+  for (const [color, group] of byColor) {
+    const taken = new Set<string>()
+    for (const name of [...group].sort()) {
+      let shape = getCompressorShape(name)
+      if (taken.has(shape)) shape = ALTERNATE_SHAPES.find((s) => !taken.has(s)) ?? shape
+      taken.add(shape)
+      styles.set(name, { color, shape })
+    }
+  }
+  return styles
+}
