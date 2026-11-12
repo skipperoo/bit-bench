@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import UploadPage from './UploadPage'
+import UploadPage from './NewExperimentPage'
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 
@@ -249,5 +249,52 @@ describe('UploadPage pfordelta instances', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'codec' }), 'pfor')
     await waitFor(() => expect(screen.queryAllByText(/Duplicate configuration/)).toHaveLength(0))
     expect(screen.getByText('PForDelta · codec pfor')).toBeInTheDocument()
+  })
+})
+
+describe('UploadPage guided layout', () => {
+  function mockRegistry(extra: Record<string, unknown> = {}) {
+    mockedFetch.mockImplementation((path: string) => {
+      if (path === '/compressors') {
+        return Promise.resolve({
+          gzip: { level: { type: 'number', min: 1, max: 9, default: 6, step: 1 } },
+          zstd: {},
+          lz4: {},
+        } as never)
+      }
+      if (path === '/presets') {
+        return Promise.resolve([{ id: 'p1', owner_id: 'u', name: 'fast set', visibility: 'private', compressors: [{ name: 'lz4', options: {}, label: 'lz4' }], created_at: '', updated_at: '' }] as never)
+      }
+      if (path === '/compressors/packages' || path === '/config-history') return Promise.resolve([] as never)
+      if (path === '/config') return Promise.resolve({ hostPlatform: 'linux/amd64', maxFileSizeMb: 10 } as never)
+      if (path in extra) return Promise.resolve(extra[path] as never)
+      return Promise.resolve({} as never)
+    })
+  }
+
+  it('keeps a summary with the task count next to the Run button', async () => {
+    mockRegistry()
+    const { container } = renderPage()
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, [new File(['a'], 'a.bin'), new File(['b'], 'b.csv')])
+    await userEvent.click(await screen.findByRole('button', { name: 'Add all Dictionary-based' }))
+
+    const summary = screen.getByTestId('run-summary')
+    expect(summary).toHaveTextContent('2 files')
+    expect(summary).toHaveTextContent('3 built-in, 0 custom')
+    // One built-in task per input; the CSV may hold several columns.
+    expect(summary).toHaveTextContent('≥ 2')
+    expect(screen.getByRole('navigation', { name: 'Steps' })).toBeInTheDocument()
+    expect(within(screen.getByRole('complementary', { name: 'Summary' })).getByRole('button', { name: 'Run Benchmark' })).toBeInTheDocument()
+  })
+
+  it('loads a preset from the Load panel', async () => {
+    mockRegistry()
+    renderPage()
+    await screen.findByRole('button', { name: 'Add Gzip' })
+    await userEvent.click(screen.getByRole('button', { name: /Load preset or recent/ }))
+    await userEvent.click(within(document.getElementById('load-panel')!).getByRole('button', { name: 'Load' }))
+    expect(await screen.findByText('1/64 instances')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove LZ4' })).toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
+import { Fragment, useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +18,7 @@ import { canManagePreset, summarizeInstances } from '@/lib/presets'
 import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
 import { batchFileStatuses } from '@/lib/upload-progress'
 import { ACCEPTED_EXTENSIONS, checkUploadFiles } from '@/lib/files'
-import { AGGREGATION_INFO, DEFAULT_DATASET_SELECTION, datasetSelectionError } from '@/lib/datasets'
+import { AGGREGATION_INFO, DEFAULT_DATASET_SELECTION, datasetSelectionError, planRuns } from '@/lib/datasets'
 import type { Aggregation, DatasetListResponse, DatasetSelection } from '@/lib/datasets'
 import DatasetPanel from '@/components/DatasetPanel'
 import type { FileUploadStatus, UploadPhase } from '@/lib/upload-progress'
@@ -164,7 +164,7 @@ interface RerunState {
   source?: { dataset: string; series: string[]; chunk_size: number; max_chunks: number; transform: string }
 }
 
-export default function UploadPage() {
+export default function NewExperimentPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const rerun = (location.state as { rerun?: RerunState } | null)?.rerun
@@ -197,6 +197,7 @@ export default function UploadPage() {
   const [presetVisibility, setPresetVisibility] = useState<'private' | 'group'>('private')
   const [presetError, setPresetError] = useState('')
   const [savingPreset, setSavingPreset] = useState(false)
+  const [loadOpen, setLoadOpen] = useState(false)
   const [hostPlatform, setHostPlatform] = useState('')
   const [maxFileSizeMb, setMaxFileSizeMb] = useState(0)
   const [packagePlatforms, setPackagePlatforms] = useState<Record<string, string | undefined>>({})
@@ -569,6 +570,54 @@ export default function UploadPage() {
   const inputReady = source === 'files' ? files.length > 0 : !datasetError
   const canSubmit = Boolean(name) && inputReady && instances.length > 0 && !validationError
 
+  const steps = [
+    { id: 'step-data', label: 'Data', done: Boolean(name) && inputReady },
+    { id: 'step-compressors', label: 'Compressors', done: instances.length > 0 && !validationError },
+    { id: 'step-settings', label: 'Run settings', done: true },
+  ]
+
+  // What the run will do: benchmarks, inputs and the task count the scheduler sees.
+  const customCount = instances.filter((i) => customNames.has(i.name)).length
+  const builtinCount = instances.length - customCount
+  const tasksPerInput = (builtinCount > 0 ? 1 : 0) + customCount
+  const summaryRows: [string, string][] = (() => {
+    const rows: [string, string][] = [['Name', name || '—']]
+    if (source === 'dataset') {
+      const series = (currentDataset?.series ?? []).filter((x) => datasetSelection.series.includes(x.name))
+      const runs = planRuns(series, datasetSelection.chunkSizes, datasetSelection.maxChunks, datasetSelection.transforms)
+      const inputs = runs.reduce((a, r) => a + r.inputs, 0)
+      rows.push(['Data', datasetSelection.dataset ? `${datasetSelection.dataset} · ${series.length} series` : '—'])
+      rows.push(['Benchmarks', String(runs.length || '—')])
+      rows.push(['Inputs', inputs ? String(inputs) : '—'])
+      rows.push(['Tasks', inputs && tasksPerInput ? String(inputs * tasksPerInput) : '—'])
+    } else {
+      const bytes = files.reduce((a, f) => a + f.size, 0)
+      rows.push(['Data', files.length ? `${files.length} file${files.length === 1 ? '' : 's'} · ${formatBytes(bytes)}` : '—'])
+      rows.push(['Benchmarks', files.length > 1 && multiMode === 'sequential' ? String(files.length) : files.length ? '1' : '—'])
+      // CSV columns and archive members become separate inputs on the server.
+      const exact = files.every((f) => f.name.toLowerCase().endsWith('.bin'))
+      rows.push(['Tasks', files.length && tasksPerInput ? `${exact ? '' : '≥ '}${files.length * tasksPerInput}` : '—'])
+    }
+    rows.push(['Instances', instances.length ? `${builtinCount} built-in, ${customCount} custom` : '—'])
+    rows.push(['Aggregation', AGGREGATION_INFO[aggregation].label])
+    rows.push(['Memory', measureMemory ? 'Massif (slow)' : 'off'])
+    return rows
+  })()
+
+  /** Adds the default configuration of every compressor of a family not yet configured. */
+  const addAll = (names: string[]) => {
+    setInstances((prev) => {
+      const next = [...prev]
+      for (const c of names) {
+        if (next.length >= MAX_INSTANCES_PER_BENCHMARK) break
+        if (next.some((i) => i.name === c)) continue
+        next.push({ name: c, options: defaultOptions(compressors[c] || {}) })
+      }
+      return next
+    })
+    setError('')
+  }
+
   function renderOptionField(index: number, key: string, opt: CompressorOption) {
     const value = instances[index]?.options[key]
 
@@ -646,16 +695,40 @@ export default function UploadPage() {
   const instanceCount = (compName: string) => instances.filter((i) => i.name === compName).length
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div>
-        {/* Zone 1: Title + Benchmark Name */}
-        <div className="mb-10">
-          <h1 className="text-2xl font-semibold tracking-tight mb-1">New Benchmark</h1>
-          <p className="text-sm text-muted-foreground mb-6">
-            Upload integer sequences or pick a standardized dataset, then configure the compressors to test.
-          </p>
+    <div className="max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight mb-1">New experiment</h1>
+        <p className="text-sm text-muted-foreground">
+          Pick the data, configure the compressors, choose how results are combined. The summary keeps the Run button in reach.
+        </p>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[9rem_minmax(0,1fr)_18rem]">
+        <nav aria-label="Steps" className="hidden lg:block sticky top-20 self-start">
+          <ol className="space-y-1 text-sm">
+            {steps.map((step, i) => (
+              <li key={step.id}>
+                <a
+                  href={`#${step.id}`}
+                  onClick={(e) => { e.preventDefault(); document.getElementById(step.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-secondary"
+                >
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full border text-[11px] ${step.done ? 'bg-foreground text-background border-foreground' : 'border-border text-muted-foreground'}`}>
+                    {step.done ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
+                  </span>
+                  {step.label}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+
+        <div className="min-w-0">
+        {/* Step 1: data */}
+        <section id="step-data" aria-label="Data" className="mb-10 scroll-mt-20">
+          <h2 className="text-base font-medium text-foreground mb-3">1 · Data</h2>
+          <div className="mb-6">
           <div className="space-y-1.5">
-            <Label htmlFor="name">Benchmark Name</Label>
+            <Label htmlFor="name">Name</Label>
             <Input
               id="name"
               value={name}
@@ -666,16 +739,15 @@ export default function UploadPage() {
                   void handleSubmit()
                 }
               }}
-              placeholder="My benchmark"
+              placeholder="My experiment"
               className="max-w-md"
             />
           </div>
         </div>
 
-        {/* Zone 2: Data source */}
-        <div className="mb-10">
+        <div>
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <h2 className="text-sm font-medium text-foreground">Data</h2>
+            <span className="text-sm font-medium text-foreground">Source</span>
             <div role="tablist" aria-label="Data source" className="inline-flex rounded-md border border-border p-0.5 text-xs">
               {(['files', 'dataset'] as const).map((s) => (
                 <button
@@ -797,44 +869,30 @@ export default function UploadPage() {
           </div>
           )}
         </div>
+        </section>
 
-        {/* Zone 2b: How results are combined */}
-        <div className="mb-10">
-          <h2 className="text-sm font-medium text-foreground mb-3">Run Settings</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="aggregation">Aggregate results over inputs</Label>
-              <select
-                id="aggregation"
-                className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm"
-                value={aggregation}
-                disabled={loading}
-                onChange={(e) => setAggregation(e.target.value as Aggregation)}
+        {/* Step 2: compressors */}
+        <section id="step-compressors" aria-label="Compressors" className="mb-10 scroll-mt-20">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="text-base font-medium text-foreground">2 · Compressors</h2>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                aria-expanded={loadOpen}
+                aria-controls="load-panel"
+                className="text-xs rounded-md border border-border px-2 py-1 hover:bg-secondary"
+                onClick={() => setLoadOpen((v) => !v)}
               >
-                {(Object.keys(AGGREGATION_INFO) as Aggregation[]).map((a) => (
-                  <option key={a} value={a}>{AGGREGATION_INFO[a].label}</option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">{AGGREGATION_INFO[aggregation].help}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="measure-memory">Memory measurement</Label>
-              <div className="flex items-center gap-2">
-                <Switch id="measure-memory" checked={measureMemory} onCheckedChange={setMeasureMemory} disabled={loading} />
-                <span className="text-sm">{measureMemory ? 'Valgrind Massif on' : 'Off'}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Peak-memory profiling of built-in compressors. It runs every compressor again under Valgrind
-                (much slower); turn it off for large chunk sweeps.
-              </p>
+                Load preset or recent… {presets.length + history.length > 0 ? `(${presets.length + history.length})` : ''}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                {instances.length}/{MAX_INSTANCES_PER_BENCHMARK} instances
+              </span>
             </div>
           </div>
-        </div>
-
-        {/* Zone 3: Presets and configuration history */}
-        <div className="mb-10">
-          <h2 className="text-sm font-medium text-foreground mb-3">Presets &amp; History</h2>
-          <div className="grid gap-4 lg:grid-cols-2">
+          {loadOpen && (
+            <div id="load-panel" className="mb-4">
+              <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Presets</CardTitle>
@@ -878,37 +936,7 @@ export default function UploadPage() {
                     ))}
                   </div>
                 )}
-                <form onSubmit={handleSavePreset} className="flex items-end gap-2 pt-3 border-t border-border">
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor="preset-name" className="text-xs">Save current configuration</Label>
-                    <Input
-                      id="preset-name"
-                      value={presetName}
-                      onChange={(e) => setPresetName(e.target.value)}
-                      placeholder="Preset name"
-                      className="h-8"
-                      maxLength={100}
-                    />
-                  </div>
-                  <select
-                    className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
-                    value={presetVisibility}
-                    onChange={(e) => setPresetVisibility(e.target.value as 'private' | 'group')}
-                    title="Preset visibility"
-                  >
-                    <option value="private">Private</option>
-                    <option value="group" disabled={!groupId}>Group</option>
-                  </select>
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="h-8"
-                    disabled={!presetName.trim() || instances.length === 0 || savingPreset}
-                  >
-                    {savingPreset ? 'Saving…' : 'Save'}
-                  </Button>
-                </form>
-                {presetError && <p className="text-xs text-destructive">{presetError}</p>}
+
               </CardContent>
             </Card>
 
@@ -946,16 +974,8 @@ export default function UploadPage() {
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        {/* Zone 4: Configuration builder */}
-        <div className="mb-10">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-medium text-foreground">Compressor Configuration</h2>
-            <span className="text-xs text-muted-foreground">
-              {instances.length}/{MAX_INSTANCES_PER_BENCHMARK} instances
-            </span>
-          </div>
+            </div>
+          )}
 
           {emulatedSelected.length > 0 && (
             <div
@@ -1001,9 +1021,20 @@ export default function UploadPage() {
                 ) : (
                   pickerFamilies.map((family) => (
                     <section key={family.name}>
-                      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-                        {family.name}
-                      </h3>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                          {family.name}
+                        </h3>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+                          aria-label={`Add all ${family.name}`}
+                          disabled={family.compressors.every((c) => instanceCount(c) > 0)}
+                          onClick={() => addAll(family.compressors)}
+                        >
+                          Add all
+                        </button>
+                      </div>
                       <div className="space-y-0.5">
                         {family.compressors.map((c) => {
                           const schema = compressors[c] || {}
@@ -1050,7 +1081,18 @@ export default function UploadPage() {
             {/* Configured instances */}
             <div className="border border-border rounded-lg">
               <div className="p-3 border-b border-border">
-                <h3 className="text-sm font-medium">Configured Instances</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium">Configured Instances</h3>
+                  {instances.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => { if (confirm('Remove every configured instance?')) { setInstances([]); setExpandedInstance(null) } }}
+                    >
+                      Remove all
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Every instance is benchmarked separately; identical configurations are rejected.
                 </p>
@@ -1128,8 +1170,84 @@ export default function UploadPage() {
           {validationError && (
             <p className="text-xs text-destructive mt-2">{validationError}</p>
           )}
+          <div className="mt-3 max-w-xl">
+            <form onSubmit={handleSavePreset} className="flex items-end gap-2 pt-3 border-t border-border">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="preset-name" className="text-xs">Save current configuration</Label>
+                    <Input
+                      id="preset-name"
+                      value={presetName}
+                      onChange={(e) => setPresetName(e.target.value)}
+                      placeholder="Preset name"
+                      className="h-8"
+                      maxLength={100}
+                    />
+                  </div>
+                  <select
+                    className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                    value={presetVisibility}
+                    onChange={(e) => setPresetVisibility(e.target.value as 'private' | 'group')}
+                    title="Preset visibility"
+                  >
+                    <option value="private">Private</option>
+                    <option value="group" disabled={!groupId}>Group</option>
+                  </select>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-8"
+                    disabled={!presetName.trim() || instances.length === 0 || savingPreset}
+                  >
+                    {savingPreset ? 'Saving…' : 'Save'}
+                  </Button>
+                </form>
+            {presetError && <p className="text-xs text-destructive mt-1">{presetError}</p>}
+          </div>
+        </section>
+
+        {/* Step 3: run settings */}
+        <section id="step-settings" aria-label="Run settings" className="mb-10 scroll-mt-20">
+          <h2 className="text-base font-medium text-foreground mb-3">3 · Run settings</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="aggregation">Aggregate results over inputs</Label>
+              <select
+                id="aggregation"
+                className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-2 text-sm"
+                value={aggregation}
+                disabled={loading}
+                onChange={(e) => setAggregation(e.target.value as Aggregation)}
+              >
+                {(Object.keys(AGGREGATION_INFO) as Aggregation[]).map((a) => (
+                  <option key={a} value={a}>{AGGREGATION_INFO[a].label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{AGGREGATION_INFO[aggregation].help}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="measure-memory">Memory measurement</Label>
+              <div className="flex items-center gap-2">
+                <Switch id="measure-memory" checked={measureMemory} onCheckedChange={setMeasureMemory} disabled={loading} />
+                <span className="text-sm">{measureMemory ? 'Valgrind Massif on' : 'Off'}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Peak-memory profiling of built-in compressors. It runs every compressor again under Valgrind
+                (much slower); turn it off for large chunk sweeps.
+              </p>
+            </div>
+          </div>
+        </section>
+
         </div>
 
+        <aside aria-label="Summary" className="sticky bottom-0 lg:bottom-auto lg:top-20 self-end lg:self-start z-10 -mx-4 lg:mx-0 border-t lg:border border-border bg-background lg:rounded-md p-4 space-y-3">
+          <h2 className="text-sm font-medium hidden lg:block">Summary</h2>
+          <dl data-testid="run-summary" className="hidden lg:grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            {summaryRows.map(([k, v]) => (
+              <Fragment key={k}><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-mono truncate" title={v}>{v}</dd></Fragment>
+            ))}
+          </dl>
+          <p className="text-xs text-muted-foreground lg:hidden truncate">{summaryRows.map(([, v]) => v).join(' · ')}</p>
         {/* Error */}
         {error && (
           <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
@@ -1139,8 +1257,8 @@ export default function UploadPage() {
         )}
 
         {/* Submit */}
-        <div className="flex items-center gap-3">
-          <Button type="button" onClick={handleSubmit} disabled={!canSubmit || loading} className="min-w-[180px]">
+        <div className="flex flex-col gap-2">
+          <Button type="button" onClick={handleSubmit} disabled={!canSubmit || loading} className="w-full">
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1151,7 +1269,7 @@ export default function UploadPage() {
             )}
           </Button>
           {!canSubmit && !loading && (
-            <p className="text-xs text-muted-foreground">
+            <p data-testid="submit-hint" className="text-xs text-muted-foreground">
               {!name && 'Enter a name'}
               {name && !inputReady && (source === 'files' ? ' · Select a file' : ` · ${datasetError}`)}
               {name && inputReady && instances.length === 0 && ' · Configure at least one compressor'}
@@ -1159,6 +1277,7 @@ export default function UploadPage() {
             </p>
           )}
         </div>
+        </aside>
       </div>
     </div>
   )

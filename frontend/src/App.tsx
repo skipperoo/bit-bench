@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams, useSearchParams } fr
 import { useAuthStore } from '@/stores/auth-store'
 import { AppLayout } from '@/components/layout/AppLayout'
 import LoginPage from '@/pages/LoginPage'
-import UploadPage from '@/pages/UploadPage'
+import NewExperimentPage from '@/pages/NewExperimentPage'
 import CompressorsPage from '@/pages/CompressorsPage'
 import ExperimentsPage from '@/pages/ExperimentsPage'
 import ExperimentView from '@/pages/ExperimentView'
@@ -39,7 +39,7 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="/new" element={<UploadPage />} />
+          <Route path="/new" element={<NewExperimentPage />} />
           <Route path="/experiments" element={<ExperimentsPage />} />
           <Route path="/experiments/view" element={<ExperimentView />} />
           <Route path="/compressors" element={<CompressorsPage />} />
