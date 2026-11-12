@@ -160,7 +160,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 
 #### 3.1.2 New experiment page (`/new`, formerly the upload page)
 - Guided layout: a step rail (1 Data, 2 Compressors, 3 Run settings) with completion marks, the three sections on one page, and a **sticky summary** (bottom bar on phones) with the Run button, the validation hint and what the run does (benchmarks, inputs, scheduler tasks, built-in/custom instances, aggregation, memory). Presets and history live in a "Load preset or recent…" panel of the compressor step; "save as preset" sits under the instance list; the picker has "Add all" per family and the instance list "Remove all". The sections below describe the controls.
-- **Data source switch**: *Upload files* (below) or *Standard dataset* (D32): dataset select (description/source from `dataset.yaml`), series checklist (invalid files listed but disabled), chunk-size chips (`whole series`, thesis presets 256…786432 samples, custom), max chunks per series, transform chips, and a plan box listing the benchmarks/inputs the run creates. Empty `DATASET_DIR` shows setup instructions.
+- **Data source switch**: *Upload files* (below) or *Standard dataset* (D32): dataset select (description/source from `dataset.yaml`), series checklist (invalid files listed but disabled), chunk-size chips (`whole series`, presets 256…786432 samples, each with its 16-bit byte size as a tooltip, custom), max chunks per series, transform chips, and a plan box listing the benchmarks/inputs the run creates. Empty `DATASET_DIR` shows setup instructions.
 - **Run settings** (both sources): aggregation select (`mean`/`median`/`pooled`, D33) with its definition, Massif memory-measurement switch.
 - Brief platform introduction.
 - Brief instructions on accepted file types and structure (see §4.5).
@@ -187,7 +187,7 @@ Reproduces `final_results.html` for one benchmark and generalizes it to several 
 - One benchmark: bar charts (horizontal above 12 compressors) or scatter vs ratio, plus ranked tables; several: grouped bars plus comparison tables (rows = benchmarks + average). Every table has **Download CSV** and **Copy LaTeX**.
 
 #### 3.1.5 Datasets page (`/datasets`)
-- Every dataset under `DATASET_DIR` with `dataset.yaml` description/source; per series: values, value range over the whole recording, a min/max sparkline of the first 10k values (`GET /datasets/{dataset}/series/{series}/preview`), chunk counts per thesis preset size; invalid files with their reason; **Benchmark this dataset** opens New experiment with it preselected. Setup instructions when empty.
+- Every dataset under `DATASET_DIR` with `dataset.yaml` description/source; per series: values, value range over the whole recording, a min/max sparkline of the first 10k values (`GET /datasets/{dataset}/series/{series}/preview`), chunk counts per preset chunk size; invalid files with their reason; **Benchmark this dataset** opens New experiment with it preselected. Setup instructions when empty.
 
 #### 3.1.6 Status page
 - Work-queue depth, benchmark runner status, submitted-job statistics (counts by status). Data from `GET /api/v1/status`.

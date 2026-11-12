@@ -81,7 +81,7 @@ function DatasetCard({ dataset }: { dataset: StandardDataset }) {
               <th className="p-2 font-medium text-right">Values</th>
               <th className="p-2 font-medium text-right">Range</th>
               <th className="p-2 font-medium">First 10k values</th>
-              <th className="p-2 font-medium" title="Full chunks per thesis preset size (samples)">Chunks per size</th>
+              <th className="p-2 font-medium" title="Full chunks per preset chunk size (samples)">Chunks per size</th>
             </tr>
           </thead>
           <tbody>

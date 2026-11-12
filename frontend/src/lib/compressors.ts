@@ -143,7 +143,7 @@ export function getCompressorFamily(name: string): string {
 }
 
 /**
- * Palette for user packages: distinct from the thesis colours above so a
+ * Palette for user packages: distinct from the report colours above so a
  * custom coder never looks like a built-in one. A package keeps the same colour
  * everywhere (hash of its name) unless its spec.yaml sets `color`.
  */
@@ -256,7 +256,7 @@ export interface CompressorStyle {
  * Shapes used to tell apart compressors that share a colour. The report
  * palette reuses colours across families (Gzip, Gorilla and B*-GEF are all
  * #1f77b4; ALP, DAC and U-GEF (Opt) share #bcbd22): colours are kept for
- * parity with the thesis plots, and shapes disambiguate.
+ * consistency with the report plots, and shapes disambiguate.
  */
 export const ALTERNATE_SHAPES = ['triangle-down', 'hexagon', 'x', 'square', 'diamond', 'star', 'pentagon', 'triangle-up', 'circle', 'cross']
 

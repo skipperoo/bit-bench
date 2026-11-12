@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   CHUNK_PRESETS,
+  chunkSizeHint,
   TRANSFORM_INFO,
   WHOLE_SERIES,
   describeChunking,
@@ -139,7 +140,7 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
               type="button"
               className={chipClass(selection.chunkSizes.includes(p.samples))}
               onClick={() => set({ chunkSizes: toggle(selection.chunkSizes, p.samples) })}
-              title={`Thesis ${p.thesis}`}
+              title={chunkSizeHint(p.samples)}
             >
               {p.samples.toLocaleString()}
             </button>
@@ -167,7 +168,7 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
             </button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Presets match the thesis sizes (size_&lt;bytes&gt; of 16-bit samples = bytes / 2). Each size becomes its own benchmark.</p>
+        <p className="text-xs text-muted-foreground">Sizes count samples, not bytes: for 16-bit data, 4,096 samples are 8 KB. Each size becomes its own benchmark.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
