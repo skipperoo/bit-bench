@@ -107,11 +107,23 @@ describe('assignCompressorStyles', () => {
   it('applies the user overrides and keeps the other shapes distinct', async () => {
     const { assignCompressorStyles } = await import('./compressors')
     // gzip normally keeps its diamond; the override takes it for Gorilla.
-    const styles = assignCompressorStyles(['gzip', 'Gorilla', 'b_star_gef_approximate'], { gorilla: 'diamond' })
+    const styles = assignCompressorStyles(['gzip', 'Gorilla', 'b_star_gef_approximate'], { shapes: { gorilla: 'diamond' } })
     expect(styles.get('Gorilla')!.shape).toBe('diamond')
     const shapes = ['gzip', 'Gorilla', 'b_star_gef_approximate'].map((n) => styles.get(n)!.shape)
     expect(new Set(shapes).size).toBe(3)
     // Unknown shapes are ignored.
-    expect(assignCompressorStyles(['zstd'], { zstd: 'blob' }).get('zstd')!.shape).toBe(getCompressorShape('zstd'))
+    expect(assignCompressorStyles(['zstd'], { shapes: { zstd: 'blob' } }).get('zstd')!.shape).toBe(getCompressorShape('zstd'))
+  })
+
+  it('applies colour overrides and separates the new colour clash by shape', async () => {
+    const { assignCompressorStyles } = await import('./compressors')
+    // Zstd (diamond) recoloured to gzip's blue: same colour and same family
+    // shape, so one of them must get another shape.
+    const styles = assignCompressorStyles(['gzip', 'zstd'], { colors: { zstd: '#1F77B4' } })
+    expect(styles.get('zstd')!.color).toBe('#1f77b4')
+    expect(styles.get('gzip')!.color).toBe(getCompressorColor('gzip'))
+    expect(styles.get('gzip')!.shape).not.toBe(styles.get('zstd')!.shape)
+    // Invalid colours are ignored.
+    expect(assignCompressorStyles(['zstd'], { colors: { zstd: 'red' } }).get('zstd')!.color).toBe(getCompressorColor('zstd'))
   })
 })

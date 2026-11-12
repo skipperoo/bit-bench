@@ -13,7 +13,7 @@ import { GroupedBarChart, MetricBarChart, MetricScatterChart, SweepChart } from 
 import { ComparisonTable, RankedTable } from '@/components/ResultTables'
 import { apiFetch } from '@/lib/api'
 import { assignCompressorStyles, renameCompressor, shapeKey } from '@/lib/compressors'
-import { useChartShapes } from '@/stores/chart-shapes-store'
+import { useChartStyles } from '@/stores/chart-styles-store'
 import { usePackageColors } from '@/lib/package-colors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics'
@@ -91,17 +91,18 @@ export default function ExperimentView() {
   const ready = items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0)
   const multi = ready.length > 1
   const allNames = useMemo(() => [...new Set(ready.flatMap((i) => i.results.map((r) => r.compressor)))].sort(), [ready])
-  const shapeOverrides = useChartShapes((st) => st.overrides)
-  const shapeError = useChartShapes((st) => st.error)
-  useEffect(() => { useChartShapes.getState().load() }, [])
-  const styles = assignCompressorStyles(allNames, shapeOverrides)
-  const defaultShapes = new Map([...assignCompressorStyles(allNames)].map(([n, st]) => [n, st.shape]))
-  const shapeEditing = {
-    defaults: defaultShapes,
-    overridden: (name: string) => shapeKey(name) in shapeOverrides,
-    onChange: (name: string, shape: string | null) => { useChartShapes.getState().setShape(name, shape) },
-    onReset: (names: string[]) => { useChartShapes.getState().reset(names) },
-    error: shapeError,
+  const shapeOverrides = useChartStyles((st) => st.shapes)
+  const colorOverrides = useChartStyles((st) => st.colors)
+  const styleError = useChartStyles((st) => st.error)
+  useEffect(() => { useChartStyles.getState().load() }, [])
+  const styles = assignCompressorStyles(allNames, { shapes: shapeOverrides, colors: colorOverrides })
+  const styleEditing = {
+    defaults: assignCompressorStyles(allNames),
+    overridden: (name: string) => ({ shape: shapeKey(name) in shapeOverrides, color: shapeKey(name) in colorOverrides }),
+    onShapeChange: (name: string, shape: string | null) => { useChartStyles.getState().setShape(name, shape) },
+    onColorChange: (name: string, color: string | null) => { useChartStyles.getState().setColor(name, color) },
+    onReset: (names: string[]) => { useChartStyles.getState().reset(names) },
+    error: styleError,
   }
   const colors = new Map([...styles].map(([n, st]) => [n, st.color]))
   const shapes = new Map([...styles].map(([n, st]) => [n, st.shape]))
@@ -261,10 +262,10 @@ export default function ExperimentView() {
           <aside className="lg:sticky lg:top-16 lg:self-start">
             <details className="lg:hidden rounded-md border border-border p-3">
               <summary className="flex items-center gap-2 text-sm cursor-pointer"><SlidersHorizontal className="w-4 h-4" />Filter compressors ({visibleNames.length}/{allNames.length})</summary>
-              <div className="mt-3"><InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} shapeEditing={shapeEditing} /></div>
+              <div className="mt-3"><InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} styleEditing={styleEditing} /></div>
             </details>
             <div className="hidden lg:block rounded-md border border-border p-3 max-h-[calc(100vh-6rem)] overflow-y-auto">
-              <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} shapeEditing={shapeEditing} />
+              <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} styleEditing={styleEditing} />
             </div>
           </aside>
 

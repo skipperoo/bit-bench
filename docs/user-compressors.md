@@ -64,9 +64,10 @@ every page. Set `color: "#rrggbb"` to pick it yourself. Several configurations
 of the same package (or of any compressor) share its hue: the first keeps the
 base colour and the others get darker/lighter shades. If two compressors in
 a result end up with the same colour, they are told apart by marker shape.
-To use a different shape, click the compressor's marker in the compressor
-filter of a result page and pick one; the choice is saved to your account and
-only affects what you see.
+To use a different shape or colour, click the compressor's marker in the
+compressor filter of a result page and pick one; the choice is saved to your
+account and only affects what you see (the `spec.yaml` colour stays the
+default for everyone else).
 
 Option fields follow the compressor-options widget schema:
 

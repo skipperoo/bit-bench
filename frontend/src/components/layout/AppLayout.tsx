@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
-import { useChartShapes } from '@/stores/chart-shapes-store'
+import { useChartStyles } from '@/stores/chart-styles-store'
 import { Button } from '@/components/ui/button'
 import { apiFetch } from '@/lib/api'
 import {
@@ -36,7 +36,7 @@ export function AppLayout() {
       // proceed with local logout even if API call fails
     }
     logout()
-    useChartShapes.getState().clear()
+    useChartStyles.getState().clear()
     navigate('/login')
   }
 

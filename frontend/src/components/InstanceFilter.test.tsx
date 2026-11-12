@@ -1,59 +1,77 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import InstanceFilter from './InstanceFilter'
-import type { ShapeEditing } from './InstanceFilter'
+import type { StyleEditing } from './InstanceFilter'
 
-function setup(overridden: string[] = []) {
-  const editing: ShapeEditing = {
-    defaults: new Map([['gzip', 'diamond'], ['Gorilla', 'circle']]),
-    overridden: (n) => overridden.includes(n),
-    onChange: vi.fn(),
+const BLUE = '#1f77b4'
+
+function setup(over: { shape?: string[]; color?: string[] } = {}) {
+  const editing: StyleEditing = {
+    defaults: new Map([['gzip', { color: BLUE, shape: 'diamond' }], ['Gorilla', { color: BLUE, shape: 'circle' }]]),
+    overridden: (n: string) => ({ shape: !!over.shape?.includes(n), color: !!over.color?.includes(n) }),
+    onShapeChange: vi.fn(),
+    onColorChange: vi.fn(),
     onReset: vi.fn(),
   }
   const onHidden = vi.fn()
   render(
     <InstanceFilter
       names={['Gorilla', 'gzip']}
-      colors={new Map([['gzip', '#1f77b4'], ['Gorilla', '#1f77b4']])}
-      shapes={new Map([['gzip', 'diamond'], ['Gorilla', overridden.includes('Gorilla') ? 'hexagon' : 'circle']])}
+      colors={new Map([['gzip', BLUE], ['Gorilla', over.color?.includes('Gorilla') ? '#123456' : BLUE]])}
+      shapes={new Map([['gzip', 'diamond'], ['Gorilla', over.shape?.includes('Gorilla') ? 'hexagon' : 'circle']])}
       hidden={new Set()}
       onChange={onHidden}
-      shapeEditing={editing}
+      styleEditing={editing}
     />,
   )
   return { editing, onHidden }
 }
 
-describe('InstanceFilter shape editing', () => {
+describe('InstanceFilter style editing', () => {
   it('opens a picker from the marker without toggling the compressor', async () => {
     const { editing, onHidden } = setup()
-    await userEvent.click(screen.getByRole('button', { name: /Marker shape of Gzip: Diamond/ }))
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gzip: Diamond, #1f77b4$/ }))
     expect(onHidden).not.toHaveBeenCalled()
-    const dialog = screen.getByRole('dialog', { name: 'Marker shape for Gzip' })
-    expect(dialog).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Diamond (default)', pressed: true })).toHaveFocus()
+    expect(screen.getByRole('dialog', { name: 'Marker style for Gzip' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Diamond (default)', pressed: true })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Hexagon' }))
-    expect(editing.onChange).toHaveBeenCalledWith('gzip', 'hexagon')
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(editing.onShapeChange).toHaveBeenCalledWith('gzip', 'hexagon')
+    // The panel stays open so shape and colour can be set together.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
-  it('picking the default shape removes the override; Escape closes', async () => {
-    const { editing } = setup(['Gorilla'])
-    await userEvent.click(screen.getByRole('button', { name: /Marker shape of Gorilla: Hexagon \(yours\)/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Circle (default)' }))
-    expect(editing.onChange).toHaveBeenCalledWith('Gorilla', null)
+  it('picks a palette colour or a custom colour', async () => {
+    const { editing } = setup()
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gzip/ }))
+    expect(screen.getByRole('button', { name: `${BLUE} (default)`, pressed: true })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '#0f766e' }))
+    expect(editing.onColorChange).toHaveBeenCalledWith('gzip', '#0f766e')
 
-    await userEvent.click(screen.getByRole('button', { name: /Marker shape of Gorilla/ }))
+    fireEvent.change(screen.getByLabelText('Custom colour for Gzip'), { target: { value: '#ABCDEF' } })
+    expect(editing.onColorChange).toHaveBeenLastCalledWith('gzip', '#abcdef')
+  })
+
+  it('picking the defaults removes the overrides; Escape closes', async () => {
+    const { editing } = setup({ shape: ['Gorilla'], color: ['Gorilla'] })
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gorilla: Hexagon, #123456 \(yours\)/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Circle (default)' }))
+    expect(editing.onShapeChange).toHaveBeenCalledWith('Gorilla', null)
+    await userEvent.click(screen.getByRole('button', { name: `${BLUE} (default)` }))
+    expect(editing.onColorChange).toHaveBeenCalledWith('Gorilla', null)
+
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('resets only the customised compressors of the view', async () => {
-    const { editing } = setup(['Gorilla'])
-    await userEvent.click(screen.getByRole('button', { name: 'Reset 1 shape' }))
-    expect(editing.onReset).toHaveBeenCalledWith(['Gorilla'])
+  it('resets one compressor from its picker or every customised one of the view', async () => {
+    const { editing } = setup({ color: ['Gorilla'] })
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gorilla/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    expect(editing.onReset).toHaveBeenLastCalledWith(['Gorilla'])
+    await userEvent.click(screen.getByRole('button', { name: 'Reset 1 style' }))
+    expect(editing.onReset).toHaveBeenLastCalledWith(['Gorilla'])
   })
 
   it('the name still toggles the compressor', async () => {

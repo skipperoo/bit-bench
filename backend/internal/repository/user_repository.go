@@ -182,21 +182,25 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) erro
 	return err
 }
 
-// GetChartShapes returns the user's chart marker shape overrides.
-func (r *UserRepository) GetChartShapes(ctx context.Context, id uuid.UUID) (map[string]string, error) {
-	shapes := map[string]string{}
-	err := r.db.QueryRow(ctx, `SELECT chart_shapes FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&shapes)
+// GetChartStyles returns the user's chart shape and colour overrides.
+func (r *UserRepository) GetChartStyles(ctx context.Context, id uuid.UUID) (*model.ChartStyles, error) {
+	s := &model.ChartStyles{Shapes: map[string]string{}, Colors: map[string]string{}}
+	err := r.db.QueryRow(ctx, `SELECT chart_shapes, chart_colors FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&s.Shapes, &s.Colors)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
-	return shapes, err
+	return s, err
 }
 
-// SetChartShapes replaces the user's chart marker shape overrides.
-func (r *UserRepository) SetChartShapes(ctx context.Context, id uuid.UUID, shapes map[string]string) error {
+// SetChartStyles replaces the user's chart shape and colour overrides.
+func (r *UserRepository) SetChartStyles(ctx context.Context, id uuid.UUID, s *model.ChartStyles) error {
+	shapes, colors := s.Shapes, s.Colors
 	if shapes == nil {
 		shapes = map[string]string{}
 	}
-	_, err := r.db.Exec(ctx, `UPDATE users SET chart_shapes = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`, shapes, id)
+	if colors == nil {
+		colors = map[string]string{}
+	}
+	_, err := r.db.Exec(ctx, `UPDATE users SET chart_shapes = $1, chart_colors = $2, updated_at = NOW() WHERE id = $3 AND deleted_at IS NULL`, shapes, colors, id)
 	return err
 }
