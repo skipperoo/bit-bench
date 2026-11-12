@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -182,7 +183,14 @@ func (s *BenchmarkService) CreateBenchmarkWithOptions(ctx context.Context, actor
 		if base == "" {
 			base = "input"
 		}
-		srcPath := filepath.Join(srcDir, fmt.Sprintf("%02d-%s%s", i, base, ext))
+		// One folder per upload keeps the original file name (it ends up in the
+		// harness' dataset column and the task view) while avoiding clashes.
+		fileDir := filepath.Join(srcDir, fmt.Sprintf("%02d", i))
+		if err := os.MkdirAll(fileDir, 0755); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("store file: %w", err)
+		}
+		srcPath := filepath.Join(fileDir, base+ext)
 
 		dst, err := os.Create(srcPath)
 		if err != nil {
@@ -524,4 +532,41 @@ func (s *BenchmarkService) GetUserStatus(ctx context.Context, userID *uuid.UUID)
 		Stats: userStats,
 		CPU:   CollectCPUStatus(),
 	}, nil
+}
+
+// TaskView is the public, payload-free view of one benchmark task.
+type TaskView struct {
+	Seq        int        `json:"seq"`
+	Kind       string     `json:"kind"`
+	Compressor string     `json:"compressor"`
+	Input      string     `json:"input"`
+	Workers    int        `json:"workers"`
+	Status     string     `json:"status"`
+	Error      *string    `json:"error,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+}
+
+// ListTasks returns the tasks of a running benchmark (task rows are deleted
+// once the benchmark is finalized, so finished benchmarks return none).
+func (s *BenchmarkService) ListTasks(ctx context.Context, benchmarkID uuid.UUID) ([]TaskView, error) {
+	tasks, err := s.taskRepo.ListByBenchmark(ctx, benchmarkID)
+	if err != nil {
+		return nil, err
+	}
+	views := make([]TaskView, 0, len(tasks))
+	for _, t := range tasks {
+		v := TaskView{
+			Seq: t.Seq, Kind: t.Kind, Input: filepath.Base(t.InputPath), Workers: t.Workers,
+			Status: t.Status, Error: t.Error, StartedAt: t.StartedAt, FinishedAt: t.FinishedAt,
+			Compressor: "built-in compressors",
+		}
+		if t.InstanceLabel != nil {
+			v.Compressor = *t.InstanceLabel
+		} else if t.Compressor != nil {
+			v.Compressor = *t.Compressor
+		}
+		views = append(views, v)
+	}
+	return views, nil
 }

@@ -26,7 +26,8 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 		AddHandler("POST /benchmarks", CreateBenchmark).
 		AddHandler("GET /benchmarks", ListBenchmarks).
 		AddHandler("DELETE /benchmarks/{id}", DeleteBenchmark).
-		AddHandler("POST /benchmarks/{id}/cancel", CancelBenchmark)
+		AddHandler("POST /benchmarks/{id}/cancel", CancelBenchmark).
+		AddHandler("GET /benchmarks/{id}/tasks", ListBenchmarkTasks)
 	router := routy.NewRouter()
 	router.AddSubroute("/api/v1/", protected.Finalize())
 	handler := router.Finalize()
@@ -84,8 +85,24 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 		t.Errorf("dataset filter: %d, want 0", len(got))
 	}
 
-	// Only the owner may cancel/delete; cancel works once.
+	// The live view lists the queued task without its result payload.
 	path := "/api/v1/benchmarks/" + single.ID.String()
+	tw := getWithToken(handler, path+"/tasks", token)
+	var tasks struct {
+		Tasks []map[string]interface{} `json:"tasks"`
+	}
+	json.Unmarshal(tw.Body.Bytes(), &tasks)
+	if tw.Code != http.StatusOK || len(tasks.Tasks) != 1 || tasks.Tasks[0]["status"] != "queued" || tasks.Tasks[0]["input"] != "x.bin" {
+		t.Fatalf("tasks = %d %s", tw.Code, tw.Body.String())
+	}
+	if _, leaked := tasks.Tasks[0]["result"]; leaked {
+		t.Fatal("task result payload must not be exposed")
+	}
+	if w := getWithToken(handler, path+"/tasks", other); w.Code != http.StatusNotFound {
+		t.Fatalf("foreign tasks = %d, want 404", w.Code)
+	}
+
+	// Only the owner may cancel/delete; cancel works once.
 	r := httptest.NewRequest("POST", path+"/cancel", nil)
 	r.Header.Set("Authorization", "Bearer "+other)
 	rec = httptest.NewRecorder()

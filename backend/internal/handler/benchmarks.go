@@ -356,3 +356,19 @@ func GetStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
+
+// ListBenchmarkTasks returns the task table of a benchmark for the live run
+// view (owner or admin).
+func ListBenchmarkTasks(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	tasks, err := service.App.Benchmark.ListTasks(r.Context(), benchmark.ID)
+	if err != nil {
+		writeError(w, "failed to list tasks", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"tasks": tasks})
+}

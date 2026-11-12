@@ -119,6 +119,7 @@ func main() {
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
 		AddHandler("GET   /benchmarks/{id}/progress", handler.ProgressHandler).
 		AddHandler("DELETE /benchmarks/{id}", handler.DeleteBenchmark).
+		AddHandler("GET   /benchmarks/{id}/tasks", handler.ListBenchmarkTasks).
 		AddHandler("POST  /benchmarks/{id}/cancel", handler.CancelBenchmark).
 		AddHandler("GET   /benchmarks/compare", handler.CompareBenchmarks).
 		AddHandler("GET   /status", handler.GetStatus)

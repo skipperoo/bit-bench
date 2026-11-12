@@ -35,3 +35,20 @@ export function paretoRanking(results: BenchmarkResult[]): ParetoEntry[] {
     .sort((x, y) => x.dominationCount - y.dominationCount || x.ratio - y.ratio)
     .map(({ compressor, dominationCount }) => ({ compressor, dominationCount }))
 }
+
+/**
+ * Pareto front of points minimizing x and maximizing y, sorted by x: the
+ * non-dominated points, drawn as a step line over the scatter.
+ */
+export function paretoFront<T extends { x: number; y: number }>(points: T[]): T[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || b.y - a.y)
+  const front: T[] = []
+  let best = -Infinity
+  for (const p of sorted) {
+    if (p.y > best) {
+      front.push(p)
+      best = p.y
+    }
+  }
+  return front
+}
