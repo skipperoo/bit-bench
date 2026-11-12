@@ -103,4 +103,15 @@ describe('assignCompressorStyles', () => {
     expect(new Set(pink.map((p) => p.color)).size).toBe(1)
     expect(new Set(pink.map((p) => p.shape)).size).toBe(3)
   })
+
+  it('applies the user overrides and keeps the other shapes distinct', async () => {
+    const { assignCompressorStyles } = await import('./compressors')
+    // gzip normally keeps its diamond; the override takes it for Gorilla.
+    const styles = assignCompressorStyles(['gzip', 'Gorilla', 'b_star_gef_approximate'], { gorilla: 'diamond' })
+    expect(styles.get('Gorilla')!.shape).toBe('diamond')
+    const shapes = ['gzip', 'Gorilla', 'b_star_gef_approximate'].map((n) => styles.get(n)!.shape)
+    expect(new Set(shapes).size).toBe(3)
+    // Unknown shapes are ignored.
+    expect(assignCompressorStyles(['zstd'], { zstd: 'blob' }).get('zstd')!.shape).toBe(getCompressorShape('zstd'))
+  })
 })

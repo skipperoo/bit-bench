@@ -181,3 +181,22 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) erro
 	_, err := r.db.Exec(ctx, "UPDATE users SET updated_at = NOW() WHERE id = $1", id)
 	return err
 }
+
+// GetChartShapes returns the user's chart marker shape overrides.
+func (r *UserRepository) GetChartShapes(ctx context.Context, id uuid.UUID) (map[string]string, error) {
+	shapes := map[string]string{}
+	err := r.db.QueryRow(ctx, `SELECT chart_shapes FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&shapes)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	return shapes, err
+}
+
+// SetChartShapes replaces the user's chart marker shape overrides.
+func (r *UserRepository) SetChartShapes(ctx context.Context, id uuid.UUID, shapes map[string]string) error {
+	if shapes == nil {
+		shapes = map[string]string{}
+	}
+	_, err := r.db.Exec(ctx, `UPDATE users SET chart_shapes = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`, shapes, id)
+	return err
+}

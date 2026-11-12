@@ -11,6 +11,7 @@ import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Tra
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
+import { useChartShapes } from '@/stores/chart-shapes-store'
 import { assignCompressorStyles, packageColor, registerCompressorColors, renameCompressor } from '@/lib/compressors'
 import CompressorSwatch from '@/components/CompressorSwatch'
 import { formatBytes } from '@/lib/format'
@@ -170,6 +171,8 @@ export default function NewExperimentPage() {
   const navState = location.state as { rerun?: RerunState; dataset?: string } | null
   const rerun = navState?.rerun
   const presetDataset = navState?.dataset
+  const shapeOverrides = useChartShapes((st) => st.overrides)
+  useEffect(() => { useChartShapes.getState().load() }, [])
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
@@ -285,6 +288,7 @@ export default function NewExperimentPage() {
   // computation is trivial.
   const instanceStyles = assignCompressorStyles(
     instances.map((inst) => buildLabel(inst.name, compressors[inst.name] || {}, inst.options)),
+    shapeOverrides,
   )
 
   const emulatedSelected = useMemo(
