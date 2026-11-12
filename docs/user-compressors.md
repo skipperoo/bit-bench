@@ -33,6 +33,7 @@ version: "1.0.0"            # required
 description: My codec       # optional
 language: cpp               # optional: c | cpp | python | go | rust | other
 platform: linux/arm64       # optional: linux/amd64 or linux/arm64 (default: host platform)
+color: "#0f766e"            # optional: chart colour (default: a stable colour from the custom palette)
 entrypoint: ./codec         # required: command executed from the package root
 workers: 1                  # optional: CPU slots needed (default 1)
 build:                      # optional; "make" is used when a Makefile exists
@@ -53,6 +54,15 @@ options:                    # optional; same schema as the built-in compressors
     type: boolean
     default: true
 ```
+
+## Colour in charts
+
+User packages form the **Custom** family: they are drawn with a plus-shaped
+marker and a colour from a palette reserved for custom coders (distinct from
+every built-in colour), chosen from the package name so it stays the same on
+every page. Set `color: "#rrggbb"` to pick it yourself. Several configurations
+of the same package (or of any compressor) share its hue: the first keeps the
+base colour and the others get darker/lighter shades.
 
 Option fields follow the compressor-options widget schema:
 

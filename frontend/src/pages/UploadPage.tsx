@@ -11,7 +11,8 @@ import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Tra
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
-import { renameCompressor } from '@/lib/compressors'
+import { assignCompressorColors, packageColor, registerCompressorColors, renameCompressor } from '@/lib/compressors'
+import CompressorSwatch from '@/components/CompressorSwatch'
 import { formatBytes } from '@/lib/format'
 import { canManagePreset, summarizeInstances } from '@/lib/presets'
 import { emulatedSelection, isEmulated, platformArch } from '@/lib/platforms'
@@ -242,6 +243,13 @@ export default function UploadPage() {
     [instances, compressors, customNames]
   )
 
+  // Same colour assignment as the result charts (shades per configuration).
+  // Not memoized: package colours are registered asynchronously and the
+  // computation is trivial.
+  const instanceColors = assignCompressorColors(
+    instances.map((inst) => buildLabel(inst.name, compressors[inst.name] || {}, inst.options)),
+  )
+
   const emulatedSelected = useMemo(
     () => emulatedSelection(instances, packagePlatforms, hostPlatform),
     [instances, packagePlatforms, hostPlatform]
@@ -317,6 +325,7 @@ export default function UploadPage() {
           if (pkg.status !== 'ready') continue
           platforms[pkg.name] = pkg.platform
         }
+        registerCompressorColors(Object.fromEntries(packages.map((pkg) => [pkg.name, packageColor(pkg.spec)])))
         setPackagePlatforms(platforms)
       })
       .catch(() => {})
@@ -996,6 +1005,7 @@ export default function UploadPage() {
                           return (
                             <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
                               <span className="flex items-center gap-1.5 min-w-0">
+                                <CompressorSwatch name={c} />
                                 <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
                                 {emulated && (
                                   <span
@@ -1046,7 +1056,8 @@ export default function UploadPage() {
                 ) : (
                   instances.map((inst, index) => {
                     const schema = compressors[inst.name] || {}
-                    const label = renameCompressor(buildLabel(inst.name, schema, inst.options))
+                    const rawLabel = buildLabel(inst.name, schema, inst.options)
+                    const label = renameCompressor(rawLabel)
                     const expanded = expandedInstance === index
                     const emulated = isEmulated(packagePlatforms[inst.name], hostPlatform)
                     return (
@@ -1059,6 +1070,7 @@ export default function UploadPage() {
                             onClick={() => setExpandedInstance(expanded ? null : index)}
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
+                              <CompressorSwatch name={rawLabel} color={instanceColors.get(rawLabel)} />
                               <span className={`font-mono text-sm truncate ${expanded ? 'font-semibold' : ''}`}>{label}</span>
                               {emulated && (
                                 <span

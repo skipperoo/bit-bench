@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
+import CompressorSwatch from '@/components/CompressorSwatch'
+import { packageColor } from '@/lib/compressors'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -195,7 +197,10 @@ export default function CompressorsPage() {
                 <Fragment key={pkg.id}>
                   <tr className="border-b border-border last:border-0 hover:bg-secondary/30">
                     <td className="p-3">
-                      <p className="font-mono font-medium">{pkg.name}</p>
+                      <p className="font-mono font-medium flex items-center gap-1.5">
+                        <CompressorSwatch name={pkg.name} color={packageColor(pkg.spec)} />
+                        {pkg.name}
+                      </p>
                       {pkg.description && (
                         <p className="text-xs text-muted-foreground max-w-sm">{pkg.description}</p>
                       )}

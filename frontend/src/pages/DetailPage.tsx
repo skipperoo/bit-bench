@@ -8,8 +8,10 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import EmulationNotice from '@/components/EmulationNotice'
+import CompressorSwatch from '@/components/CompressorSwatch'
 import { apiFetch } from '@/lib/api'
-import { renameCompressor, getCompressorColor, getCompressorShape } from '@/lib/compressors'
+import { renameCompressor, getCompressorShape, assignCompressorColors } from '@/lib/compressors'
+import { usePackageColors } from '@/lib/package-colors'
 import { formatBytes, formatMetricValue, metricLabel } from '@/lib/format'
 import { isLowerBetter, metricValue, rangeQueryMetrics, withDerivedMetrics } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
@@ -32,9 +34,8 @@ function getYLabel(metric: string): LabelProps {
 const chartMargins = { left: 20, right: 20, top: 20, bottom: 120 }
 
 // Render a compressor marker as raw SVG element (used inside Recharts SVG context)
-function CompressorShapeSVG({ cx, cy, name }: { cx: number; cy: number; name: string }) {
+function CompressorShapeSVG({ cx, cy, name, color }: { cx: number; cy: number; name: string; color: string }) {
   const shape = getCompressorShape(name)
-  const color = getCompressorColor(name)
   const r = 6
   switch (shape) {
     case 'square':
@@ -59,16 +60,27 @@ function CompressorShapeSVG({ cx, cy, name }: { cx: number; cy: number; name: st
       }
       return <polygon points={pts.join(' ')} fill={color} />
     }
+    case 'cross': {
+      // Custom packages: a plus sign, unlike every built-in family marker.
+      const w = r * 0.55
+      const l = r * 1.35
+      return (
+        <polygon
+          points={`${cx - w},${cy - l} ${cx + w},${cy - l} ${cx + w},${cy - w} ${cx + l},${cy - w} ${cx + l},${cy + w} ${cx + w},${cy + w} ${cx + w},${cy + l} ${cx - w},${cy + l} ${cx - w},${cy + w} ${cx - l},${cy + w} ${cx - l},${cy - w} ${cx - w},${cy - w}`}
+          fill={color}
+        />
+      )
+    }
     default:
       return <circle cx={cx} cy={cy} r={r} fill={color} />
   }
 }
 
 // Standalone marker for the legend (wrapped in <svg> so it renders in HTML context)
-function LegendMarker({ name }: { name: string }) {
+function LegendMarker({ name, color }: { name: string; color: string }) {
   return (
     <svg width={14} height={14} viewBox="0 0 14 14" className="shrink-0">
-      <CompressorShapeSVG cx={7} cy={7} name={name} />
+      <CompressorShapeSVG cx={7} cy={7} name={name} color={color} />
     </svg>
   )
 }
@@ -76,7 +88,7 @@ function LegendMarker({ name }: { name: string }) {
 // Shape renderer for Recharts scatter points
 function CompressorShape(scatterProps: any) {
   const name = scatterProps.payload?.compressor || scatterProps.payload?.name || ''
-  return <CompressorShapeSVG cx={scatterProps.cx} cy={scatterProps.cy} name={name} />
+  return <CompressorShapeSVG cx={scatterProps.cx} cy={scatterProps.cy} name={name} color={scatterProps.payload?.color ?? '#64748b'} />
 }
 
 interface RankedRow {
@@ -106,7 +118,10 @@ function ParetoBadge({ dominationCount }: { dominationCount: number }) {
   return null
 }
 
-function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
+type ColorMap = Map<string, string>
+const colorOf = (colors: ColorMap, name: string) => colors.get(name) ?? '#64748b'
+
+function OverviewBarChart({ results, colors }: { results: BenchmarkResult[]; colors: ColorMap }) {
   const data = results
     .filter((r) => r.compression_ratio != null)
     .map((r) => ({
@@ -131,7 +146,7 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
           <Tooltip formatter={(v: any) => v != null ? `${Number(v).toFixed(2)}%` : '-'} />
           <Bar dataKey="ratio" fill="#2563eb">
             {data.map((d) => (
-              <Cell key={d.name} fill={getCompressorColor(d.compressor)} />
+              <Cell key={d.compressor} fill={colorOf(colors, d.compressor)} />
             ))}
           </Bar>
         </BarChart>
@@ -140,8 +155,9 @@ function OverviewBarChart({ results }: { results: BenchmarkResult[] }) {
   )
 }
 
-function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
+function MetricBarChart({ results, metric, referenceY, referenceLabel, colors }: {
   results: BenchmarkResult[]
+  colors: ColorMap
   metric: string
   referenceY?: number | null
   referenceLabel?: string
@@ -179,7 +195,7 @@ function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
           )}
           <Bar dataKey={metric} fill="#16a34a">
             {data.map((d) => (
-              <Cell key={d.name} fill={getCompressorColor(d.compressor)} />
+              <Cell key={d.compressor} fill={colorOf(colors, d.compressor)} />
             ))}
           </Bar>
         </BarChart>
@@ -188,7 +204,7 @@ function MetricBarChart({ results, metric, referenceY, referenceLabel }: {
   )
 }
 
-function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; metric: string }) {
+function ScatterChartMetric({ results, metric, colors }: { results: BenchmarkResult[]; metric: string; colors: ColorMap }) {
   const data = results
     .filter((r) => metricValue(r, metric) != null && r.compression_ratio != null)
     .map((r) => ({
@@ -196,6 +212,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
       y: +metricValue(r, metric)!.toFixed(2),
       name: renameCompressor(r.compressor),
       compressor: r.compressor,
+      color: colorOf(colors, r.compressor),
     }))
     .sort((a, b) => a.x - b.x)
 
@@ -240,7 +257,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
               isAnimationActive={false}
             >
               {data.map((d) => (
-                <Cell key={d.compressor} fill={getCompressorColor(d.compressor)} />
+                <Cell key={d.compressor} fill={d.color} />
               ))}
             </Scatter>
           </ScatterChart>
@@ -249,7 +266,7 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
       <div className="flex flex-wrap gap-x-5 gap-y-1 justify-center -mt-4">
         {data.map((d) => (
           <div key={d.compressor} className="flex items-center gap-1.5">
-            <LegendMarker name={d.compressor} />
+            <LegendMarker name={d.compressor} color={d.color} />
             <span className="text-xs text-muted-foreground">{d.name}</span>
           </div>
         ))}
@@ -258,8 +275,9 @@ function ScatterChartMetric({ results, metric }: { results: BenchmarkResult[]; m
   )
 }
 
-function RankedTable({ results, metric, referenceMetric }: {
+function RankedTable({ results, metric, referenceMetric, colors }: {
   results: BenchmarkResult[]
+  colors?: ColorMap
   metric: string
   referenceMetric?: string
 }) {
@@ -305,7 +323,10 @@ function RankedTable({ results, metric, referenceMetric }: {
                 <td className={`py-1 font-mono ${
                   r.rank === 1 ? 'font-bold' : r.rank === 2 ? 'underline' : r.rank === 3 ? 'italic' : ''
                 }`}>
-                  {renameCompressor(r.compressor)}
+                  <span className="inline-flex items-center gap-1.5">
+                    <CompressorSwatch name={r.compressor} color={colors?.get(r.compressor)} />
+                    {renameCompressor(r.compressor)}
+                  </span>
                 </td>
                 <td className="text-right py-1">
                   {formatMetricValue(r.value, metric)}
@@ -344,6 +365,7 @@ export default function DetailPage() {
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedMetric, setExpandedMetric] = useState<string | null>('compression_ratio')
+  usePackageColors()
 
   useEffect(() => {
     if (!id) return
@@ -360,6 +382,7 @@ export default function DetailPage() {
   if (!benchmark) return <p className="text-destructive">Benchmark not found</p>
 
   const paretoSorted = paretoRanking(results).slice(0, 5)
+  const colors = assignCompressorColors(results.map((r) => r.compressor))
 
   const has = (metric: string) => results.some((r) => metricValue(r, metric) != null)
   const uncompressedBitsReference = results.find((r) => r.uncompressed_bits_per_element != null)
@@ -494,8 +517,8 @@ export default function DetailPage() {
           <CardTitle className="text-base">Compression Ratio Overview</CardTitle>
         </CardHeader>
         <CardContent>
-          <OverviewBarChart results={results} />
-          <RankedTable results={results} metric="compression_ratio" />
+          <OverviewBarChart results={results} colors={colors} />
+          <RankedTable results={results} metric="compression_ratio" colors={colors} />
         </CardContent>
       </Card>}
 
@@ -517,6 +540,7 @@ export default function DetailPage() {
               {section.chart === 'bar' ? (
                 <MetricBarChart
                   results={results}
+                  colors={colors}
                   metric={section.key}
                   referenceY={section.key === 'bits_per_element' ? uncompressedBitsReference : null}
                   referenceLabel={section.key === 'bits_per_element' && uncompressedBitsReference != null
@@ -524,10 +548,11 @@ export default function DetailPage() {
                     : undefined}
                 />
               ) : (
-                <ScatterChartMetric results={results} metric={section.key} />
+                <ScatterChartMetric results={results} metric={section.key} colors={colors} />
               )}
               <RankedTable
                 results={results}
+                colors={colors}
                 metric={section.key}
                 referenceMetric={section.key === 'bits_per_element' ? 'uncompressed_bits_per_element' : undefined}
               />

@@ -113,3 +113,20 @@ func TestParseSpecInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSpecColor(t *testing.T) {
+	base := "name: colored\nversion: \"1\"\nentrypoint: ./run\n"
+	spec, err := ParseSpec([]byte(base + "color: \"#1F77B4\"\n"))
+	if err != nil {
+		t.Fatalf("valid color rejected: %v", err)
+	}
+	if spec.Color != "#1f77b4" {
+		t.Errorf("color = %q, want normalized #1f77b4", spec.Color)
+	}
+	if _, err := ParseSpec([]byte(base + "color: red\n")); err == nil {
+		t.Error("named colours must be rejected")
+	}
+	if spec, err := ParseSpec([]byte(base)); err != nil || spec.Color != "" {
+		t.Errorf("color must stay optional: %v %q", err, spec.Color)
+	}
+}

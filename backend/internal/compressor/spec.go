@@ -11,15 +11,18 @@ import (
 
 // PackageSpec is the parsed spec.yaml of a user-uploaded compressor package.
 type PackageSpec struct {
-	Name        string            `yaml:"name" json:"name"`
-	Version     string            `yaml:"version" json:"version"`
-	Description string            `yaml:"description" json:"description"`
-	Language    string            `yaml:"language" json:"language"`
-	Platform    string            `yaml:"platform" json:"platform,omitempty"`
-	Entrypoint  string            `yaml:"entrypoint" json:"entrypoint"`
-	Workers     int               `yaml:"workers" json:"workers"`
-	Build       *PackageBuildSpec `yaml:"build" json:"build,omitempty"`
-	Options     map[string]Option `yaml:"options" json:"options"`
+	Name        string `yaml:"name" json:"name"`
+	Version     string `yaml:"version" json:"version"`
+	Description string `yaml:"description" json:"description"`
+	Language    string `yaml:"language" json:"language"`
+	Platform    string `yaml:"platform" json:"platform,omitempty"`
+	// Color is an optional "#rrggbb" used for this package in charts; when
+	// empty the UI picks a stable colour from its custom-coder palette.
+	Color      string            `yaml:"color" json:"color,omitempty"`
+	Entrypoint string            `yaml:"entrypoint" json:"entrypoint"`
+	Workers    int               `yaml:"workers" json:"workers"`
+	Build      *PackageBuildSpec `yaml:"build" json:"build,omitempty"`
+	Options    map[string]Option `yaml:"options" json:"options"`
 }
 
 // PackageBuildSpec describes the optional offline build step of a package.
@@ -31,6 +34,7 @@ type PackageBuildSpec struct {
 var (
 	packageNameRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 	optionNameRe  = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+	hexColorRe    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
 
 // ParseSpec parses and validates a spec.yaml document.
@@ -61,6 +65,11 @@ func (s *PackageSpec) Validate() error {
 	}
 	if IsValid(s.Name) {
 		return fmt.Errorf("package name %q collides with a built-in compressor", s.Name)
+	}
+
+	s.Color = strings.ToLower(strings.TrimSpace(s.Color))
+	if s.Color != "" && !hexColorRe.MatchString(s.Color) {
+		return fmt.Errorf("invalid color %q: use a hex colour like \"#1f77b4\"", s.Color)
 	}
 
 	s.Version = strings.TrimSpace(s.Version)
