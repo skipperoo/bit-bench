@@ -843,8 +843,11 @@ random_access_ns,random_access_mbs[,range_<N>_mbs...]
 | Dictionary-based | Brotli, gzip (1/6/9), lz4, Snappy, XZ, zstd | diamond |
 | Time Series | ALP1, Camel, Chimp, Chimp128, Elf, Falcon, Gorilla, NeaTS, TSXor | circle |
 | GEF | B*-GEF (Approx/Opt), B-GEF (Approx/Opt), RLE-GEF, U-GEF (Approx/Opt) | triangle-up |
-| PForDelta | PForDelta | star |
+| PForDelta | PForDelta, PForDelta (`<codec>`) for the FastPFor codecs | star |
 | DAC | DAC | pentagon |
+| Custom | every user package | cross (plus) |
+
+Colours: built-ins keep the report palette; user packages use a separate custom palette (stable hash of the name) unless `spec.yaml` sets `color`. Several configured instances of one algorithm share its hue: the first keeps the base colour, the others get darker/lighter shades (`assignCompressorColors` in `frontend/src/lib/compressors.ts`), the same in charts, ranked tables and the upload page.
 
 `rename_compressor`: `b_star_gef_approximate`→`B*-GEF (Approx)`, `gzip`→`Gzip`, `dac`→`DAC`, etc. (full map in `scripts/generate_full_html_report.py` and `frontend/src/lib/compressors.ts`).
 
@@ -857,7 +860,7 @@ Higher is better: everything else (throughputs `*_mbs`, range queries).
 
 A package is a `.zip` archive with `spec.yaml` at the root, its sources under `src/`, an optional `Makefile` (compiled languages) and optionally vendored dependencies. Full user documentation lives in `docs/user-compressors.md`; working examples in `examples/user-compressors/<language>/` (Python, C, C++, Go, Rust), E2E-tested in CI.
 
-**`spec.yaml`**: `name` (`[a-z0-9_]{1,64}`, globally unique, no built-in collision), `version`, `description?`, `language?`, `platform?` (`linux/amd64` or `linux/arm64`, variants normalized; empty = host platform), `entrypoint` (command relative to the package root), `workers` (default 1), optional `build.command`/`build.timeout_seconds`, and `options` (same schema as the built-in registry).
+**`spec.yaml`**: `name` (`[a-z0-9_]{1,64}`, globally unique, no built-in collision), `version`, `description?`, `language?`, `color?` (`#rrggbb` chart colour), `platform?` (`linux/amd64` or `linux/arm64`, variants normalized; empty = host platform), `entrypoint` (command relative to the package root), `workers` (default 1), optional `build.command`/`build.timeout_seconds`, and `options` (same schema as the built-in registry).
 
 **Invocation** (executed in the runner container, working dir = package root):
 ```
