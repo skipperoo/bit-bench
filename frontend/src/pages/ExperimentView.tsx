@@ -21,7 +21,7 @@ import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics
 import type { MetricDef, MetricGroup } from '@/lib/metrics'
 import { METRIC_GROUP_LABELS } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
-import { detectSweep } from '@/lib/sweep'
+import { detectSweep, orderByChunkSize } from '@/lib/sweep'
 import { VIEW_LIMIT, dataSourceText, experimentName, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult } from '@/types'
@@ -83,7 +83,7 @@ export default function ExperimentView() {
   const [paretoTarget, setParetoTarget] = useState('')
   usePackageColors()
 
-  const ready = items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0)
+  const ready = orderByChunkSize(items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0), (i) => i.benchmark)
   const multi = ready.length > 1
   const allNames = useMemo(() => [...new Set(ready.flatMap((i) => i.results.map((r) => r.compressor)))].sort(), [ready])
   const shapeOverrides = useChartStyles((st) => st.shapes)
