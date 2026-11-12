@@ -167,7 +167,9 @@ interface RerunState {
 export default function NewExperimentPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const rerun = (location.state as { rerun?: RerunState } | null)?.rerun
+  const navState = location.state as { rerun?: RerunState; dataset?: string } | null
+  const rerun = navState?.rerun
+  const presetDataset = navState?.dataset
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
@@ -337,6 +339,18 @@ export default function NewExperimentPage() {
       }))
       .catch(() => setDatasetCatalog(empty))
   }, [])
+
+  // "Benchmark this dataset" from the Datasets page preselects it.
+  const datasetPrefilled = useRef(false)
+  useEffect(() => {
+    if (!presetDataset || datasetPrefilled.current || !datasetCatalog) return
+    const ds = datasetCatalog.datasets.find((d) => d.name === presetDataset)
+    if (!ds) return
+    datasetPrefilled.current = true
+    setSource('dataset')
+    setDatasetSelection({ ...DEFAULT_DATASET_SELECTION, dataset: ds.name, series: ds.series.filter((x) => !x.error).map((x) => x.name) })
+    setName((n) => n || ds.name)
+  }, [presetDataset, datasetCatalog])
 
   const currentDataset = datasetCatalog?.datasets.find((d) => d.name === datasetSelection.dataset)
   const datasetError = useMemo(

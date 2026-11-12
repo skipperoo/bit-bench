@@ -69,3 +69,15 @@ func CreateDatasetBenchmarks(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
 }
+
+// PreviewDatasetSeries returns the value range and a sparkline of one series.
+func PreviewDatasetSeries(w http.ResponseWriter, r *http.Request) {
+	p, err := dataset.PreviewSeries(AppConfig.DatasetDir, r.PathValue("dataset"), r.PathValue("series"), 10000, 240)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, max-age=60")
+	json.NewEncoder(w).Encode(p)
+}

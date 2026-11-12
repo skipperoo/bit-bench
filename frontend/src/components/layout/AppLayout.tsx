@@ -10,12 +10,14 @@ import {
   LogOut,
   Menu,
   X,
+  Database,
 } from 'lucide-react'
 import { useState } from 'react'
 
 const navItems = [
   { path: '/new', label: 'New', icon: Upload },
   { path: '/experiments', label: 'Experiments', icon: BarChart3 },
+  { path: '/datasets', label: 'Datasets', icon: Database },
   { path: '/compressors', label: 'Compressors', icon: Boxes },
   { path: '/status', label: 'Status', icon: Activity },
 ]

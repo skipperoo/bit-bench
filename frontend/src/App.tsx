@@ -6,6 +6,7 @@ import NewExperimentPage from '@/pages/NewExperimentPage'
 import CompressorsPage from '@/pages/CompressorsPage'
 import ExperimentsPage from '@/pages/ExperimentsPage'
 import ExperimentView from '@/pages/ExperimentView'
+import DatasetsPage from '@/pages/DatasetsPage'
 import StatusPage from '@/pages/StatusPage'
 
 /** Old /compare?ids=... links open the experiment view. */
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/new" element={<NewExperimentPage />} />
           <Route path="/experiments" element={<ExperimentsPage />} />
           <Route path="/experiments/view" element={<ExperimentView />} />
+          <Route path="/datasets" element={<DatasetsPage />} />
           <Route path="/compressors" element={<CompressorsPage />} />
           <Route path="/status" element={<StatusPage />} />
           {/* Old URLs keep working. */}

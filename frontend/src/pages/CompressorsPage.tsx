@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { apiFetch, apiUpload } from '@/lib/api'
+import { Tabs, TabPanel } from '@/components/ui/tabs'
+import BuiltinCatalogue from '@/components/BuiltinCatalogue'
 import { canManagePackage, PACKAGE_STATUS_CLASSES, PACKAGE_STATUS_DOT, packageStatusLabel } from '@/lib/packages'
 import { platformArch } from '@/lib/platforms'
 import { useAuthStore } from '@/stores/auth-store'
@@ -29,6 +31,7 @@ export default function CompressorsPage() {
   const [groupId, setGroupId] = useState('')
   const [uploading, setUploading] = useState(false)
   const [openLog, setOpenLog] = useState<string | null>(null)
+  const [catalogTab, setCatalogTab] = useState<'packages' | 'builtin'>('packages')
 
   const load = useCallback(async () => {
     try {
@@ -165,6 +168,18 @@ export default function CompressorsPage() {
         </Card>
       )}
 
+      <Tabs
+        items={[{ value: 'packages', label: `Custom packages (${packages.length})` }, { value: 'builtin', label: 'Built-in catalogue' }]}
+        value={catalogTab}
+        onChange={(v) => setCatalogTab(v as 'packages' | 'builtin')}
+        ariaLabel="Compressor catalogue"
+        idPrefix="comp"
+        className="mb-4"
+      />
+      {catalogTab === 'builtin' ? (
+        <TabPanel value="builtin" idPrefix="comp"><BuiltinCatalogue /></TabPanel>
+      ) : (
+      <TabPanel value="packages" idPrefix="comp">
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : packages.length === 0 ? (
@@ -275,6 +290,8 @@ export default function CompressorsPage() {
             </tbody>
           </table>
         </div>
+      )}
+      </TabPanel>
       )}
     </div>
   )

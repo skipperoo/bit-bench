@@ -114,6 +114,7 @@ func main() {
 		AddHandler("POST  /benchmarks", uploadRL.Wrap(handler.CreateBenchmark)).
 		AddHandler("POST  /benchmarks/dataset", uploadRL.Wrap(handler.CreateDatasetBenchmarks)).
 		AddHandler("GET   /datasets", handler.ListDatasets).
+		AddHandler("GET   /datasets/{dataset}/series/{series}/preview", handler.PreviewDatasetSeries).
 		AddHandler("GET   /benchmarks", handler.ListBenchmarks).
 		AddHandler("GET   /benchmarks/{id}", handler.GetBenchmark).
 		AddHandler("GET   /benchmarks/{id}/status", handler.GetBenchmarkStatus).
