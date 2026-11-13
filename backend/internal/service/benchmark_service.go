@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -418,6 +420,18 @@ func (s *BenchmarkService) ListBenchmarks(ctx context.Context, p repository.List
 func (s *BenchmarkService) DeleteBenchmark(ctx context.Context, id uuid.UUID) error {
 	os.RemoveAll(filepath.Join(s.cfg.DataDir, id.String()))
 	return s.benchRepo.Delete(ctx, id)
+}
+
+// ErrInvalidBenchmarkName rejects empty or over-long benchmark names.
+var ErrInvalidBenchmarkName = errors.New("name must be 1-255 characters")
+
+// RenameBenchmark sets a benchmark's (trimmed) name and returns it.
+func (s *BenchmarkService) RenameBenchmark(ctx context.Context, id uuid.UUID, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > 255 {
+		return "", ErrInvalidBenchmarkName
+	}
+	return name, s.benchRepo.UpdateName(ctx, id, name)
 }
 
 // CancelBenchmark cancels a queued or running benchmark; it reports false when

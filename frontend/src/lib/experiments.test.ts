@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateStatus, experimentName, formatDuration, groupExperiments, rerunConfig } from './experiments'
+import { aggregateStatus, experimentName, formatDuration, groupExperiments, renameExperiment, rerunConfig } from './experiments'
 import type { Benchmark } from '@/types'
 
 function b(id: string, name: string, extra: Partial<Benchmark> = {}): Benchmark {
@@ -70,5 +70,20 @@ describe('rerunConfig', () => {
   it('needs the benchmarks of a single experiment', () => {
     expect(rerunConfig([])).toBeNull()
     expect(rerunConfig([b('1', 'a', { experiment_id: 'x' }), b('2', 'b', { experiment_id: 'y' })])).toBeNull()
+  })
+})
+
+describe('renameExperiment', () => {
+  const b = (id: string, name: string) => ({ id, name, experiment_id: 'e' }) as unknown as Benchmark
+  it('replaces the shared name and keeps each suffix', () => {
+    const [exp] = groupExperiments([b('1', 'WildPPG1 · std · 768'), b('2', 'WildPPG1 · gap · whole')])
+    expect(renameExperiment(exp, 'wildPPG2')).toEqual([
+      { id: '1', name: 'wildPPG2 · std · 768' },
+      { id: '2', name: 'wildPPG2 · gap · whole' },
+    ])
+  })
+  it('renames a single benchmark entirely', () => {
+    const [exp] = groupExperiments([{ ...b('3', 'one'), experiment_id: undefined }])
+    expect(renameExperiment(exp, 'two')).toEqual([{ id: '3', name: 'two' }])
   })
 })
