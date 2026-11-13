@@ -6,10 +6,11 @@ import type { StyleEditing } from './InstanceFilter'
 
 const BLUE = '#1f77b4'
 
-function setup(over: { shape?: string[]; color?: string[] } = {}) {
+function setup(over: { shape?: string[]; color?: string[]; name?: string[] } = {}) {
   const editing: StyleEditing = {
     defaults: new Map([['gzip', { color: BLUE, shape: 'diamond' }], ['Gorilla', { color: BLUE, shape: 'circle' }]]),
-    overridden: (n: string) => ({ shape: !!over.shape?.includes(n), color: !!over.color?.includes(n) }),
+    overridden: (n: string) => ({ shape: !!over.shape?.includes(n), color: !!over.color?.includes(n), name: !!over.name?.includes(n) }),
+    onNameChange: vi.fn(),
     onShapeChange: vi.fn(),
     onColorChange: vi.fn(),
     onReset: vi.fn(),
@@ -33,7 +34,7 @@ describe('InstanceFilter style editing', () => {
     const { editing, onHidden } = setup()
     await userEvent.click(screen.getByRole('button', { name: /Marker style of Gzip: Diamond, #1f77b4$/ }))
     expect(onHidden).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog', { name: 'Marker style for Gzip' })).toHaveFocus()
+    expect(screen.getByRole('dialog', { name: 'Name and marker style for Gzip' })).toHaveFocus()
     expect(screen.getByRole('button', { name: 'Diamond (default)', pressed: true })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Hexagon' }))
@@ -72,6 +73,30 @@ describe('InstanceFilter style editing', () => {
     expect(editing.onReset).toHaveBeenLastCalledWith(['Gorilla'])
     await userEvent.click(screen.getByRole('button', { name: 'Reset 1 style' }))
     expect(editing.onReset).toHaveBeenLastCalledWith(['Gorilla'])
+  })
+
+  it('renames a compressor; an empty or default name restores the default', async () => {
+    const { editing } = setup()
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gzip/ }))
+    const field = screen.getByLabelText('Display name for Gzip')
+    expect(field).toHaveValue('Gzip')
+    await userEvent.clear(field)
+    await userEvent.type(field, '  Gzip-6 {Enter}')
+    expect(editing.onNameChange).toHaveBeenLastCalledWith('gzip', 'Gzip-6')
+
+    // Clearing a name that is already the default saves nothing and shows the default.
+    await userEvent.clear(field)
+    await userEvent.tab()
+    expect(editing.onNameChange).toHaveBeenCalledTimes(1)
+    expect(field).toHaveValue('Gzip')
+  })
+
+  it('clearing a renamed compressor restores its default name', async () => {
+    const { editing } = setup({ name: ['gzip'] })
+    await userEvent.click(screen.getByRole('button', { name: /Marker style of Gzip/ }))
+    await userEvent.clear(screen.getByLabelText('Display name for Gzip'))
+    await userEvent.tab()
+    expect(editing.onNameChange).toHaveBeenCalledWith('gzip', null)
   })
 
   it('the name still toggles the compressor', async () => {

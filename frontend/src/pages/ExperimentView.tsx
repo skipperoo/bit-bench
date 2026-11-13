@@ -88,12 +88,14 @@ export default function ExperimentView() {
   const allNames = useMemo(() => [...new Set(ready.flatMap((i) => i.results.map((r) => r.compressor)))].sort(), [ready])
   const shapeOverrides = useChartStyles((st) => st.shapes)
   const colorOverrides = useChartStyles((st) => st.colors)
+  const nameOverrides = useChartStyles((st) => st.names)
   const styleError = useChartStyles((st) => st.error)
   useEffect(() => { useChartStyles.getState().load() }, [])
   const styles = assignCompressorStyles(allNames, { shapes: shapeOverrides, colors: colorOverrides })
   const styleEditing = {
     defaults: assignCompressorStyles(allNames),
-    overridden: (name: string) => ({ shape: shapeKey(name) in shapeOverrides, color: shapeKey(name) in colorOverrides }),
+    overridden: (name: string) => ({ shape: shapeKey(name) in shapeOverrides, color: shapeKey(name) in colorOverrides, name: shapeKey(name) in nameOverrides }),
+    onNameChange: (name: string, displayName: string | null) => { useChartStyles.getState().setName(name, displayName) },
     onShapeChange: (name: string, shape: string | null) => { useChartStyles.getState().setShape(name, shape) },
     onColorChange: (name: string, color: string | null) => { useChartStyles.getState().setColor(name, color) },
     onReset: (names: string[]) => { useChartStyles.getState().reset(names) },

@@ -8,10 +8,12 @@ import (
 )
 
 // ChartStyles are a user's chart overrides, keyed by compressor label:
-// marker shape and colour. Labels without an entry use the shared defaults.
+// marker shape, colour and display name. Labels without an entry use the
+// shared defaults.
 type ChartStyles struct {
 	Shapes map[string]string `json:"shapes"`
 	Colors map[string]string `json:"colors"`
+	Names  map[string]string `json:"names"`
 }
 
 // ChartShapes are the marker shapes the frontend can draw
@@ -26,7 +28,8 @@ const MaxChartShapeOverrides = 500
 
 var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
-// ValidateChartStyles validates both override maps and lower-cases colours.
+// ValidateChartStyles validates the override maps, lower-cases colours and
+// trims names.
 func ValidateChartStyles(s *ChartStyles) error {
 	if s.Shapes == nil {
 		s.Shapes = map[string]string{}
@@ -34,10 +37,35 @@ func ValidateChartStyles(s *ChartStyles) error {
 	if s.Colors == nil {
 		s.Colors = map[string]string{}
 	}
+	if s.Names == nil {
+		s.Names = map[string]string{}
+	}
 	if err := ValidateChartShapes(s.Shapes); err != nil {
 		return err
 	}
-	return ValidateChartColors(s.Colors)
+	if err := ValidateChartColors(s.Colors); err != nil {
+		return err
+	}
+	return ValidateChartNames(s.Names)
+}
+
+// ValidateChartNames checks a per-user map of compressor label → display name
+// and trims the names.
+func ValidateChartNames(names map[string]string) error {
+	if len(names) > MaxChartShapeOverrides {
+		return fmt.Errorf("at most %d renamed compressors are allowed", MaxChartShapeOverrides)
+	}
+	for label, name := range names {
+		if err := validateLabel(label); err != nil {
+			return err
+		}
+		name = strings.TrimSpace(name)
+		if err := validateLabel(name); err != nil {
+			return fmt.Errorf("display name for %s must be 1-64 characters", label)
+		}
+		names[label] = name
+	}
+	return nil
 }
 
 // ValidateChartColors checks a per-user map of compressor label → #rrggbb and

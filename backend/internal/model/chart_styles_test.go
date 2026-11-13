@@ -52,4 +52,13 @@ func TestValidateChartStyles(t *testing.T) {
 	if err := ValidateChartStyles(&ChartStyles{Shapes: map[string]string{"gzip": "blob"}}); err == nil {
 		t.Error("bad shape accepted")
 	}
+	n := &ChartStyles{Names: map[string]string{"gzip · level 9": "  Gzip-9  "}}
+	if err := ValidateChartStyles(n); err != nil || n.Names["gzip · level 9"] != "Gzip-9" {
+		t.Errorf("names not trimmed: %+v, %v", n.Names, err)
+	}
+	for _, name := range []string{"", "   ", strings.Repeat("a", 65)} {
+		if err := ValidateChartStyles(&ChartStyles{Names: map[string]string{"gzip": name}}); err == nil {
+			t.Errorf("display name %q accepted", name)
+		}
+	}
 }

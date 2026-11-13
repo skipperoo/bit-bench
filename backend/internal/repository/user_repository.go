@@ -182,25 +182,28 @@ func (r *UserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) erro
 	return err
 }
 
-// GetChartStyles returns the user's chart shape and colour overrides.
+// GetChartStyles returns the user's chart shape, colour and name overrides.
 func (r *UserRepository) GetChartStyles(ctx context.Context, id uuid.UUID) (*model.ChartStyles, error) {
-	s := &model.ChartStyles{Shapes: map[string]string{}, Colors: map[string]string{}}
-	err := r.db.QueryRow(ctx, `SELECT chart_shapes, chart_colors FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&s.Shapes, &s.Colors)
+	s := &model.ChartStyles{Shapes: map[string]string{}, Colors: map[string]string{}, Names: map[string]string{}}
+	err := r.db.QueryRow(ctx, `SELECT chart_shapes, chart_colors, chart_names FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&s.Shapes, &s.Colors, &s.Names)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	return s, err
 }
 
-// SetChartStyles replaces the user's chart shape and colour overrides.
+// SetChartStyles replaces the user's chart shape, colour and name overrides.
 func (r *UserRepository) SetChartStyles(ctx context.Context, id uuid.UUID, s *model.ChartStyles) error {
-	shapes, colors := s.Shapes, s.Colors
+	shapes, colors, names := s.Shapes, s.Colors, s.Names
 	if shapes == nil {
 		shapes = map[string]string{}
 	}
 	if colors == nil {
 		colors = map[string]string{}
 	}
-	_, err := r.db.Exec(ctx, `UPDATE users SET chart_shapes = $1, chart_colors = $2, updated_at = NOW() WHERE id = $3 AND deleted_at IS NULL`, shapes, colors, id)
+	if names == nil {
+		names = map[string]string{}
+	}
+	_, err := r.db.Exec(ctx, `UPDATE users SET chart_shapes = $1, chart_colors = $2, chart_names = $3, updated_at = NOW() WHERE id = $4 AND deleted_at IS NULL`, shapes, colors, names, id)
 	return err
 }

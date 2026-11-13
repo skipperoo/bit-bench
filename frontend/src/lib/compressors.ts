@@ -39,6 +39,20 @@ function renameBase(base: string): string {
 }
 
 export function renameCompressor(name: string): string {
+  return displayNames.get(shapeKey(name)) ?? defaultCompressorName(name)
+}
+
+// The user's display names (keyed by shapeKey), kept in sync by the chart styles store.
+const displayNames = new Map<string, string>()
+
+/** Replaces the user's display names ({shapeKey(label): name}). */
+export function setDisplayNames(names: Record<string, string>): void {
+  displayNames.clear()
+  for (const [key, name] of Object.entries(names)) displayNames.set(key, name)
+}
+
+/** The name every user sees when they have not renamed the compressor. */
+export function defaultCompressorName(name: string): string {
   const { base, config } = splitCompressorLabel(name)
   const renamed = renameBase(base)
   return config ? `${renamed}${LABEL_SEPARATOR}${config}` : renamed

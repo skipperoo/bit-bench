@@ -174,6 +174,7 @@ export default function NewExperimentPage() {
   const presetDataset = navState?.dataset
   const shapeOverrides = useChartStyles((st) => st.shapes)
   const colorOverrides = useChartStyles((st) => st.colors)
+  useChartStyles((st) => st.names) // re-render with the user's compressor names
   useEffect(() => { useChartStyles.getState().load() }, [])
   const [name, setName] = useState('')
   const [files, setFiles] = useState<File[]>([])
