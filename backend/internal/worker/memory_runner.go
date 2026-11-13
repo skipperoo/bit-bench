@@ -31,7 +31,12 @@ type MemoryResult struct {
 func RunMemoryHarness(binaryPath, compressor, binPath, massifOutPath string, timeout time.Duration) (*MemoryResult, error) {
 	cmd := exec.Command("valgrind",
 		"--tool=massif",
-		"--detailed-freq=10",
+		// Every snapshot detailed, as in scripts/measure_memory_massif.py: the
+		// phase marker is only visible in detailed snapshots, and a baseline run
+		// allocates so little after it that every 10th snapshot misses it. The
+		// baseline then fell back to the preprocessing peak, so peak - baseline
+		// clamped to 0 for the double-input compressors on larger inputs.
+		"--detailed-freq=1",
 		fmt.Sprintf("--max-snapshots=%d", 1000),
 		fmt.Sprintf("--massif-out-file=%s", massifOutPath),
 		binaryPath,
