@@ -1,4 +1,5 @@
-import type { Benchmark } from '@/types'
+import type { Benchmark, BenchmarkResult, SeriesResults } from '@/types'
+import { withDerivedMetrics } from '@/lib/metrics'
 import type { BenchmarkStatus } from '@/lib/status'
 import { describeSource } from '@/lib/datasets'
 import { formatBytes } from '@/lib/format'
@@ -56,6 +57,35 @@ export function renameExperiment(exp: Experiment, name: string): { id: string; n
     id: b.id,
     name: b.name.startsWith(exp.name) ? name + b.name.slice(exp.name.length) : name,
   }))
+}
+
+/** Results of a benchmark for all its signals (no `signal`) or for one signal. */
+export interface SignalResults {
+  benchmark: Benchmark
+  results: BenchmarkResult[]
+  signal?: string
+}
+
+/** A benchmark's aggregate results followed by each of its signals. */
+export function withSignals(item: { benchmark: Benchmark; results: BenchmarkResult[] }, series: SeriesResults[] = []): SignalResults[] {
+  return [item, ...series.map((s) => ({ benchmark: item.benchmark, results: withDerivedMetrics(s.results ?? []), signal: s.series }))]
+}
+
+/** Label of a row: the signal, or the aggregate over all signals ("all (mean)"). */
+export function signalLabel(item: SignalResults): string {
+  return item.signal ?? `all (${item.benchmark.aggregation ?? 'mean'})`
+}
+
+/**
+ * The benchmark as one entry of a comparison: per-signal rows get their own
+ * id and the signal in their name; the aggregate keeps the benchmark's id.
+ */
+export function signalEntry(item: SignalResults): { benchmark: Benchmark; results: BenchmarkResult[] } {
+  const b = item.benchmark
+  return {
+    benchmark: { ...b, id: item.signal == null ? b.id : `${b.id}::${item.signal}`, name: `${b.name} · ${signalLabel(item)}` },
+    results: item.results,
+  }
 }
 
 /** Status of a group: active if any member runs, failed if any failed, … */

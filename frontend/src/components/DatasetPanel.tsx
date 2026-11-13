@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Database, Plus } from 'lucide-react'
+import { AlertTriangle, Database, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -42,6 +42,14 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
     [selectedSeries, selection.chunkSizes, selection.maxChunks, selection.transforms],
   )
   const set = (patch: Partial<DatasetSelection>) => onChange({ ...selection, ...patch })
+  // Series shorter than a selected chunk size, with those sizes (transform-independent).
+  const extended = useMemo(() => {
+    const bySeries = new Map<string, number[]>()
+    for (const r of runs.filter((r) => r.transform === runs[0]?.transform)) {
+      for (const s of r.extended) bySeries.set(s, [...(bySeries.get(s) ?? []), r.chunkSize])
+    }
+    return [...bySeries]
+  }, [runs])
 
   if (catalog && datasets.length === 0) {
     return (
@@ -168,7 +176,25 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
             </button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Sizes count samples, not bytes: for 16-bit data, 4,096 samples are 8 KB. Each size becomes its own benchmark.</p>
+        <p className="text-xs text-muted-foreground">Sizes count samples, not bytes; hover a size for its size in KB as 8-, 16-, 32- and 64-bit integers. Each size becomes its own benchmark.</p>
+        {extended.length > 0 && (
+          <div role="status" className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div>
+              <p className="font-medium">
+                {extended.length === 1 ? '1 series is' : `${extended.length} series are`} shorter than the chunk size and will be repeated to fill one chunk
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {extended.slice(0, 6).map(([name, sizes]) => (
+                  <li key={name}>
+                    <span className="font-mono">{name}</span> ({formatCount(current?.series.find((s) => s.name === name)?.values ?? 0)} values) at {sizes.map((n) => n.toLocaleString()).join(', ')} samples
+                  </li>
+                ))}
+                {extended.length > 6 && <li>… {extended.length - 6} more</li>}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -213,7 +239,7 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
             {runs.slice(0, 8).map((r) => (
               <li key={`${r.transform}-${r.chunkSize}`}>
                 {r.transform} · {describeChunking(r.chunkSize, selection.maxChunks)} → {r.inputs} input{r.inputs === 1 ? '' : 's'}
-                {r.skipped.length > 0 && <span className="text-amber-600 dark:text-amber-400"> (skips {r.skipped.length} short series)</span>}
+                {r.extended.length > 0 && <span className="text-amber-700 dark:text-amber-400"> (repeats {r.extended.length} short series)</span>}
               </li>
             ))}
             {runs.length > 8 && <li>… {runs.length - 8} more</li>}

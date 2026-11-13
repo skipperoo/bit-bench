@@ -28,7 +28,8 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 		AddHandler("DELETE /benchmarks/{id}", DeleteBenchmark).
 		AddHandler("PATCH /benchmarks/{id}", RenameBenchmark).
 		AddHandler("POST /benchmarks/{id}/cancel", CancelBenchmark).
-		AddHandler("GET /benchmarks/{id}/tasks", ListBenchmarkTasks)
+		AddHandler("GET /benchmarks/{id}/tasks", ListBenchmarkTasks).
+		AddHandler("GET /benchmarks/{id}/series", ListBenchmarkSeries)
 	router := routy.NewRouter()
 	router.AddSubroute("/api/v1/", protected.Finalize())
 	handler := router.Finalize()
@@ -101,6 +102,14 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 	}
 	if w := getWithToken(handler, path+"/tasks", other); w.Code != http.StatusNotFound {
 		t.Fatalf("foreign tasks = %d, want 404", w.Code)
+	}
+
+	// Per-series results: empty for a single-input benchmark, hidden from others.
+	if w := getWithToken(handler, path+"/series", token); w.Code != http.StatusOK || w.Body.String() != "{\"series\":[]}\n" {
+		t.Fatalf("series = %d %s", w.Code, w.Body.String())
+	}
+	if w := getWithToken(handler, path+"/series", other); w.Code != http.StatusNotFound {
+		t.Fatalf("foreign series = %d, want 404", w.Code)
 	}
 
 	// Only the owner may rename; names are trimmed and must not be empty.

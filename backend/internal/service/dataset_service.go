@@ -46,8 +46,9 @@ type datasetRun struct {
 	plan   dataset.ChunkPlan
 	series []string
 	inputs int
-	// skipped lists series too short for one chunk of this size.
-	skipped []string
+	// extended lists series shorter than one chunk of this size; each is
+	// repeated to fill one chunk.
+	extended []string
 }
 
 // planDatasetRuns validates a request and expands it into one run per
@@ -108,8 +109,10 @@ func planDatasetRuns(ds *dataset.Dataset, req *DatasetRunRequest) ([]datasetRun,
 			for _, s := range series {
 				n := dataset.PlannedChunks(s.Values, run.plan)
 				if n == 0 {
-					run.skipped = append(run.skipped, s.Name)
-					continue
+					continue // empty series
+				}
+				if dataset.Extended(s.Values, run.plan.ChunkSize) {
+					run.extended = append(run.extended, s.Name)
 				}
 				run.series = append(run.series, s.Name)
 				run.inputs += n
@@ -208,12 +211,6 @@ func (s *BenchmarkService) materializeRun(ctx context.Context, actor *model.User
 		}
 	}
 
-	var warnings []string
-	if len(run.skipped) > 0 {
-		warnings = append(warnings, fmt.Sprintf("skipped series shorter than one chunk of %d samples: %s",
-			run.plan.ChunkSize, strings.Join(run.skipped, ", ")))
-	}
-
 	benchmark := &model.Benchmark{
 		ID:               benchmarkID,
 		UserID:           actor.ID,
@@ -226,7 +223,6 @@ func (s *BenchmarkService) materializeRun(ctx context.Context, actor *model.User
 		Aggregation:      opts.Aggregation,
 		MeasureMemory:    opts.MeasureMemory,
 		ExperimentID:     opts.ExperimentID,
-		Warnings:         warnings,
 		Source: &model.DatasetSource{
 			Kind:      "dataset",
 			Dataset:   datasetName,

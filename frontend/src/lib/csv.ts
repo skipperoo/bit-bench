@@ -1,6 +1,7 @@
 import { renameCompressor } from '@/lib/compressors'
 import { availableMetrics, metricValue } from '@/lib/metrics'
-import type { Benchmark, BenchmarkResult } from '@/types'
+import { signalLabel } from '@/lib/experiments'
+import type { SignalResults } from '@/lib/experiments'
 
 /** Serializes rows to CSV (RFC 4180 quoting). */
 export function toCSV(header: string[], rows: (string | number | null | undefined)[][]): string {
@@ -28,18 +29,21 @@ const RAW_COLUMNS = ['num_values', 'original_size', 'uncompressed_bits', 'compre
 
 /**
  * Every result of every benchmark as one table: one row per (benchmark,
- * compressor), the data source, the raw sizes and every metric in stored units
- * (compression_ratio as a fraction; chunk_size 0 = whole series).
+ * signal, compressor), the data source, the raw sizes and every metric in
+ * stored units (compression_ratio as a fraction; chunk_size 0 = whole series).
+ * `signal` is the series (or input) name, or "all (<aggregation>)" for the
+ * benchmark's aggregate.
  */
-export function allResultsCSV(items: { benchmark: Benchmark; results: BenchmarkResult[] }[]): string {
+export function allResultsCSV(items: SignalResults[]): string {
   const metrics = availableMetrics(items.flatMap((i) => i.results)).map((m) => m.key)
-  const header = ['benchmark', 'dataset', 'transform', 'chunk_size', 'aggregation', 'compressor', 'label', ...RAW_COLUMNS, ...metrics]
-  const rows = items.flatMap(({ benchmark: b, results }) => results.map((r) => [
-    b.name,
-    b.source?.dataset ?? b.original_filename,
-    b.source?.transform,
-    b.source?.chunk_size,
-    b.aggregation ?? 'mean',
+  const header = ['benchmark', 'dataset', 'transform', 'chunk_size', 'aggregation', 'signal', 'compressor', 'label', ...RAW_COLUMNS, ...metrics]
+  const rows = items.flatMap((item) => item.results.map((r) => [
+    item.benchmark.name,
+    item.benchmark.source?.dataset ?? item.benchmark.original_filename,
+    item.benchmark.source?.transform,
+    item.benchmark.source?.chunk_size,
+    item.benchmark.aggregation ?? 'mean',
+    signalLabel(item),
     renameCompressor(r.compressor),
     r.compressor,
     ...RAW_COLUMNS.map((k) => r[k]),

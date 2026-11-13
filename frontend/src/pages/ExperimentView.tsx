@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Download, X, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabPanel } from '@/components/ui/tabs'
 import StatusPill from '@/components/StatusPill'
@@ -24,9 +25,9 @@ import { METRIC_GROUP_LABELS } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
 import { detectSweep, orderByChunkSize } from '@/lib/sweep'
 import { allResultsCSV, downloadText } from '@/lib/csv'
-import { VIEW_LIMIT, dataSourceText, experimentName, viewPath } from '@/lib/experiments'
+import { VIEW_LIMIT, dataSourceText, experimentName, signalEntry, viewPath, withSignals } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
-import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult } from '@/types'
+import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult, SeriesResults } from '@/types'
 
 const GROUP_LABELS = METRIC_GROUP_LABELS
 
@@ -86,7 +87,38 @@ export default function ExperimentView() {
   usePackageColors()
 
   const ready = orderByChunkSize(items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0), (i) => i.benchmark)
-  const multi = ready.length > 1
+  // "Aggregate time series" off (URL signals=split): every signal of each
+  // benchmark beside its aggregate. Per-signal results are loaded on demand.
+  const aggregate = params.get('signals') !== 'split'
+  const splittable = ready.some((i) => (i.benchmark.file_count ?? 1) > 1)
+  const [seriesById, setSeriesById] = useState<Map<string, SeriesResults[]>>(new Map())
+  const loadSeries = useCallback(async (benchmarkIds: string[]) => {
+    const known = new Map(seriesById)
+    const fetched = await Promise.all(benchmarkIds.filter((id) => !known.has(id)).map(async (id) =>
+      [id, (await apiFetch<{ series: SeriesResults[] }>(`/benchmarks/${id}/series`))?.series ?? []] as const))
+    if (fetched.length === 0) return known
+    for (const [id, s] of fetched) known.set(id, s)
+    setSeriesById(known)
+    return known
+  }, [seriesById])
+  const readyKey = ready.map((i) => i.benchmark.id).join(',')
+  useEffect(() => {
+    if (!aggregate && readyKey) loadSeries(readyKey.split(',')).catch(() => { /* aggregate rows still show */ })
+  }, [aggregate, readyKey, loadSeries])
+  const shown = aggregate ? ready : ready.flatMap((i) => withSignals(i, seriesById.get(i.benchmark.id)).map(signalEntry))
+  const setAggregate = (on: boolean) => setParams((prev) => {
+    const n = new URLSearchParams(prev)
+    if (on) n.delete('signals')
+    else n.set('signals', 'split')
+    return n
+  }, { replace: true })
+  const downloadAll = async () => {
+    let series = seriesById
+    try { series = await loadSeries(ready.map((i) => i.benchmark.id)) } catch { /* export the aggregates */ }
+    const name = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'results'
+    downloadText(`${name}-all.csv`, allResultsCSV(ready.flatMap((i) => withSignals(i, series.get(i.benchmark.id)))))
+  }
+  const multi = shown.length > 1
   const allNames = useMemo(() => [...new Set(ready.flatMap((i) => i.results.map((r) => r.compressor)))].sort(), [ready])
   const shapeOverrides = useChartStyles((st) => st.shapes)
   const colorOverrides = useChartStyles((st) => st.colors)
@@ -106,7 +138,7 @@ export default function ExperimentView() {
   const colors = new Map([...styles].map(([n, st]) => [n, st.color]))
   const shapes = new Map([...styles].map(([n, st]) => [n, st.shape]))
   const visibleNames = allNames.filter((n) => !hidden.has(n))
-  const visible = ready.map((i) => ({ ...i, results: i.results.filter((r) => !hidden.has(r.compressor)) }))
+  const visible = shown.map((i) => ({ ...i, results: i.results.filter((r) => !hidden.has(r.compressor)) }))
   const allVisibleResults = visible.flatMap((i) => i.results)
   const metrics = availableMetrics(allVisibleResults)
   const groups = (Object.keys(GROUP_LABELS) as MetricGroup[]).filter((g) => metrics.some((m) => m.group === g))
@@ -277,6 +309,19 @@ export default function ExperimentView() {
           </aside>
 
           <div className="space-y-4 min-w-0">
+            {splittable && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <label htmlFor="aggregate-signals" className="flex items-center gap-2">
+                  <Switch id="aggregate-signals" checked={aggregate} onCheckedChange={setAggregate} />
+                  Aggregate time series
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {aggregate
+                    ? 'Each benchmark shows one result over all its signals.'
+                    : 'Each benchmark (chunk size and transform) shows its aggregate followed by every signal on its own.'}
+                </span>
+              </div>
+            )}
             <Tabs items={tabItems} value={tab} onChange={setTab} ariaLabel="Result sections" idPrefix="exp" />
             {visibleNames.length === 0 ? (
               <p className="text-sm text-muted-foreground">Every compressor is hidden by the filter.</p>
@@ -285,12 +330,8 @@ export default function ExperimentView() {
                 {tab === 'overview' && (
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                      <span>Every metric of every benchmark and compressor in one file; each metric's table also has its own CSV.</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => downloadText(`${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'results'}-all.csv`, allResultsCSV(ready))}
-                      >
+                      <span>Every metric of every benchmark, signal and compressor in one file; each metric's table also has its own CSV.</span>
+                      <Button variant="outline" size="sm" onClick={downloadAll}>
                         <Download className="mr-1 h-4 w-4" />Download all results (CSV)
                       </Button>
                     </div>

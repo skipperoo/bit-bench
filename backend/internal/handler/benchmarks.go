@@ -243,6 +243,22 @@ func DeleteBenchmark(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListBenchmarkSeries returns the per-signal results of a benchmark (owner or
+// admin): {series: [{series, results}]}, empty for a single-signal benchmark.
+func ListBenchmarkSeries(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	series, err := service.App.Benchmark.GetSeriesResults(r.Context(), benchmark.ID)
+	if err != nil {
+		writeError(w, "failed to load series results", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"series": series})
+}
+
 // RenameBenchmark lets the owner (or an admin) rename a benchmark: body {name}.
 func RenameBenchmark(w http.ResponseWriter, r *http.Request) {
 	benchmark := loadViewableBenchmark(w, r)

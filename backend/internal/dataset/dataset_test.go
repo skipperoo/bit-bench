@@ -92,6 +92,32 @@ func TestMaterializeTransforms(t *testing.T) {
 	}
 }
 
+func TestMaterializeExtendsShortSeries(t *testing.T) {
+	root := t.TempDir()
+	writeSeries(t, root, "ds", "short", []int64{5, 7, 6}, 2)
+	outputs, err := Materialize(root, "ds", "short", ChunkPlan{ChunkSize: 8, MaxChunks: 10, Transform: TransformStd}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outputs) != 1 || outputs[0].Values != 8 {
+		t.Fatalf("outputs = %+v, want one chunk of 8", outputs)
+	}
+	if got := readValues(t, outputs[0].Path); !reflect.DeepEqual(got, []int64{5, 7, 6, 5, 7, 6, 5, 7}) {
+		t.Fatalf("extended chunk = %v", got)
+	}
+	if info, _ := seqfile.ReadBinFile(outputs[0].Path); info.Decimals != 2 {
+		t.Errorf("decimals not propagated: %d", info.Decimals)
+	}
+	// Transforms apply to the repeated series as a whole.
+	gap, err := Materialize(root, "ds", "short", ChunkPlan{ChunkSize: 5, Transform: TransformGap}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readValues(t, gap[0].Path); !reflect.DeepEqual(got, []int64{5, 2, -1, -1, 2}) {
+		t.Fatalf("extended gap chunk = %v", got)
+	}
+}
+
 func TestMaterializeWholeSeriesAndMaxChunks(t *testing.T) {
 	root := t.TempDir()
 	values := make([]int64, 100)
@@ -167,7 +193,7 @@ func TestPlanValidation(t *testing.T) {
 	if !ValidName("NVDA") || ValidName("../etc") || ValidName(".hidden") {
 		t.Error("name validation")
 	}
-	if PlannedChunks(100, ChunkPlan{ChunkSize: 30, MaxChunks: 2}) != 2 || PlannedChunks(100, ChunkPlan{}) != 1 {
+	if PlannedChunks(100, ChunkPlan{ChunkSize: 30, MaxChunks: 2}) != 2 || PlannedChunks(100, ChunkPlan{}) != 1 || PlannedChunks(10, ChunkPlan{ChunkSize: 25}) != 1 {
 		t.Error("PlannedChunks")
 	}
 }

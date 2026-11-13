@@ -202,7 +202,7 @@ the Results page and use **Compare** to see the sweep side by side. The plan
 box shows how many benchmarks and inputs a run creates before you submit.
 Limits: 32 benchmarks per request, 5000 inputs per benchmark.
 
-Series shorter than one chunk are skipped and reported as a benchmark warning.
+Series shorter than one chunk are repeated (concatenated with themselves) to fill exactly one chunk; the New experiment wizard lists them in a yellow warning.
 
 ### Transforms
 
