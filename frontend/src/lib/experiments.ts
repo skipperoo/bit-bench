@@ -109,3 +109,48 @@ export function experimentSourceText(benchmarks: Benchmark[]): string {
   const chunks = sizes.map((n) => (n === 0 ? 'whole' : n.toLocaleString())).join(', ')
   return `${first.dataset} (${first.series.length} series) · ${transforms.join(', ')} · ${chunks} samples · ${benchmarks.length} benchmarks`
 }
+
+/** What "Re-run" pre-fills on the New experiment page. */
+export interface RerunConfig {
+  name: string
+  compressors: { name: string; options: Record<string, unknown> }[]
+  aggregation?: Benchmark['aggregation']
+  measureMemory?: boolean
+  /** Dataset runs: the selection that produced the benchmarks (every chunk size and transform). */
+  source?: { dataset: string; series: string[]; max_chunks: number; chunk_sizes: number[]; transforms: string[] }
+}
+
+/** Dataset-run benchmarks are named "<name> · <transform> · <chunk size>". */
+function datasetBaseName(b: Benchmark): string {
+  return b.source ? b.name.replace(/\s·\s[^·]+\s·\s[^·]+$/u, '') : b.name
+}
+
+/**
+ * Rebuilds the configuration of one experiment from its selected benchmarks:
+ * a dataset run gets back all of its chunk sizes and transforms (whole series
+ * last), an upload its compressors and settings (files must be chosen again).
+ * Returns null unless the benchmarks belong to a single experiment.
+ */
+export function rerunConfig(benchmarks: Benchmark[]): RerunConfig | null {
+  if (benchmarks.length === 0) return null
+  if (new Set(benchmarks.map((b) => b.experiment_id ?? b.id)).size !== 1) return null
+  const first = benchmarks[0]
+  const config: RerunConfig = {
+    name: experimentName([...new Set(benchmarks.map(datasetBaseName))]),
+    compressors: first.compressors.map((c) => ({ name: c.name, options: c.options })),
+    aggregation: first.aggregation,
+    measureMemory: first.measure_memory,
+  }
+  const sources = benchmarks.map((b) => b.source).filter((s): s is NonNullable<Benchmark['source']> => Boolean(s))
+  if (sources.length > 0) {
+    const order = (n: number) => (n === 0 ? Number.MAX_SAFE_INTEGER : n)
+    config.source = {
+      dataset: sources[0].dataset,
+      series: sources[0].series,
+      max_chunks: sources[0].max_chunks,
+      chunk_sizes: [...new Set(sources.map((s) => s.chunk_size))].sort((a, b) => order(a) - order(b)),
+      transforms: [...new Set(sources.map((s) => s.transform))],
+    }
+  }
+  return config
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import ExperimentsPage from './ExperimentsPage'
 import { apiFetch } from '@/lib/api'
 import type { Benchmark } from '@/types'
@@ -36,8 +36,19 @@ beforeEach(() => {
   })
 })
 
+function NewPageProbe() {
+  return <pre data-testid="rerun-state">{JSON.stringify(useLocation().state)}</pre>
+}
+
 function renderPage(url = '/experiments') {
-  return render(<MemoryRouter initialEntries={[url]}><ExperimentsPage /></MemoryRouter>)
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <Routes>
+        <Route path="/experiments" element={<ExperimentsPage />} />
+        <Route path="/new" element={<NewPageProbe />} />
+      </Routes>
+    </MemoryRouter>,
+  )
 }
 
 describe('ExperimentsPage', () => {
@@ -60,7 +71,19 @@ describe('ExperimentsPage', () => {
     const bar = screen.getByRole('toolbar', { name: 'Selection' })
     expect(bar).toHaveTextContent('2 selected')
     expect(screen.getByRole('button', { name: /Compare/ })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /Re-run/ })).toBeDisabled() // needs exactly one benchmark
+    // A whole dataset experiment re-runs with all of its chunk sizes and transforms.
+    await userEvent.click(screen.getByRole('button', { name: /Re-run/ }))
+    const state = JSON.parse(screen.getByTestId('rerun-state').textContent!)
+    expect(state.rerun.name).toBe('wild')
+    expect(state.rerun.source.transforms).toEqual(['std', 'gap'])
+    expect(state.rerun.source.chunk_sizes).toEqual([768])
+  })
+
+  it('does not re-run benchmarks of different experiments together', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Select wild' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select single upload' }))
+    expect(screen.getByRole('button', { name: /Re-run/ })).toBeDisabled()
   })
 
   it('sends the URL filters to the API', async () => {

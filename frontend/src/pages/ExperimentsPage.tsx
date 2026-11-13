@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import StatusPill from '@/components/StatusPill'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
-import { VIEW_LIMIT, benchmarkDurationMs, dataSourceText, experimentSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
+import { VIEW_LIMIT, benchmarkDurationMs, rerunConfig, dataSourceText, experimentSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
 import type { DatasetListResponse } from '@/lib/datasets'
@@ -128,20 +128,11 @@ export default function ExperimentsPage() {
     load()
   }
 
+  // Re-run works on one experiment: a dataset run comes back with all of its
+  // chunk sizes and transforms.
+  const rerunState = rerunConfig(selectedBenchmarks)
   const rerun = () => {
-    const b = selectedBenchmarks[0]
-    if (!b) return
-    navigate('/new', {
-      state: {
-        rerun: {
-          name: b.name,
-          compressors: b.compressors.map((c) => ({ name: c.name, options: c.options })),
-          aggregation: b.aggregation,
-          measureMemory: b.measure_memory,
-          source: b.source,
-        },
-      },
-    })
+    if (rerunState) navigate('/new', { state: { rerun: rerunState } })
   }
 
   const anyFilter = Object.values(filters).some(Boolean)
@@ -187,7 +178,7 @@ export default function ExperimentsPage() {
           <Button size="sm" variant="outline" disabled={selected.size > VIEW_LIMIT} onClick={() => navigate(viewPath([...selected]))}>
             <LineChart className="w-4 h-4 mr-1" />{selected.size === 1 ? 'Open' : 'Compare'}
           </Button>
-          <Button size="sm" variant="outline" disabled={selectedBenchmarks.length !== 1} onClick={rerun} title="Start a new experiment with the same configuration">
+          <Button size="sm" variant="outline" disabled={!rerunState} onClick={rerun} title={rerunState ? 'Start a new experiment with the same configuration' : 'Select the benchmarks of a single experiment to re-run it'}>
             <RotateCcw className="w-4 h-4 mr-1" />Re-run
           </Button>
           <Button size="sm" variant="outline" onClick={deleteSelected}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>

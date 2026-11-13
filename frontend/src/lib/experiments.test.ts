@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateStatus, experimentName, formatDuration, groupExperiments } from './experiments'
+import { aggregateStatus, experimentName, formatDuration, groupExperiments, rerunConfig } from './experiments'
 import type { Benchmark } from '@/types'
 
 function b(id: string, name: string, extra: Partial<Benchmark> = {}): Benchmark {
@@ -39,5 +39,36 @@ describe('experiments', () => {
     expect(formatDuration(42_000)).toBe('42s')
     expect(formatDuration(185_000)).toBe('3m 5s')
     expect(formatDuration(undefined)).toBe('—')
+  })
+})
+
+describe('rerunConfig', () => {
+  const src = (chunk_size: number, transform: 'std' | 'gap' = 'std') =>
+    ({ kind: 'dataset' as const, dataset: 'wildppg', series: ['ecg', 'ppg'], chunk_size, max_chunks: 10, transform, inputs: 20 })
+  const gzip = [{ name: 'gzip', options: { level: 9 }, label: 'gzip · level 9' }]
+
+  it('rebuilds a dataset run with every chunk size and transform', () => {
+    const cfg = rerunConfig([
+      b('1', 'sweep · std · 16384', { experiment_id: 'e', source: src(16384), compressors: gzip, aggregation: 'pooled', measure_memory: false }),
+      b('2', 'sweep · std · 0', { experiment_id: 'e', source: src(0), compressors: gzip }),
+      b('3', 'sweep · gap · 1024', { experiment_id: 'e', source: src(1024, 'gap'), compressors: gzip }),
+      b('4', 'sweep · std · 1024', { experiment_id: 'e', source: src(1024), compressors: gzip }),
+    ])!
+    expect(cfg.name).toBe('sweep')
+    expect(cfg.source).toEqual({ dataset: 'wildppg', series: ['ecg', 'ppg'], max_chunks: 10, chunk_sizes: [1024, 16384, 0], transforms: ['std', 'gap'] })
+    expect(cfg.compressors).toEqual([{ name: 'gzip', options: { level: 9 } }])
+    expect([cfg.aggregation, cfg.measureMemory]).toEqual(['pooled', false])
+  })
+
+  it('keeps the name of a one-size run and handles uploads', () => {
+    expect(rerunConfig([b('1', 'solo · std · 768', { experiment_id: 'e', source: src(768) })])!.name).toBe('solo')
+    const upload = rerunConfig([b('1', 'run (a)', { experiment_id: 'u' }), b('2', 'run (b)', { experiment_id: 'u' })])!
+    expect(upload.name).toBe('run')
+    expect(upload.source).toBeUndefined()
+  })
+
+  it('needs the benchmarks of a single experiment', () => {
+    expect(rerunConfig([])).toBeNull()
+    expect(rerunConfig([b('1', 'a', { experiment_id: 'x' }), b('2', 'b', { experiment_id: 'y' })])).toBeNull()
   })
 })
