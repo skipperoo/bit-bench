@@ -8,10 +8,12 @@ import type { CompressorStyle } from '@/lib/compressors'
 export interface StyleEditing {
   /** Style each compressor gets without the user's overrides. */
   defaults: Map<string, CompressorStyle>
-  overridden: (name: string) => { shape: boolean; color: boolean }
+  overridden: (name: string) => { shape: boolean; color: boolean; name: boolean }
+  /** `null` restores the default name. */
+  onNameChange: (name: string, displayName: string | null) => void
   onShapeChange: (name: string, shape: string | null) => void
   onColorChange: (name: string, color: string | null) => void
-  /** Restores the default shape and colour of the given compressors. */
+  /** Restores the default name, shape and colour of the given compressors. */
   onReset: (names: string[]) => void
   /** Why the last change could not be saved. */
   error?: string
@@ -48,7 +50,7 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
     onChange(next)
   }
   const shown = names.length - names.filter((n) => hidden.has(n)).length
-  const customised = styleEditing ? names.filter((n) => { const o = styleEditing.overridden(n); return o.shape || o.color }) : []
+  const customised = styleEditing ? names.filter((n) => { const o = styleEditing.overridden(n); return o.shape || o.color || o.name }) : []
 
   return (
     <div className="space-y-3 text-sm" aria-label="Compressor filter">
@@ -89,6 +91,8 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
                       defaultShape={styleEditing.defaults.get(m)?.shape ?? shape}
                       shapeOverridden={styleEditing.overridden(m).shape}
                       colorOverridden={styleEditing.overridden(m).color}
+                      nameOverridden={styleEditing.overridden(m).name}
+                      onNameChange={(n) => styleEditing.onNameChange(m, n)}
                       onShapeChange={(s) => styleEditing.onShapeChange(m, s)}
                       onColorChange={(c) => styleEditing.onColorChange(m, c)}
                       onReset={() => styleEditing.onReset([m])}
@@ -105,7 +109,7 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
       })}
       {styleEditing && (
         <p className="text-xs text-muted-foreground">
-          Click a marker to change its shape or colour; your choice is saved to your account.
+          Click a marker to rename the compressor or change its shape or colour; your choice is saved to your account.
           {customised.length > 0 && (
             <>
               {' '}

@@ -22,7 +22,7 @@ func GetChartStyles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if styles == nil {
-		styles = &model.ChartStyles{Shapes: map[string]string{}, Colors: map[string]string{}}
+		styles = &model.ChartStyles{Shapes: map[string]string{}, Colors: map[string]string{}, Names: map[string]string{}}
 	}
 	writeJSON(w, http.StatusOK, styles)
 }

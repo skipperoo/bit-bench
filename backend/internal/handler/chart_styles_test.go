@@ -56,6 +56,7 @@ func TestChartStylesPerUser(t *testing.T) {
 	w := doRequest(h, "PUT", "/api/v1/me/chart-styles", student, map[string]any{
 		"shapes": map[string]string{"gorilla": "hexagon"},
 		"colors": map[string]string{"gorilla": "#D62728", "gzip · level 9": "#2ca02c"},
+		"names":  map[string]string{"gzip · level 9": "  Gzip-9 "},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("put = %d: %s", w.Code, w.Body.String())
@@ -63,6 +64,9 @@ func TestChartStylesPerUser(t *testing.T) {
 	s := getStyles(t, h, student)
 	if s.Shapes["gorilla"] != "hexagon" || s.Colors["gorilla"] != "#d62728" || s.Colors["gzip · level 9"] != "#2ca02c" {
 		t.Errorf("saved overrides = %+v", s)
+	}
+	if s.Names["gzip · level 9"] != "Gzip-9" {
+		t.Errorf("saved names = %+v", s.Names)
 	}
 	if o := getStyles(t, h, phd); len(o.Shapes)+len(o.Colors) != 0 {
 		t.Errorf("other user sees overrides: %+v", o)
@@ -72,7 +76,7 @@ func TestChartStylesPerUser(t *testing.T) {
 	if w := doRequest(h, "PUT", "/api/v1/me/chart-styles", student, map[string]any{"shapes": map[string]string{"gzip": "x"}}); w.Code != http.StatusOK {
 		t.Fatalf("replace = %d: %s", w.Code, w.Body.String())
 	}
-	if s := getStyles(t, h, student); s.Shapes["gzip"] != "x" || len(s.Shapes) != 1 || len(s.Colors) != 0 {
+	if s := getStyles(t, h, student); s.Shapes["gzip"] != "x" || len(s.Shapes) != 1 || len(s.Colors) != 0 || len(s.Names) != 0 {
 		t.Errorf("after replace = %+v", s)
 	}
 }
@@ -88,6 +92,7 @@ func TestChartStylesRejectsInvalid(t *testing.T) {
 	for _, body := range []any{
 		map[string]any{"shapes": map[string]string{"gorilla": "blob"}},
 		map[string]any{"colors": map[string]string{"gorilla": "red"}},
+		map[string]any{"names": map[string]string{"gorilla": "   "}},
 		"not an object",
 	} {
 		if w := doRequest(h, "PUT", "/api/v1/me/chart-styles", token, body); w.Code != http.StatusBadRequest {

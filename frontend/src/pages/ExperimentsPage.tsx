@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import StatusPill from '@/components/StatusPill'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
+import { useChartStyles } from '@/stores/chart-styles-store'
 import { VIEW_LIMIT, benchmarkDurationMs, rerunConfig, dataSourceText, experimentSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
@@ -36,6 +37,8 @@ export default function ExperimentsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [datasets, setDatasets] = useState<string[]>([])
   const [search, setSearch] = useState(params.get('q') ?? '')
+  useChartStyles((st) => st.names) // re-render with the user's compressor names
+  useEffect(() => { useChartStyles.getState().load() }, [])
 
   const filters = useMemo(() => ({
     q: params.get('q') ?? '',

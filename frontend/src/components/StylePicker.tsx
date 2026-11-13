@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { LegendMarker } from '@/components/charts/CompressorMarker'
-import { CHART_PALETTE, CHART_SHAPES, renameCompressor } from '@/lib/compressors'
+import { CHART_PALETTE, CHART_SHAPES, defaultCompressorName, renameCompressor } from '@/lib/compressors'
 
 const SHAPE_NAMES: Record<string, string> = {
   circle: 'Circle',
@@ -16,7 +16,7 @@ const SHAPE_NAMES: Record<string, string> = {
 }
 
 const PANEL_WIDTH = 216
-const PANEL_HEIGHT = 330
+const PANEL_HEIGHT = 380
 
 export interface StylePickerProps {
   name: string
@@ -26,6 +26,9 @@ export interface StylePickerProps {
   defaultShape: string
   shapeOverridden: boolean
   colorOverridden: boolean
+  nameOverridden: boolean
+  /** `null` restores the default name. */
+  onNameChange: (name: string | null) => void
   /** `null` removes the shape override. */
   onShapeChange: (shape: string | null) => void
   /** `null` removes the colour override. */
@@ -34,12 +37,12 @@ export interface StylePickerProps {
 }
 
 /**
- * The compressor's chart marker as a button; it opens a panel with every
- * marker shape and a set of colours. Picking the default shape or colour
- * removes that override.
+ * The compressor's chart marker as a button; it opens a panel with its
+ * display name, every marker shape and a set of colours. Picking the default
+ * shape or colour, or clearing the name, removes that override.
  */
 export default function StylePicker({
-  name, color, shape, defaultColor, defaultShape, shapeOverridden, colorOverridden, onShapeChange, onColorChange, onReset,
+  name, color, shape, defaultColor, defaultShape, shapeOverridden, colorOverridden, nameOverridden, onNameChange, onShapeChange, onColorChange, onReset,
 }: StylePickerProps) {
   // Viewport position of the open panel; null = closed. The panel is fixed so
   // the scrolling filter sidebar cannot clip it.
@@ -50,7 +53,8 @@ export default function StylePicker({
   const panel = useRef<HTMLDivElement>(null)
   const custom = useRef<HTMLInputElement>(null)
   const label = renameCompressor(name)
-  const overridden = shapeOverridden || colorOverridden
+  const defaultName = defaultCompressorName(name)
+  const overridden = shapeOverridden || colorOverridden || nameOverridden
   const swatches = [defaultColor.toLowerCase(), ...CHART_PALETTE.filter((c) => c !== defaultColor.toLowerCase())]
   const isCustomColor = !swatches.includes(color.toLowerCase())
 
@@ -99,6 +103,12 @@ export default function StylePicker({
     return () => el.removeEventListener('change', onChange)
   })
 
+  const saveName = (input: HTMLInputElement) => {
+    const next = input.value.trim()
+    const value = next === '' || next === defaultName ? null : next
+    if (value === null) input.value = defaultName
+    if (value !== (nameOverridden ? label : null)) onNameChange(value)
+  }
   const pickShape = (s: string) => {
     if (s !== shape) onShapeChange(s === defaultShape ? null : s)
   }
@@ -118,7 +128,7 @@ export default function StylePicker({
         aria-label={`Marker style of ${label}: ${SHAPE_NAMES[shape] ?? shape}, ${color}${overridden ? ' (yours)' : ''}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Change marker shape and colour"
+        title="Rename, or change marker shape and colour"
         onClick={() => setPos(open ? null : place())}
         className={`relative inline-flex h-6 w-6 items-center justify-center rounded-md border hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${open ? 'border-foreground' : 'border-transparent'}`}
       >
@@ -130,11 +140,26 @@ export default function StylePicker({
           ref={panel}
           tabIndex={-1}
           role="dialog"
-          aria-label={`Marker style for ${label}`}
+          aria-label={`Name and marker style for ${label}`}
           style={{ top: pos.top, left: pos.left, width: PANEL_WIDTH }}
           className="fixed z-10 space-y-2.5 rounded-md border border-border bg-background p-2.5 outline-none"
         >
-          <p className="truncate font-mono text-xs" title={label}>{label}</p>
+          <label className="block text-xs text-muted-foreground">
+            Name
+            <input
+              // Remount when the saved name changes so the field shows it.
+              key={label}
+              type="text"
+              defaultValue={label}
+              placeholder={defaultName}
+              maxLength={64}
+              aria-label={`Display name for ${label}`}
+              title={nameOverridden ? `Default: ${defaultName}` : undefined}
+              onBlur={(e) => saveName(e.target)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveName(e.currentTarget) } }}
+              className="mt-1 block h-7 w-full rounded-md border border-input bg-transparent px-2 font-mono text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </label>
 
           <fieldset>
             <legend className="mb-1 text-xs text-muted-foreground">Shape</legend>
