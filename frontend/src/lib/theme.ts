@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 /** Colour theme: an explicit choice, or follow the operating system. */
 export type ThemeChoice = 'light' | 'dark' | 'system'
 
@@ -30,4 +32,21 @@ export function applyTheme(choice: ThemeChoice): void {
     // Storage blocked: the theme still applies for this page view.
   }
   document.documentElement.classList.toggle('dark', isDark(choice))
+}
+
+/** Whether the document is currently dark (follows the `dark` class on <html>). */
+export function useIsDark(): boolean {
+  const [dark, setDark] = useState(() => typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
+  useEffect(() => {
+    const el = document.documentElement
+    const observer = new MutationObserver(() => setDark(el.classList.contains('dark')))
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+  return dark
+}
+
+/** Whether the user asked the system for reduced motion (charts then skip their animation). */
+export function prefersReducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 }

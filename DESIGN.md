@@ -109,6 +109,9 @@ A restrained, technical palette anchored by a very dark blue-black ink on pure w
 ### Dark theme
 A neutral graphite, never pure black: **Graphite** `#25262a` (page), **Raised** `#2b2c31` (cards, popovers), **Watermark** `#33353a` (hover, secondary), **Edge** `#3e4046` (borders), **Ink** `#e8e9ec`, **Dim Ink** `#a3a6ad`. Buttons invert (Ink background, graphite text). Chart series keep their colours; grids and axes take Edge and Dim Ink.
 
+### Charts
+Recharts throughout, one chrome for every chart (`components/charts/chrome.tsx`, `lib/chart-style.ts`): solid hairline grid in Edge on the value axis only, axis text in Dim Ink without tick marks, bars at most 24px thick with a 4px rounded data end (square at the baseline) and a 2px gap between grouped bars, 2px smooth (monotone) lines, markers with a 2px card-coloured ring. Tooltips are bordered popover cards with the value in strong mono ink and the series in Dim Ink; the bar hover band and line crosshair use the text colour at a whisper (5% / 25%) so they stay quiet in both themes. Legends key series with a swatch and keep text in text ink. Benchmark series use an 8-colour categorical palette validated for colour-vision deficiency in both themes, never cycled (past 8 the comparison table carries the rest). Bars and lines animate in over 450ms unless reduced motion is requested.
+
 ### The Ink Rule
 The foreground color (`oklch(12% 0.03 260)`) is never lightened for "visual hierarchy." Hierarchy is produced through spacing, weight (600 vs 400), and size — never through fading Ink toward Dim Ink for body text. Body text is always full Ink at `oklch(12% 0.03 260)`. Dim Ink is reserved for secondary metadata, placeholders, and disabled content.
 
