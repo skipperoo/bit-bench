@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -240,6 +241,32 @@ func DeleteBenchmark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// RenameBenchmark lets the owner (or an admin) rename a benchmark: body {name}.
+func RenameBenchmark(w http.ResponseWriter, r *http.Request) {
+	benchmark := loadViewableBenchmark(w, r)
+	if benchmark == nil {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	name, err := service.App.Benchmark.RenameBenchmark(r.Context(), benchmark.ID, body.Name)
+	if errors.Is(err, service.ErrInvalidBenchmarkName) {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		writeError(w, "failed to rename benchmark", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": benchmark.ID.String(), "name": name})
 }
 
 // CancelBenchmark lets the owner (or an admin) cancel a queued or running

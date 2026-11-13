@@ -115,6 +115,32 @@ describe('ExperimentsPage', () => {
     expect(screen.getByRole('toolbar', { name: 'Selection' })).toHaveTextContent('3 selected')
   })
 
+  it('renames an experiment and keeps each benchmark suffix', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename wild' }))
+    const field = screen.getByRole('textbox', { name: 'New name for wild' })
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      const id = path.split('/').pop()
+      return { id, name: JSON.parse(String(init?.body)).name } as never
+    })
+    await userEvent.clear(field)
+    await userEvent.type(field, 'wild2{Enter}')
+    const patches = mockedFetch.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')
+    expect(patches.map((c) => [c[0], JSON.parse(String((c[1] as RequestInit).body)).name])).toEqual([
+      ['/benchmarks/1', 'wild2 · std · 768'],
+      ['/benchmarks/2', 'wild2 · gap · 768'],
+    ])
+    expect(await screen.findByRole('link', { name: 'wild2' })).toBeInTheDocument()
+  })
+
+  it('Escape cancels a rename', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename single upload' }))
+    await userEvent.keyboard('x{Escape}')
+    expect(screen.getByRole('link', { name: 'single upload' })).toBeInTheDocument()
+    expect(mockedFetch.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+  })
+
   it('sends the URL filters to the API', async () => {
     renderPage('/experiments?status=ready&dataset=wildppg&compressor=gzip')
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith(expect.stringMatching(/^\/benchmarks\?/)))

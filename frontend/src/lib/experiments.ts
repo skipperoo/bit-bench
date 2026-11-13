@@ -47,6 +47,17 @@ export function experimentName(names: string[]): string {
   return trimmed || names[0]
 }
 
+/**
+ * New benchmark names for renaming an experiment: the shared name is replaced
+ * and each benchmark keeps its own suffix (" · std · 4096", " (file)").
+ */
+export function renameExperiment(exp: Experiment, name: string): { id: string; name: string }[] {
+  return exp.benchmarks.map((b) => ({
+    id: b.id,
+    name: b.name.startsWith(exp.name) ? name + b.name.slice(exp.name.length) : name,
+  }))
+}
+
 /** Status of a group: active if any member runs, failed if any failed, … */
 export function aggregateStatus(statuses: BenchmarkStatus[]): BenchmarkStatus {
   if (statuses.includes('in_progress')) return 'in_progress'

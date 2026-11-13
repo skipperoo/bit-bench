@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { X, SlidersHorizontal } from 'lucide-react'
+import { Download, X, SlidersHorizontal } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabPanel } from '@/components/ui/tabs'
 import StatusPill from '@/components/StatusPill'
@@ -22,6 +23,7 @@ import type { MetricDef, MetricGroup } from '@/lib/metrics'
 import { METRIC_GROUP_LABELS } from '@/lib/metrics'
 import { paretoRanking } from '@/lib/pareto'
 import { detectSweep, orderByChunkSize } from '@/lib/sweep'
+import { allResultsCSV, downloadText } from '@/lib/csv'
 import { VIEW_LIMIT, dataSourceText, experimentName, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult } from '@/types'
@@ -282,6 +284,16 @@ export default function ExperimentView() {
               <TabPanel value={tab} idPrefix="exp" className="space-y-4">
                 {tab === 'overview' && (
                   <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>Every metric of every benchmark and compressor in one file; each metric's table also has its own CSV.</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadText(`${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'results'}-all.csv`, allResultsCSV(ready))}
+                      >
+                        <Download className="mr-1 h-4 w-4" />Download all results (CSV)
+                      </Button>
+                    </div>
                     {!multi && topFive.length > 0 && <TopFive entries={topFive} results={paretoItem!.results} colors={colors} shapes={shapes} />}
                     {metrics.filter((m) => m.key === 'compression_ratio').map(metricCard)}
                   </>

@@ -1,16 +1,17 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, MouseEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, LineChart } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2, LineChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import StatusPill from '@/components/StatusPill'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
 import { useChartStyles } from '@/stores/chart-styles-store'
-import { VIEW_LIMIT, benchmarkDurationMs, rerunConfig, dataSourceText, experimentSourceText, formatDuration, groupExperiments, viewPath } from '@/lib/experiments'
+import { VIEW_LIMIT, benchmarkDurationMs, rerunConfig, dataSourceText, experimentSourceText, formatDuration, groupExperiments, renameExperiment, viewPath } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
 import type { Benchmark, BenchmarkListResponse } from '@/types'
+import type { Experiment } from '@/lib/experiments'
 import type { DatasetListResponse } from '@/lib/datasets'
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -35,6 +36,7 @@ export default function ExperimentsPage() {
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [renaming, setRenaming] = useState<string | null>(null)
   const [datasets, setDatasets] = useState<string[]>([])
   const [search, setSearch] = useState(params.get('q') ?? '')
   useChartStyles((st) => st.names) // re-render with the user's compressor names
@@ -140,6 +142,21 @@ export default function ExperimentsPage() {
   })
   const allIds = benchmarks.map((b) => b.id)
   const everySelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
+
+  const rename = async (exp: Experiment, value: string) => {
+    setRenaming(null)
+    const name = value.trim()
+    if (!name || name === exp.name) return
+    try {
+      const renamed = await Promise.all(renameExperiment(exp, name).map((r) =>
+        apiFetch<{ id: string; name: string }>(`/benchmarks/${r.id}`, { method: 'PATCH', body: JSON.stringify({ name: r.name }) })))
+      const byId = new Map(renamed.map((r) => [r.id, r.name]))
+      setBenchmarks((prev) => prev.map((b) => (byId.has(b.id) ? { ...b, name: byId.get(b.id)! } : b)))
+    } catch (err) {
+      setError(`Rename failed: ${err instanceof Error ? err.message : 'unknown error'}`)
+      load()
+    }
+  }
 
   const deleteSelected = async () => {
     if (!confirm(`Delete ${selected.size} benchmark(s) and their results? This cannot be undone.`)) return
@@ -255,7 +272,7 @@ export default function ExperimentsPage() {
                 const first = exp.benchmarks[0]
                 return (
                   <Fragment key={exp.id}>
-                    <tr className="border-b border-border last:border-0 hover:bg-secondary/30">
+                    <tr className="group border-b border-border last:border-0 hover:bg-secondary/30">
                       <td className="p-2">
                         <input
                           type="checkbox"
@@ -278,8 +295,36 @@ export default function ExperimentsPage() {
                               {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                             </button>
                           )}
-                          <Link to={viewPath(ids.slice(0, VIEW_LIMIT))} className="font-medium hover:underline">{exp.name}</Link>
-                          {group && <span className="text-xs text-muted-foreground">({exp.benchmarks.length})</span>}
+                          {renaming === exp.id ? (
+                            <Input
+                              autoFocus
+                              aria-label={`New name for ${exp.name}`}
+                              defaultValue={exp.name}
+                              maxLength={200}
+                              className="h-7 max-w-xs text-sm"
+                              onFocus={(e) => e.target.select()}
+                              onBlur={(e) => rename(exp, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() }
+                                // Restore first: a blur on unmount then saves nothing.
+                                if (e.key === 'Escape') { e.currentTarget.value = exp.name; setRenaming(null) }
+                              }}
+                            />
+                          ) : (
+                            <>
+                              <Link to={viewPath(ids.slice(0, VIEW_LIMIT))} className="font-medium hover:underline">{exp.name}</Link>
+                              {group && <span className="text-xs text-muted-foreground">({exp.benchmarks.length})</span>}
+                              <button
+                                type="button"
+                                aria-label={`Rename ${exp.name}`}
+                                title="Rename"
+                                className="rounded p-0.5 text-muted-foreground opacity-0 hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                onClick={() => setRenaming(exp.id)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="p-2 text-xs text-muted-foreground">{experimentSourceText(exp.benchmarks)}</td>

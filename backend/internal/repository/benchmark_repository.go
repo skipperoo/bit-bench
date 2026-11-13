@@ -415,6 +415,12 @@ func (r *BenchmarkRepository) GetUserStatusStats(ctx context.Context, userID uui
 	return stats, nil
 }
 
+// UpdateName renames a benchmark.
+func (r *BenchmarkRepository) UpdateName(ctx context.Context, id uuid.UUID, name string) error {
+	_, err := r.db.Exec(ctx, "UPDATE benchmarks SET name = $2, updated_at = NOW() WHERE id = $1", id, name)
+	return err
+}
+
 func (r *BenchmarkRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, "DELETE FROM benchmarks WHERE id = $1", id)
 	return err

@@ -26,6 +26,7 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 		AddHandler("POST /benchmarks", CreateBenchmark).
 		AddHandler("GET /benchmarks", ListBenchmarks).
 		AddHandler("DELETE /benchmarks/{id}", DeleteBenchmark).
+		AddHandler("PATCH /benchmarks/{id}", RenameBenchmark).
 		AddHandler("POST /benchmarks/{id}/cancel", CancelBenchmark).
 		AddHandler("GET /benchmarks/{id}/tasks", ListBenchmarkTasks)
 	router := routy.NewRouter()
@@ -102,6 +103,29 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 		t.Fatalf("foreign tasks = %d, want 404", w.Code)
 	}
 
+	// Only the owner may rename; names are trimmed and must not be empty.
+	rename := func(tok, body string) int {
+		r := httptest.NewRequest("PATCH", path, bytes.NewBufferString(body))
+		r.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, r)
+		return rec.Code
+	}
+	if code := rename(other, `{"name":"stolen"}`); code != http.StatusNotFound {
+		t.Fatalf("foreign rename = %d, want 404", code)
+	}
+	for _, bad := range []string{`{"name":"   "}`, `not json`} {
+		if code := rename(token, bad); code != http.StatusBadRequest {
+			t.Fatalf("rename %s = %d, want 400", bad, code)
+		}
+	}
+	if code := rename(token, `{"name":"  single2 "}`); code != http.StatusOK {
+		t.Fatalf("rename = %d", code)
+	}
+	if got := list("q=single2"); len(got) != 1 || got[0].Name != "single2" {
+		t.Fatalf("renamed benchmark = %+v", got)
+	}
+
 	// Only the owner may cancel/delete; cancel works once.
 	r := httptest.NewRequest("POST", path+"/cancel", nil)
 	r.Header.Set("Authorization", "Bearer "+other)
@@ -123,7 +147,7 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+token)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, r)
-	if rec.Code != http.StatusNoContent || len(list("q=single")) != 0 {
+	if rec.Code != http.StatusNoContent || len(list("q=single2")) != 0 {
 		t.Fatalf("delete = %d", rec.Code)
 	}
 }
