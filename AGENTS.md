@@ -176,7 +176,7 @@ BitBench is a compression-algorithm testing platform. A user (created by an admi
 #### 3.1.3 Experiments page (`/experiments`, replaces Results)
 - An **experiment** is one submission (`benchmarks.experiment_id`): a single upload, a "separate benchmarks" upload or a dataset run. The page is a dense table, one row per experiment (expandable to its benchmarks): name, data source line, compressors, aggregate **status pill** (`queued` blue, `in_progress` yellow, `ready` green, pulsing dot for active states), created, duration.
 - Filters (URL-synced): name search, status (active/ready/failed/cancelled), data source (uploads, any dataset, one dataset), compressor. Active rows are polled.
-- Always-visible selection checkboxes (an experiment row selects its benchmarks) and a bulk bar: **Open/Compare** (up to 32 benchmarks), **Re-run** (one experiment at a time: prefills New experiment with its configuration and data source; a dataset run comes back with all of its chunk sizes and transforms), **Delete** (owner).
+- Always-visible selection checkboxes (an experiment row selects its benchmarks; the header checkbox selects every loaded benchmark; shift-click selects the range of visible rows since the last click) and a bulk bar: **Open/Compare** (up to 32 benchmarks), **Re-run** (one experiment at a time: prefills New experiment with its configuration and data source; a dataset run comes back with all of its chunk sizes and transforms), **Delete** (owner).
 - Old `/results`, `/results/:id` and `/compare?ids=` URLs redirect.
 
 #### 3.1.4 Experiment view (`/experiments/view?ids=…`, replaces Detail and Compare)

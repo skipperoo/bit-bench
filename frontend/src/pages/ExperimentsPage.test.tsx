@@ -86,6 +86,35 @@ describe('ExperimentsPage', () => {
     expect(screen.getByRole('button', { name: /Re-run/ })).toBeDisabled()
   })
 
+  it('selects everything from the header checkbox', async () => {
+    renderPage()
+    const all = await screen.findByRole('checkbox', { name: 'Select all' })
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select single upload' }))
+    expect((all as HTMLInputElement).indeterminate).toBe(true)
+    await userEvent.click(all)
+    expect(screen.getByRole('toolbar', { name: 'Selection' })).toHaveTextContent('3 selected')
+    await userEvent.click(all)
+    expect(screen.queryByRole('toolbar', { name: 'Selection' })).not.toBeInTheDocument()
+  })
+
+  it('selects a range with shift-click over the visible rows', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Expand wild' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('checkbox', { name: 'Select wild · gap · 768' }))
+    await user.keyboard('{Shift>}')
+    await user.click(screen.getByRole('checkbox', { name: 'Select single upload' }))
+    await user.keyboard('{/Shift}')
+    // gap row + single upload; the std row above the anchor stays unselected.
+    expect(screen.getByRole('toolbar', { name: 'Selection' })).toHaveTextContent('2 selected')
+    expect(screen.getByRole('checkbox', { name: 'Select wild · std · 768' })).not.toBeChecked()
+    // Shift-click upwards extends the same way.
+    await user.keyboard('{Shift>}')
+    await user.click(screen.getByRole('checkbox', { name: 'Select wild' }))
+    await user.keyboard('{/Shift}')
+    expect(screen.getByRole('toolbar', { name: 'Selection' })).toHaveTextContent('3 selected')
+  })
+
   it('sends the URL filters to the API', async () => {
     renderPage('/experiments?status=ready&dataset=wildppg&compressor=gzip')
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith(expect.stringMatching(/^\/benchmarks\?/)))
