@@ -52,28 +52,19 @@
   --color-ring: #e8e9ec;
 }
 
-/* Recharts draws its grid, axes and default tooltip with fixed light colours. */
-.dark .recharts-cartesian-grid line {
+/*
+ * Chart chrome in both themes: hairline solid grid in the border colour,
+ * axis text in muted ink (Recharts draws them with fixed light colours).
+ */
+.recharts-cartesian-grid line {
   stroke: var(--color-border);
 }
-.dark .recharts-cartesian-axis-line,
-.dark .recharts-cartesian-axis-tick-line {
-  stroke: var(--color-muted-foreground);
-}
-.dark .recharts-cartesian-axis-tick-value,
-.dark .recharts-label {
+.recharts-cartesian-axis-tick-value,
+.recharts-label {
   fill: var(--color-muted-foreground);
 }
-.dark .recharts-default-tooltip {
-  background-color: var(--color-popover) !important;
-  border-color: var(--color-border) !important;
-  color: var(--color-foreground);
-}
-.dark rect.recharts-tooltip-cursor {
-  fill: var(--color-secondary);
-}
-.dark path.recharts-tooltip-cursor {
-  stroke: var(--color-muted-foreground);
+.recharts-cartesian-axis-line {
+  stroke: var(--color-border);
 }
 
 @layer base {
