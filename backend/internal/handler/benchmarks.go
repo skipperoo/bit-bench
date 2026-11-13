@@ -207,6 +207,18 @@ func ListBenchmarks(w http.ResponseWriter, r *http.Request) {
 			params.Cursor = &t
 		}
 	}
+	// ?experiments=<n>|all pages by experiments (the experiments page rows).
+	if e := q.Get("experiments"); e != "" {
+		params.ByExperiment = true
+		if e != "all" {
+			n, err := strconv.Atoi(e)
+			if err != nil || n < 1 {
+				writeError(w, "experiments must be a positive number or all", http.StatusBadRequest)
+				return
+			}
+			params.Experiments = n
+		}
+	}
 
 	result, err := service.App.Benchmark.ListBenchmarks(r.Context(), params)
 	if err != nil {

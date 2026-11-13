@@ -21,6 +21,7 @@ const sweep = { kind: 'dataset' as const, dataset: 'wildppg', series: ['a'], chu
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   mockedFetch.mockImplementation(async (path: string) => {
     if (path.startsWith('/datasets')) return { datasets: [{ name: 'wildppg', series: [] }] } as never
     if (path.startsWith('/benchmarks?')) {
@@ -139,6 +140,16 @@ describe('ExperimentsPage', () => {
     await userEvent.keyboard('x{Escape}')
     expect(screen.getByRole('link', { name: 'single upload' })).toBeInTheDocument()
     expect(mockedFetch.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+  })
+
+  it('pages by experiments and remembers the chosen page size', async () => {
+    renderPage()
+    await screen.findByRole('link', { name: 'wild' })
+    const lastQuery = () => new URLSearchParams(mockedFetch.mock.calls.map((c) => c[0] as string).filter((p) => p.startsWith('/benchmarks?')).at(-1)!.split('?')[1])
+    expect(lastQuery().get('experiments')).toBe('25')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Experiments per page' }), 'all')
+    await waitFor(() => expect(lastQuery().get('experiments')).toBe('all'))
+    expect(localStorage.getItem('bitbench-experiments-per-page')).toBe('all')
   })
 
   it('sends the URL filters to the API', async () => {
