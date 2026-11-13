@@ -162,7 +162,8 @@ interface RerunState {
   compressors?: CompressorInstance[] | { name: string; options: Record<string, unknown> }[]
   aggregation?: Aggregation
   measureMemory?: boolean
-  source?: { dataset: string; series: string[]; chunk_size: number; max_chunks: number; transform: string }
+  /** Dataset runs: every chunk size and transform (older states carry a single chunk_size/transform). */
+  source?: { dataset: string; series: string[]; max_chunks: number; chunk_sizes?: number[]; transforms?: string[]; chunk_size?: number; transform?: string }
 }
 
 export default function NewExperimentPage() {
@@ -237,9 +238,9 @@ export default function NewExperimentPage() {
       setDatasetSelection({
         dataset: rerun.source.dataset,
         series: rerun.source.series,
-        chunkSizes: [rerun.source.chunk_size],
+        chunkSizes: rerun.source.chunk_sizes ?? (rerun.source.chunk_size != null ? [rerun.source.chunk_size] : DEFAULT_DATASET_SELECTION.chunkSizes),
         maxChunks: rerun.source.max_chunks,
-        transforms: [rerun.source.transform as DatasetSelection['transforms'][number]],
+        transforms: (rerun.source.transforms ?? (rerun.source.transform ? [rerun.source.transform] : DEFAULT_DATASET_SELECTION.transforms)) as DatasetSelection['transforms'],
       })
     }
   }, [rerun, compressors])
