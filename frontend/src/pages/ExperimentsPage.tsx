@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, MouseEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, LineChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -113,6 +114,30 @@ export default function ExperimentsPage() {
     return next
   })
 
+  // Visible checkbox rows in table order, for shift-click range selection.
+  const rows = useMemo(() => experiments.flatMap((exp) => {
+    const head = { key: `e:${exp.id}`, ids: exp.benchmarks.map((b) => b.id) }
+    return exp.benchmarks.length > 1 && expanded.has(exp.id)
+      ? [head, ...exp.benchmarks.map((b) => ({ key: `b:${b.id}`, ids: [b.id] }))]
+      : [head]
+  }), [experiments, expanded])
+  const anchor = useRef<string | null>(null)
+  const rowCheckbox = (key: string, ids: string[]) => ({
+    // Shift-click would otherwise also select the text between the rows.
+    onMouseDown: (e: MouseEvent) => { if (e.shiftKey) e.preventDefault() },
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      const from = rows.findIndex((r) => r.key === anchor.current)
+      const to = rows.findIndex((r) => r.key === key)
+      const range = (e.nativeEvent as globalThis.MouseEvent).shiftKey && from >= 0 && to >= 0
+        ? rows.slice(Math.min(from, to), Math.max(from, to) + 1).flatMap((r) => r.ids)
+        : ids
+      toggle(range, e.target.checked)
+      anchor.current = key
+    },
+  })
+  const allIds = benchmarks.map((b) => b.id)
+  const everySelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
+
   const deleteSelected = async () => {
     if (!confirm(`Delete ${selected.size} benchmark(s) and their results? This cannot be undone.`)) return
     const failed: string[] = []
@@ -200,7 +225,16 @@ export default function ExperimentsPage() {
           <table className="w-full text-sm min-w-[760px]">
             <thead>
               <tr className="border-b border-border bg-secondary/40 text-left">
-                <th className="w-8 p-2"><span className="sr-only">Select</span></th>
+                <th className="w-8 p-2">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    title="Select all (shift-click a row to select a range)"
+                    checked={everySelected}
+                    ref={(el) => { if (el) el.indeterminate = !everySelected && selected.size > 0 }}
+                    onChange={(e) => setSelected(e.target.checked ? new Set(allIds) : new Set())}
+                  />
+                </th>
                 <th className="p-2 font-medium min-w-[12rem]">Name</th>
                 <th className="p-2 font-medium">Data</th>
                 <th className="p-2 font-medium">Compressors</th>
@@ -225,7 +259,7 @@ export default function ExperimentsPage() {
                           aria-label={`Select ${exp.name}`}
                           checked={allSelected}
                           ref={(el) => { if (el) el.indeterminate = !allSelected && ids.some((id) => selected.has(id)) }}
-                          onChange={(e) => toggle(ids, e.target.checked)}
+                          {...rowCheckbox(`e:${exp.id}`, ids)}
                         />
                       </td>
                       <td className="p-2">
@@ -254,7 +288,7 @@ export default function ExperimentsPage() {
                     {group && open && exp.benchmarks.map((b) => (
                       <tr key={b.id} className="border-b border-border bg-secondary/10 hover:bg-secondary/30">
                         <td className="p-2 pl-4">
-                          <input type="checkbox" aria-label={`Select ${b.name}`} checked={selected.has(b.id)} onChange={(e) => toggle([b.id], e.target.checked)} />
+                          <input type="checkbox" aria-label={`Select ${b.name}`} checked={selected.has(b.id)} {...rowCheckbox(`b:${b.id}`, [b.id])} />
                         </td>
                         <td className="p-2 pl-8"><Link to={viewPath([b.id])} className="hover:underline">{b.name}</Link></td>
                         <td className="p-2 text-xs text-muted-foreground">{dataSourceText(b)}</td>
