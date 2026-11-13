@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/skipperoo/routy"
@@ -85,6 +86,31 @@ func TestExperimentsListFiltersDeleteCancel(t *testing.T) {
 	}
 	if got := list("source=dataset"); len(got) != 0 {
 		t.Errorf("dataset filter: %d, want 0", len(got))
+	}
+
+	// Paging by experiments keeps the three "sep" benchmarks together.
+	page := func(query string) ([]model.Benchmark, string, int) {
+		w := getWithToken(handler, "/api/v1/benchmarks?"+query, token)
+		var resp struct {
+			Benchmarks []model.Benchmark `json:"benchmarks"`
+			NextCursor string            `json:"next_cursor"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		return resp.Benchmarks, resp.NextCursor, w.Code
+	}
+	first, cursor, _ := page("experiments=1")
+	if len(first) != 1 || first[0].ID != single.ID || cursor == "" {
+		t.Fatalf("first experiment page = %+v (cursor %q)", first, cursor)
+	}
+	second, cursor2, _ := page("experiments=1&cursor=" + url.QueryEscape(cursor))
+	if len(second) != 3 || second[0].ExperimentID != sep.Benchmarks[0].ExperimentID || cursor2 != "" {
+		t.Fatalf("second experiment page = %d benchmarks (cursor %q)", len(second), cursor2)
+	}
+	if all, next, _ := page("experiments=all"); len(all) != 4 || next != "" {
+		t.Fatalf("all experiments = %d (cursor %q)", len(all), next)
+	}
+	if _, _, code := page("experiments=0"); code != http.StatusBadRequest {
+		t.Fatalf("experiments=0 = %d, want 400", code)
 	}
 
 	// The live view lists the queued task without its result payload.

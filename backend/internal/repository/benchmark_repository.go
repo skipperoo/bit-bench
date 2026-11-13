@@ -119,6 +119,10 @@ type ListBenchmarksParams struct {
 	// Compressor keeps benchmarks configuring this compressor name.
 	Compressor string
 	Limit      int
+	// ByExperiment pages by experiments instead of benchmarks: Experiments
+	// experiments per page (0 = all), each with every matching benchmark.
+	ByExperiment bool
+	Experiments  int
 }
 
 type ListBenchmarksResult struct {
@@ -127,56 +131,76 @@ type ListBenchmarksResult struct {
 }
 
 func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) (*ListBenchmarksResult, error) {
-	if p.Limit <= 0 || p.Limit > 100 {
+	if !p.ByExperiment && (p.Limit <= 0 || p.Limit > 100) {
 		p.Limit = 20
 	}
 
-	query := `SELECT id, experiment_id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
-	                  aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at
-	           FROM benchmarks WHERE 1=1`
+	cond := ""
 	args := []any{}
 	argIdx := 1
 
 	if p.UserID != nil {
-		query += fmt.Sprintf(` AND user_id = $%d`, argIdx)
+		cond += fmt.Sprintf(` AND user_id = $%d`, argIdx)
 		args = append(args, *p.UserID)
 		argIdx++
 	}
-	if p.Cursor != nil {
-		query += fmt.Sprintf(` AND created_at < $%d`, argIdx)
+	if p.Cursor != nil && !p.ByExperiment {
+		cond += fmt.Sprintf(` AND created_at < $%d`, argIdx)
 		args = append(args, *p.Cursor)
 		argIdx++
 	}
 	if p.Search != "" {
-		query += fmt.Sprintf(` AND name ILIKE $%d`, argIdx)
+		cond += fmt.Sprintf(` AND name ILIKE $%d`, argIdx)
 		args = append(args, "%"+p.Search+"%")
 		argIdx++
 	}
 	if p.Status != "" {
-		query += fmt.Sprintf(` AND status = ANY($%d)`, argIdx)
+		cond += fmt.Sprintf(` AND status = ANY($%d)`, argIdx)
 		args = append(args, strings.Split(p.Status, ","))
 		argIdx++
 	}
 	switch p.Source {
 	case "upload":
-		query += ` AND source IS NULL`
+		cond += ` AND source IS NULL`
 	case "dataset":
-		query += ` AND source IS NOT NULL`
+		cond += ` AND source IS NOT NULL`
 	}
 	if p.Dataset != "" {
-		query += fmt.Sprintf(` AND source->>'dataset' = $%d`, argIdx)
+		cond += fmt.Sprintf(` AND source->>'dataset' = $%d`, argIdx)
 		args = append(args, p.Dataset)
 		argIdx++
 	}
 	if p.Compressor != "" {
-		query += fmt.Sprintf(` AND compressors @> $%d::jsonb`, argIdx)
+		cond += fmt.Sprintf(` AND compressors @> $%d::jsonb`, argIdx)
 		filter, _ := json.Marshal([]map[string]string{{"name": strings.ToLower(p.Compressor)}})
 		args = append(args, string(filter))
 		argIdx++
 	}
 
-	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
-	args = append(args, p.Limit+1)
+	const cols = `id, experiment_id, user_id, name, original_filename, file_size, file_count, file_checksum, file_ext, status, compressors, error, warnings,
+	                  aggregation, measure_memory, source, progress, created_at, started_at, finished_at, updated_at`
+	var query string
+	if p.ByExperiment {
+		// Page by experiments (newest activity first), always returning every
+		// matching benchmark of an experiment on the same page.
+		query = `WITH filtered AS (SELECT * FROM benchmarks WHERE 1=1` + cond + `),
+		         exps AS (SELECT COALESCE(experiment_id, id) AS eid, MAX(created_at) AS latest FROM filtered GROUP BY 1`
+		if p.Cursor != nil {
+			query += fmt.Sprintf(` HAVING MAX(created_at) < $%d`, argIdx)
+			args = append(args, *p.Cursor)
+			argIdx++
+		}
+		query += ` ORDER BY latest DESC, eid`
+		if p.Experiments > 0 {
+			query += fmt.Sprintf(` LIMIT $%d`, argIdx)
+			args = append(args, p.Experiments+1)
+		}
+		query += `) SELECT ` + cols + `, e.eid, e.latest FROM filtered JOIN exps e ON COALESCE(filtered.experiment_id, filtered.id) = e.eid
+		           ORDER BY e.latest DESC, e.eid, created_at DESC`
+	} else {
+		query = `SELECT ` + cols + ` FROM benchmarks WHERE 1=1` + cond + fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d`, argIdx)
+		args = append(args, p.Limit+1)
+	}
 
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
@@ -185,22 +209,43 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 	defer rows.Close()
 
 	result := &ListBenchmarksResult{}
-	var count int
+	var count, experiments int
+	var lastEID uuid.UUID
+	var lastLatest time.Time
+	more := false
 	for rows.Next() {
-		count++
-		if count > p.Limit {
-			continue
-		}
 		b := &model.Benchmark{}
 		var compressorsJSON, sourceJSON []byte
-		err := rows.Scan(
+		var eid uuid.UUID
+		var latest time.Time
+		dest := []any{
 			&b.ID, &b.ExperimentID, &b.UserID, &b.Name, &b.OriginalFilename, &b.FileSize, &b.FileCount, &b.FileChecksum,
 			&b.FileExt, &b.Status, &compressorsJSON, &b.Error, &b.Warnings,
 			&b.Aggregation, &b.MeasureMemory, &sourceJSON, &b.Progress,
 			&b.CreatedAt, &b.StartedAt, &b.FinishedAt, &b.UpdatedAt,
-		)
-		if err != nil {
+		}
+		if p.ByExperiment {
+			dest = append(dest, &eid, &latest)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
+		}
+		if p.ByExperiment {
+			if experiments == 0 || eid != lastEID {
+				if p.Experiments > 0 && experiments == p.Experiments {
+					more = true
+					break
+				}
+				experiments++
+				lastEID = eid
+				lastLatest = latest
+			}
+		} else {
+			count++
+			if count > p.Limit {
+				more = true
+				break
+			}
 		}
 		instances, err := compressor.ParseInstances(compressorsJSON)
 		if err != nil {
@@ -212,10 +257,16 @@ func (r *BenchmarkRepository) List(ctx context.Context, p ListBenchmarksParams) 
 		}
 		result.Benchmarks = append(result.Benchmarks, b)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	if count > p.Limit && len(result.Benchmarks) > 0 {
-		last := result.Benchmarks[len(result.Benchmarks)-1]
-		result.NextCursor = &last.CreatedAt
+	if more && len(result.Benchmarks) > 0 {
+		next := result.Benchmarks[len(result.Benchmarks)-1].CreatedAt
+		if p.ByExperiment {
+			next = lastLatest
+		}
+		result.NextCursor = &next
 	}
 
 	return result, nil

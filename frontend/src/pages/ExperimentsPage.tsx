@@ -22,6 +22,20 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'cancelled', label: 'Cancelled' },
 ]
 
+/** Experiments (table rows) per page; remembered per browser. */
+const PAGE_SIZES = ['25', '50', '100', 'all'] as const
+type PageSize = (typeof PAGE_SIZES)[number]
+const PAGE_SIZE_KEY = 'bitbench-experiments-per-page'
+
+function storedPageSize(): PageSize {
+  try {
+    const v = localStorage.getItem(PAGE_SIZE_KEY)
+    return PAGE_SIZES.includes(v as PageSize) ? (v as PageSize) : '25'
+  } catch {
+    return '25'
+  }
+}
+
 function compressorSummary(b: Benchmark): string {
   const labels = b.compressors.map((c) => renameCompressor(c.label))
   return labels.length <= 3 ? labels.join(', ') : `${labels.slice(0, 3).join(', ')} +${labels.length - 3}`
@@ -39,6 +53,11 @@ export default function ExperimentsPage() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [datasets, setDatasets] = useState<string[]>([])
   const [search, setSearch] = useState(params.get('q') ?? '')
+  const [pageSize, setPageSize] = useState<PageSize>(storedPageSize)
+  const changePageSize = (v: PageSize) => {
+    setPageSize(v)
+    try { localStorage.setItem(PAGE_SIZE_KEY, v) } catch { /* not remembered */ }
+  }
   useChartStyles((st) => st.names) // re-render with the user's compressor names
   useEffect(() => { useChartStyles.getState().load() }, [])
 
@@ -74,7 +93,8 @@ export default function ExperimentsPage() {
   const load = useCallback(async (cursor?: string) => {
     if (!cursor) setLoading(true)
     try {
-      const q = new URLSearchParams({ limit: '50' })
+      // Paged by experiments, so an experiment's benchmarks are never split.
+      const q = new URLSearchParams({ experiments: pageSize })
       for (const [k, v] of Object.entries(filters)) if (v) q.set(k, v)
       if (cursor) q.set('cursor', cursor)
       const data = await apiFetch<BenchmarkListResponse>(`/benchmarks?${q}`)
@@ -87,7 +107,7 @@ export default function ExperimentsPage() {
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, pageSize])
 
   useEffect(() => { setSelected(new Set()); load() }, [load])
 
@@ -189,8 +209,8 @@ export default function ExperimentsPage() {
         <Button asChild size="sm"><Link to="/new"><Plus className="w-4 h-4 mr-1" />New experiment</Link></Button>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5" role="search">
-        <Input aria-label="Search by name" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="lg:col-span-2" />
+      <div className="flex flex-wrap items-center gap-2" role="search">
+        <Input aria-label="Search by name" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-64" />
         <select aria-label="Status" className="h-9 rounded-md border border-input bg-transparent px-2 text-sm" value={filters.status} onChange={(e) => setFilter('status', e.target.value)}>
           {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
@@ -214,7 +234,18 @@ export default function ExperimentsPage() {
           <option value="dataset">Any dataset</option>
           {datasets.map((d) => <option key={d} value={`dataset:${d}`}>Dataset: {d}</option>)}
         </select>
-        <Input aria-label="Compressor" placeholder="Compressor (e.g. gzip)" value={filters.compressor} onChange={(e) => setFilter('compressor', e.target.value.trim())} />
+        <Input aria-label="Compressor" placeholder="Compressor (e.g. gzip)" value={filters.compressor} onChange={(e) => setFilter('compressor', e.target.value.trim())} className="w-full sm:w-48" />
+        <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          Show
+          <select
+            aria-label="Experiments per page"
+            className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-foreground"
+            value={pageSize}
+            onChange={(e) => changePageSize(e.target.value as PageSize)}
+          >
+            {PAGE_SIZES.map((v) => <option key={v} value={v}>{v === 'all' ? 'All' : v}</option>)}
+          </select>
+        </label>
       </div>
 
       {selected.size > 0 && (
