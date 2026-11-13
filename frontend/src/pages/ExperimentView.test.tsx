@@ -28,7 +28,7 @@ function res(compressor: string, ratio: number, tp: number, extra: Partial<Bench
 }
 
 const data: Record<string, { benchmark: Benchmark; results: BenchmarkResult[] }> = {
-  a: { benchmark: bench('a', 'wild · std · 768', { source: source(768) }), results: [res('gzip', 0.3, 10), res('zstd', 0.4, 300), res('my_codec', 0.2, 5, { self_test_failures: 2 })] },
+  a: { benchmark: bench('a', 'wild · std · 768', { source: source(768), file_count: 20 }), results: [res('gzip', 0.3, 10), res('zstd', 0.4, 300), res('my_codec', 0.2, 5, { self_test_failures: 2 })] },
   b: { benchmark: bench('b', 'wild · std · 4096', { source: source(4096) }), results: [res('gzip', 0.25, 12), res('zstd', 0.35, 320)] },
   r: { benchmark: bench('r', 'running one', { status: 'in_progress', progress: 40 }), results: [] },
 }
@@ -36,7 +36,10 @@ const data: Record<string, { benchmark: Benchmark; results: BenchmarkResult[] }>
 beforeEach(() => {
   vi.clearAllMocks()
   mockedFetch.mockImplementation(async (path: string) => {
-    const m = /^\/benchmarks\/(\w+)(\/tasks)?$/.exec(path)
+    const m = /^\/benchmarks\/(\w+)(\/tasks|\/series)?$/.exec(path)
+    if (m && m[2] === '/series') {
+      return { series: m[1] === 'a' ? [{ series: 'ppg', results: [res('gzip', 0.5, 9)] }, { series: 'temp', results: [res('gzip', 0.1, 11)] }] : [] } as never
+    }
     if (m && m[2]) return { tasks: [] } as never
     if (m) return data[m[1]] as never
     return {} as never
@@ -87,6 +90,27 @@ describe('ExperimentView', () => {
     expect(screen.getAllByText(label)).toHaveLength(1) // only the chip is left
     await userEvent.click(within(metricsFilter).getByRole('button', { name: 'None' }))
     expect(screen.getByText(/Every metric is switched off/)).toBeInTheDocument()
+  })
+
+  it('splits each benchmark into its signals when time series are not aggregated', async () => {
+    renderAt('/experiments/view?ids=a')
+    await screen.findByRole('heading', { name: 'wild · std · 768' })
+    const aggregateSwitch = screen.getByRole('switch', { name: 'Aggregate time series' })
+    expect(aggregateSwitch).toBeChecked()
+    expect(mockedFetch).not.toHaveBeenCalledWith('/benchmarks/a/series')
+
+    await userEvent.click(aggregateSwitch)
+    expect(mockedFetch).toHaveBeenCalledWith('/benchmarks/a/series')
+    // The aggregate and each signal become rows of the comparison.
+    expect(await screen.findAllByRole('cell', { name: 'wild · std · 768 · ppg' })).not.toHaveLength(0)
+    expect(screen.getAllByRole('cell', { name: 'wild · std · 768 · all (mean)' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('cell', { name: 'wild · std · 768 · temp' }).length).toBeGreaterThan(0)
+  })
+
+  it('hides the switch when every benchmark has a single input', async () => {
+    renderAt('/experiments/view?ids=b')
+    await screen.findByRole('heading', { name: 'wild · std · 4096' })
+    expect(screen.queryByRole('switch', { name: 'Aggregate time series' })).not.toBeInTheDocument()
   })
 
   it('monitors runs that are not ready', async () => {

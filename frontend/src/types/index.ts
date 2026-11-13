@@ -189,6 +189,12 @@ export interface BenchmarkListResponse {
   next_cursor?: string
 }
 
+/** A benchmark's results for one signal (dataset series or uploaded input). */
+export interface SeriesResults {
+  series: string
+  results: BenchmarkResult[]
+}
+
 export interface BenchmarkDetailResponse {
   benchmark: Benchmark
   results: BenchmarkResult[]

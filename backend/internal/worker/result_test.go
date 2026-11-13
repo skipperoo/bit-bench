@@ -69,3 +69,21 @@ func TestRowToResultMissingMetrics(t *testing.T) {
 		t.Error("compression_ratio should always be stored")
 	}
 }
+
+func TestSignalName(t *testing.T) {
+	cases := []struct {
+		path    string
+		dataset bool
+		want    string
+	}{
+		{"b/inputs/00/acc_x_12.bin", true, "acc_x"},
+		{"b/inputs/01/ppg_0.bin", true, "ppg"},
+		{"b/inputs/0/temperature.bin", false, "temperature"},
+		{"b/inputs/0/col_3.bin", false, "col_3"},
+	}
+	for _, c := range cases {
+		if got := signalName(c.path, c.dataset); got != c.want {
+			t.Errorf("signalName(%q, %v) = %q, want %q", c.path, c.dataset, got, c.want)
+		}
+	}
+}

@@ -50,11 +50,13 @@ describe('DatasetPanel', () => {
     expect(screen.getByText('Daily closes')).toBeInTheDocument()
     expect((screen.getByRole('checkbox', { name: /BROKEN/ }) as HTMLInputElement).disabled).toBe(true)
 
-    // Default: 768-sample chunks, 10 per series, std -> NVDA 10 inputs, TINY skipped.
+    // Default: 768-sample chunks, 10 per series, std -> NVDA 10 inputs, TINY repeated into 1.
     const plan = screen.getByTestId('dataset-plan')
     expect(plan).toHaveTextContent('Creates 1 benchmark over 2 series')
-    expect(plan).toHaveTextContent('std · 768 samples × ≤10 → 10 inputs')
-    expect(plan).toHaveTextContent('skips 1 short series')
+    expect(plan).toHaveTextContent('std · 768 samples × ≤10 → 11 inputs')
+    expect(plan).toHaveTextContent('repeats 1 short series')
+    expect(screen.getByRole('status')).toHaveTextContent('1 series is shorter than the chunk size and will be repeated to fill one chunk')
+    expect(screen.getByRole('status')).toHaveTextContent('TINY (300 values) at 768 samples')
 
     // Adding the whole series and the gap transform makes a 2 x 2 matrix.
     await userEvent.click(screen.getByRole('button', { name: 'whole series' }))
@@ -75,8 +77,8 @@ describe('datasetSelectionError', () => {
   it('explains what is missing', () => {
     expect(datasetSelectionError(DEFAULT_DATASET_SELECTION, undefined, catalog)).toBe('Choose a dataset')
     expect(datasetSelectionError({ ...DEFAULT_DATASET_SELECTION, dataset: 'finance' }, ds, catalog)).toBe('Select at least one series')
-    expect(datasetSelectionError({ ...DEFAULT_DATASET_SELECTION, dataset: 'finance', series: ['TINY'], chunkSizes: [4096] }, ds, catalog))
-      .toMatch(/longer than every selected series/)
+    // A chunk longer than every series is fine: the series are repeated.
+    expect(datasetSelectionError({ ...DEFAULT_DATASET_SELECTION, dataset: 'finance', series: ['TINY'], chunkSizes: [4096] }, ds, catalog)).toBe('')
     expect(datasetSelectionError({ ...DEFAULT_DATASET_SELECTION, dataset: 'finance', series: ['NVDA'], chunkSizes: [2], maxChunks: 0 }, ds, catalog))
       .toMatch(/max 5000/)
     expect(datasetSelectionError({ ...DEFAULT_DATASET_SELECTION, dataset: 'finance', series: ['NVDA'] }, ds, catalog)).toBe('')

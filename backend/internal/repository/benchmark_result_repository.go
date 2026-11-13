@@ -135,3 +135,39 @@ func (r *BenchmarkResultRepository) FindByBenchmarkIDs(ctx context.Context, ids 
 	}
 	return result, nil
 }
+
+// InsertSeriesTx stores the results of one signal of a benchmark.
+func (r *BenchmarkResultRepository) InsertSeriesTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID, series string, results []*model.BenchmarkResult) error {
+	data, err := json.Marshal(results)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO benchmark_series_results (benchmark_id, series, results) VALUES ($1, $2, $3)
+		ON CONFLICT (benchmark_id, series) DO UPDATE SET results = EXCLUDED.results
+	`, benchmarkID, series, data)
+	return err
+}
+
+// FindSeriesByBenchmarkID returns the per-signal results of a benchmark,
+// ordered by signal name (empty when it has a single signal).
+func (r *BenchmarkResultRepository) FindSeriesByBenchmarkID(ctx context.Context, benchmarkID uuid.UUID) ([]model.SeriesResults, error) {
+	rows, err := r.db.Query(ctx, `SELECT series, results FROM benchmark_series_results WHERE benchmark_id = $1 ORDER BY series`, benchmarkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.SeriesResults{}
+	for rows.Next() {
+		var s model.SeriesResults
+		var data []byte
+		if err := rows.Scan(&s.Series, &data); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(data, &s.Results); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}

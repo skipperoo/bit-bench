@@ -57,9 +57,10 @@ export const CHUNK_PRESETS: { samples: number }[] = [
   { samples: 786432 },
 ]
 
-/** What a chunk of `samples` values weighs at 16 bits per sample (e.g. 4,096 samples = 8.0 KB). */
+/** What a chunk of `samples` values weighs as 8-, 16-, 32- and 64-bit integers. */
 export function chunkSizeHint(samples: number): string {
-  return `${samples.toLocaleString()} samples = ${formatBytes(samples * 2)} of 16-bit data`
+  const sizes = [8, 16, 32, 64].map((bits) => `${formatBytes((samples * bits) / 8)} (int${bits})`)
+  return `${samples.toLocaleString()} samples = ${sizes.join(', ')}`
 }
 
 /** Chunk size 0 means "benchmark the whole series as one input". */
@@ -71,8 +72,14 @@ export function chunkCount(values: number, chunkSize: number): number {
   return Math.floor(values / chunkSize)
 }
 
+/** A series shorter than one chunk is repeated by the server to fill one chunk. */
+export function isExtended(values: number, chunkSize: number): boolean {
+  return chunkSize !== WHOLE_SERIES && values > 0 && values < chunkSize
+}
+
 /** Inputs one series contributes under (chunk size, max chunks). */
 export function plannedChunks(values: number, chunkSize: number, maxChunks: number): number {
+  if (isExtended(values, chunkSize)) return 1
   const total = chunkCount(values, chunkSize)
   return maxChunks > 0 ? Math.min(total, maxChunks) : total
 }
@@ -81,8 +88,8 @@ export interface RunPlan {
   chunkSize: number
   transform: Transform
   inputs: number
-  /** Series shorter than one chunk (skipped by the server). */
-  skipped: string[]
+  /** Series shorter than one chunk, repeated by the server to fill one chunk. */
+  extended: string[]
 }
 
 /** Mirrors the server's planning: one run per (transform, chunk size). */
@@ -97,13 +104,12 @@ export function planRuns(
   for (const transform of transforms) {
     for (const chunkSize of sizes) {
       let inputs = 0
-      const skipped: string[] = []
+      const extended: string[] = []
       for (const s of series) {
-        const n = plannedChunks(s.values, chunkSize, maxChunks)
-        if (n === 0) skipped.push(s.name)
-        inputs += n
+        if (isExtended(s.values, chunkSize)) extended.push(s.name)
+        inputs += plannedChunks(s.values, chunkSize, maxChunks)
       }
-      runs.push({ chunkSize, transform, inputs, skipped })
+      runs.push({ chunkSize, transform, inputs, extended })
     }
   }
   return runs
@@ -168,7 +174,7 @@ export function datasetSelectionError(
   const runs = planRuns(series, selection.chunkSizes, selection.maxChunks, selection.transforms)
   if (limits && runs.length > limits.max_runs) return `At most ${limits.max_runs} benchmarks per run (${runs.length} selected)`
   const empty = runs.find((r) => r.inputs === 0)
-  if (empty) return `Chunk size ${empty.chunkSize} is longer than every selected series`
+  if (empty) return 'The selected series are empty'
   const tooBig = limits && runs.find((r) => r.inputs > limits.max_inputs_per_run)
   if (tooBig) return `Chunk size ${tooBig.chunkSize} yields ${tooBig.inputs} inputs (max ${limits!.max_inputs_per_run}); lower "max chunks"`
   return ''

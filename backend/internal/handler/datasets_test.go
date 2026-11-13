@@ -126,14 +126,14 @@ func TestDatasetListAndRun(t *testing.T) {
 	if whole.Name != "fin · gap · whole" || whole.Source == nil || whole.Source.Inputs != 2 || whole.Aggregation != "pooled" {
 		t.Errorf("whole-series benchmark = %+v (source %+v)", whole, whole.Source)
 	}
-	// NVDA: min(10, 4) chunks; TINY is shorter than one chunk and skipped.
-	if chunked.Source == nil || chunked.Source.Inputs != 4 || len(chunked.Warnings) != 1 {
+	// NVDA: min(10, 4) chunks; TINY is shorter than one chunk and repeated to fill one.
+	if chunked.Source == nil || chunked.Source.Inputs != 5 || len(chunked.Warnings) != 0 {
 		t.Errorf("chunked benchmark = %+v (source %+v)", chunked, chunked.Source)
 	}
 
 	var tasks int
 	testDB.QueryRow(context.Background(), `SELECT COUNT(*) FROM benchmark_tasks WHERE benchmark_id = $1`, chunked.ID).Scan(&tasks)
-	if tasks != 4 {
+	if tasks != 5 {
 		t.Errorf("tasks = %d, want one built-in task per chunk", tasks)
 	}
 	stored, err := service.BenchRepo.FindByID(context.Background(), chunked.ID)

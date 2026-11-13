@@ -9,6 +9,7 @@
 package dataset
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/binary"
 	"encoding/hex"
@@ -213,8 +214,17 @@ func SelectEvenly(total, max int) []int {
 	return idx
 }
 
+// Extended reports whether a series of n values is shorter than one chunk and
+// is therefore repeated (concatenated with itself) to fill a single chunk.
+func Extended(n, chunkSize uint64) bool {
+	return chunkSize > 0 && n > 0 && n < chunkSize
+}
+
 // PlannedChunks returns how many inputs a plan produces for a series.
 func PlannedChunks(n uint64, plan ChunkPlan) int {
+	if Extended(n, plan.ChunkSize) {
+		return 1
+	}
 	total := ChunkCount(n, plan.ChunkSize)
 	if total > math.MaxInt32 {
 		total = math.MaxInt32
@@ -251,7 +261,8 @@ type Output struct {
 
 // Materialize cuts one series according to plan and writes one standard .bin
 // per selected chunk into outDir, feeding every written byte to hash. Files
-// are named <series>_<chunk>.bin, like the thesis datasets.
+// are named <series>_<chunk>.bin, like the thesis datasets. A series shorter
+// than one chunk is repeated until it fills exactly one chunk.
 func Materialize(root, datasetName, seriesName string, plan ChunkPlan, outDir string, hash io.Writer) ([]Output, error) {
 	if err := plan.Validate(); err != nil {
 		return nil, err
@@ -273,6 +284,9 @@ func Materialize(root, datasetName, seriesName string, plan ChunkPlan, outDir st
 	chunkLen := plan.ChunkSize
 	if chunkLen == 0 {
 		chunkLen = h.N
+	}
+	if Extended(h.N, plan.ChunkSize) {
+		return materializeExtended(f, h, seriesName, chunkLen, plan.Transform, outDir, hash)
 	}
 	total := ChunkCount(h.N, plan.ChunkSize)
 	if total == 0 {
@@ -296,6 +310,27 @@ func Materialize(root, datasetName, seriesName string, plan ChunkPlan, outDir st
 		outputs = append(outputs, Output{Path: dest, Series: seriesName, Chunk: idx, Values: chunkLen})
 	}
 	return outputs, nil
+}
+
+// materializeExtended writes one chunk of chunkLen values made of the series
+// repeated from its start (the series is shorter than a chunk, so it fits in
+// memory: at most chunkLen values).
+func materializeExtended(f io.ReaderAt, h seqfile.BinHeader, seriesName string, chunkLen uint64, transform, outDir string, hash io.Writer) ([]Output, error) {
+	values := make([]byte, h.N*8)
+	if _, err := f.ReadAt(values, h.HeaderSize); err != nil {
+		return nil, err
+	}
+	repeats := int((chunkLen + h.N - 1) / h.N)
+	tiled := bytes.Repeat(values, repeats)[:chunkLen*8]
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return nil, err
+	}
+	dest := filepath.Join(outDir, seriesName+"_0.bin")
+	reader := &valueReader{r: bytes.NewReader(tiled), count: chunkLen}
+	if err := writeChunk(dest, reader, chunkLen, h.Decimals, transform, hash); err != nil {
+		return nil, fmt.Errorf("%s (extended): %w", seriesName, err)
+	}
+	return []Output{{Path: dest, Series: seriesName, Values: chunkLen}}, nil
 }
 
 // valueReader streams int64 values from a byte range of a .bin file.

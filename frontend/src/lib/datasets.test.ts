@@ -9,16 +9,18 @@ describe('chunk planning', () => {
     expect(plannedChunks(10_000, 768, 0)).toBe(13)
   })
 
-  it('plans one run per (transform, unique chunk size) and reports skipped series', () => {
+  it('plans one run per (transform, unique chunk size) and reports extended series', () => {
     const series = [
       { name: 'long', values: 100_000, decimals: 0, size_bytes: 0 },
       { name: 'short', values: 500, decimals: 0, size_bytes: 0 },
     ]
     const runs = planRuns(series, [4096, 0, 4096], 10, ['std', 'gap'])
     expect(runs.map((r) => [r.transform, r.chunkSize, r.inputs])).toEqual([
-      ['std', 0, 2], ['std', 4096, 10], ['gap', 0, 2], ['gap', 4096, 10],
+      ['std', 0, 2], ['std', 4096, 11], ['gap', 0, 2], ['gap', 4096, 11],
     ])
-    expect(runs[1].skipped).toEqual(['short'])
+    // The short series is repeated to fill one chunk of 4096.
+    expect(runs[1].extended).toEqual(['short'])
+    expect(runs[0].extended).toEqual([])
   })
 
   it('describes chunking', () => {
@@ -28,9 +30,9 @@ describe('chunk planning', () => {
 })
 
 describe('chunkSizeHint', () => {
-  it('states the size in samples and in bytes at 16 bits', async () => {
+  it('states the size in samples and in bytes for 8- to 64-bit integers', async () => {
     const { chunkSizeHint } = await import('./datasets')
-    expect(chunkSizeHint(4096)).toBe('4,096 samples = 8.0 KB of 16-bit data')
-    expect(chunkSizeHint(256)).toBe('256 samples = 512 B of 16-bit data')
+    expect(chunkSizeHint(4096)).toBe('4,096 samples = 4.0 KB (int8), 8.0 KB (int16), 16.0 KB (int32), 32.0 KB (int64)')
+    expect(chunkSizeHint(256)).toBe('256 samples = 256 B (int8), 512 B (int16), 1.0 KB (int32), 2.0 KB (int64)')
   })
 })

@@ -301,13 +301,16 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 		return
 	}
 	var rows []BenchmarkRow
-	for _, raw := range results {
+	bySignal := map[string][]BenchmarkRow{}
+	for _, res := range results {
 		var taskRows []BenchmarkRow
-		if err := json.Unmarshal(raw, &taskRows); err != nil {
+		if err := json.Unmarshal(res.result, &taskRows); err != nil {
 			logger.Error("decode task result", "benchmark", benchmarkID, "error", err)
 			continue
 		}
 		rows = append(rows, taskRows...)
+		signal := signalName(res.inputPath, fileExt == "dataset")
+		bySignal[signal] = append(bySignal[signal], taskRows...)
 	}
 	if len(rows) == 0 {
 		msg := "no benchmark results produced"
@@ -327,20 +330,37 @@ func (r *BenchmarkRunner) finalize(ctx context.Context, benchmarkID uuid.UUID) {
 		return
 	}
 
+	failPersist := func(err error) {
+		_ = tx.Rollback(ctx)
+		msg := fmt.Sprintf("persist results: %v", err)
+		_ = r.benchRepo.UpdateStatus(ctx, benchmarkID, "failed", &msg)
+		// Drop the task rows and inputs too: nothing will finalize a
+		// failed benchmark again.
+		_ = r.taskRepo.DeleteByBenchmark(ctx, benchmarkID)
+		r.cleanupWorkdir(benchmarkID)
+	}
 	dataset := strings.TrimSuffix(originalFilename, "."+strings.TrimPrefix(fileExt, "."))
 	averaged := AggregateRows(rows, aggregation)
 	for _, row := range averaged {
 		res := rowToResult(benchmarkID, dataset, row)
 		if err := r.resultRepo.InsertTx(ctx, tx, res); err != nil {
 			logger.Error("insert result", "benchmark", benchmarkID, "compressor", row.Compressor, "error", err)
-			_ = tx.Rollback(ctx)
-			msg := fmt.Sprintf("persist results: %v", err)
-			_ = r.benchRepo.UpdateStatus(ctx, benchmarkID, "failed", &msg)
-			// Drop the task rows and inputs too: nothing will finalize a
-			// failed benchmark again.
-			_ = r.taskRepo.DeleteByBenchmark(ctx, benchmarkID)
-			r.cleanupWorkdir(benchmarkID)
+			failPersist(err)
 			return
+		}
+	}
+	// Each signal on its own, aggregated the same way over its inputs.
+	if len(bySignal) > 1 {
+		for signal, signalRows := range bySignal {
+			var signalResults []*model.BenchmarkResult
+			for _, row := range AggregateRows(signalRows, aggregation) {
+				signalResults = append(signalResults, rowToResult(benchmarkID, signal, row))
+			}
+			if err := r.resultRepo.InsertSeriesTx(ctx, tx, benchmarkID, signal, signalResults); err != nil {
+				logger.Error("insert series results", "benchmark", benchmarkID, "series", signal, "error", err)
+				failPersist(err)
+				return
+			}
 		}
 	}
 
@@ -414,9 +434,28 @@ func taskWarningsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([]st
 	return warnings, rows.Err()
 }
 
-func doneResultsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([][]byte, error) {
+// signalName names the signal an input belongs to: the series for dataset
+// runs (inputs are <series>_<chunk>.bin), otherwise the input file name.
+// shortcut: two uploaded inputs with the same file name share one signal; key
+// on the input directory too if that ever matters.
+func signalName(inputPath string, dataset bool) string {
+	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+	if dataset {
+		if i := strings.LastIndex(name, "_"); i > 0 {
+			name = name[:i]
+		}
+	}
+	return name
+}
+
+type taskResult struct {
+	inputPath string
+	result    []byte
+}
+
+func doneResultsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([]taskResult, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT result FROM benchmark_tasks
+		SELECT input_path, result FROM benchmark_tasks
 		WHERE benchmark_id = $1 AND status = 'done' AND result IS NOT NULL
 		ORDER BY seq ASC
 	`, benchmarkID)
@@ -425,13 +464,13 @@ func doneResultsTx(ctx context.Context, tx pgx.Tx, benchmarkID uuid.UUID) ([][]b
 	}
 	defer rows.Close()
 
-	var results [][]byte
+	var results []taskResult
 	for rows.Next() {
-		var result []byte
-		if err := rows.Scan(&result); err != nil {
+		var res taskResult
+		if err := rows.Scan(&res.inputPath, &res.result); err != nil {
 			return nil, err
 		}
-		results = append(results, result)
+		results = append(results, res)
 	}
 	return results, rows.Err()
 }

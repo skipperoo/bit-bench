@@ -460,6 +460,11 @@ func (s *BenchmarkService) GetBenchmark(ctx context.Context, id uuid.UUID) (*mod
 	}, nil
 }
 
+// GetSeriesResults returns a benchmark's per-signal results.
+func (s *BenchmarkService) GetSeriesResults(ctx context.Context, id uuid.UUID) ([]model.SeriesResults, error) {
+	return s.resultRepo.FindSeriesByBenchmarkID(ctx, id)
+}
+
 func (s *BenchmarkService) GetBenchmarkStatus(ctx context.Context, id uuid.UUID) (*model.Benchmark, error) {
 	return s.benchRepo.FindByID(ctx, id)
 }

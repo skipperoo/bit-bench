@@ -157,6 +157,13 @@ type BenchmarkResult struct {
 	SelfTestFailures int `json:"self_test_failures"`
 }
 
+// SeriesResults are a benchmark's results for one signal: one dataset series,
+// or one input of an upload.
+type SeriesResults struct {
+	Series  string             `json:"series"`
+	Results []*BenchmarkResult `json:"results"`
+}
+
 type CompressorPackage struct {
 	ID              uuid.UUID       `json:"id"`
 	OwnerID         uuid.UUID       `json:"owner_id"`

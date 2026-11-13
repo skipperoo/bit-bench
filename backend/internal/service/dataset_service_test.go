@@ -31,8 +31,8 @@ func TestPlanDatasetRunsMatrix(t *testing.T) {
 	if runs[0].plan.ChunkSize != 0 || runs[0].inputs != 2 {
 		t.Errorf("whole-series run = %+v", runs[0])
 	}
-	// 1000-sample chunks: long -> min(10, 5) inputs, short is skipped.
-	if runs[1].inputs != 5 || len(runs[1].skipped) != 1 || runs[1].skipped[0] != "short" {
+	// 1000-sample chunks: long -> min(10, 5) inputs, short is repeated to fill one.
+	if runs[1].inputs != 6 || len(runs[1].extended) != 1 || runs[1].extended[0] != "short" {
 		t.Errorf("chunked run = %+v", runs[1])
 	}
 	if name := runName("wild", runs[1], true); name != "wild · std · 1000" {
@@ -45,7 +45,6 @@ func TestPlanDatasetRunsRejects(t *testing.T) {
 		"no series":       {Series: []string{"missing"}},
 		"broken series":   {Series: []string{"broken"}},
 		"bad transform":   {Transforms: []string{"zigzag"}},
-		"too long chunk":  {ChunkSizes: []uint64{20000}},
 		"too many runs":   {ChunkSizes: []uint64{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, Transforms: []string{"std", "gap", "gap_shifted"}},
 		"too many inputs": {ChunkSizes: []uint64{2}},
 	}
@@ -54,6 +53,16 @@ func TestPlanDatasetRunsRejects(t *testing.T) {
 		if _, err := planDatasetRuns(testDataset(), &req); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+}
+
+func TestPlanDatasetRunsExtendsEverySeries(t *testing.T) {
+	runs, err := planDatasetRuns(testDataset(), &DatasetRunRequest{ChunkSizes: []uint64{20000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs[0].inputs != 2 || len(runs[0].extended) != 2 {
+		t.Fatalf("chunk longer than every series = %+v, want both series extended", runs[0])
 	}
 }
 
