@@ -1,0 +1,25 @@
+name: delta_rice
+version: "2.0.0"
+description: >-
+  Delta+Rice (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). The shipped v23/v24 delta + Rice format, the thesis baseline: per batch of 199 samples an int16 anchor, then zig-zag first differences in Rice blocks of 64 with the exhaustive best k (4-bit header). drop_bits > 0 is the v24 lossy_qshift quantiser. Byte-identical to the Python reference model (pkg/v23-rice-pkg, reference/sa_test/imu_compression.py); one axis per stream here (the firmware codes the 3-axis sensor block). Stateless: every chunk is independent.  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  drop_bits:
+    type: number
+    min: 0
+    max: 7
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

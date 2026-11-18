@@ -176,7 +176,7 @@ func writeSampleBin(t *testing.T, dir, name string, values []int64) (string, str
 
 func uploadExamplePackage(t *testing.T, ctx context.Context, owner *model.User, dir, name string) {
 	t.Helper()
-	archive := zipDirectory(t, filepath.Join("..", "..", "..", "examples", "user-compressors", dir))
+	archive := zipDirectory(t, filepath.Join("..", "..", "..", "examples", "user-compressors", "basic-compressors", dir))
 	file, err := os.Open(archive)
 	if err != nil {
 		t.Fatalf("open archive: %v", err)
@@ -552,7 +552,7 @@ func TestEmulatedARM64E2E(t *testing.T) {
 	stop := startScheduler(t, cfg, dockerRunner)
 	defer stop()
 
-	dir := copyExampleWithPlatform(t, filepath.Join("..", "..", "..", "examples", "user-compressors", "c"), compressor.PlatformARM64)
+	dir := copyExampleWithPlatform(t, filepath.Join("..", "..", "..", "examples", "user-compressors", "basic-compressors", "c"), compressor.PlatformARM64)
 	archive := zipDirectory(t, dir)
 	file, err := os.Open(archive)
 	if err != nil {

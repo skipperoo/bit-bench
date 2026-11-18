@@ -1,0 +1,25 @@
+name: pfd_s8b_rle
+version: "2.0.0"
+description: >-
+  PFD-S8b-RLE (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). Zig-zag int16 wrap-around delta + Simple-8b words with the run-length selector, 16-bit re-pack. Lossy rows code the LSB-dropped quotients. Stateless, no workspace.  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  drop_bits:
+    type: number
+    min: 0
+    max: 15
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

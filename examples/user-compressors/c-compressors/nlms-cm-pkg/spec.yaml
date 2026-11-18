@@ -1,0 +1,33 @@
+name: nlms_cm
+version: "1.0.0"
+description: >-
+  NLMS-CM: the DPCM error-bounded grid q = 2*epsilon + 1 (epsilon = 0 is
+  lossless), an integer NLMS 16+4 cascade (or delta) predictor on the
+  quantised index stream, two context models mixed in the logistic domain
+  and a binary range coder.  Integer-only, 5.2 KiB adaptive model, one lane;
+  the model carries across chunks.  Standard int64 sequence in 4096-value
+  chunks mapped to a sticky base + int16 offsets (a base change resets the
+  model).  Each chunk uses the smaller of the NLMS-CM payload and an exact
+  fallback (raw int64 or zig-zag LEB128 deltas).  All output is within
+  epsilon LSB of the input.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  epsilon:
+    type: number
+    min: 0
+    max: 32767
+    default: 8
+    step: 1
+  predictor:
+    type: select
+    options: ["nlms", "delta"]
+    default: "nlms"
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy
