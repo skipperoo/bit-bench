@@ -216,6 +216,9 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
             />
             <YAxis dataKey="y" type="number" domain={[0, 'auto']} tickFormatter={fmt(metric)} width={80} {...AXIS_PROPS} axisLine={false} />
             <Tooltip
+              // Item mode: ComposedChart defaults to axis mode, which shows the
+              // point nearest the cursor's x anywhere in the plot.
+              shared={false}
               cursor={false}
               content={({ active, payload }) => {
                 const p = active ? (payload?.[0]?.payload as (typeof points)[number] | undefined) : undefined
@@ -240,7 +243,11 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
               isAnimationActive={false}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               shape={(props: any) => (
-                <MarkerShape cx={props.cx} cy={props.cy} r={6.5} ring name={props.payload?.compressor ?? ''} color={props.payload?.color ?? FALLBACK} shape={props.payload?.shape} />
+                <g>
+                  {/* Invisible hit area, larger than the marker. */}
+                  <circle cx={props.cx} cy={props.cy} r={10} fill="transparent" />
+                  <MarkerShape cx={props.cx} cy={props.cy} r={6.5} ring name={props.payload?.compressor ?? ''} color={props.payload?.color ?? FALLBACK} shape={props.payload?.shape} />
+                </g>
               )}
             />
           </ComposedChart>
