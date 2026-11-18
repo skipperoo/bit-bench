@@ -117,6 +117,34 @@ custom,test,1000,8000,,64000,32000,0.5,500,600,,
 	if row.CompressionRatio != 0.5 {
 		t.Errorf("compression_ratio = %v, want 0.5", row.CompressionRatio)
 	}
+	for _, k := range []string{"input_buffer", "compressor_internal", "internal_memory_ratio", "relative_memory_usage"} {
+		if !row.Missing[k] {
+			t.Errorf("%s should be missing when not reported", k)
+		}
+	}
+}
+
+func TestParseCSVLenientReportedMemory(t *testing.T) {
+	csv := `compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compressed_bits,compression_ratio,compression_throughput_mbs,decompression_throughput_mbs,random_access_ns,random_access_mbs,input_buffer,compressor_internal
+custom,test,1000,8000,10000,64000,32000,0.5,500,600,,,8000,2000
+`
+	rows, err := ParseCSVLenient(strings.NewReader(csv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := rows[0]
+	if r.InputBuffer != 8000 || r.CompressorInternal != 2000 || r.InternalMemoryRatio != 0.25 || r.RelativeMemoryUsage != 1.25 {
+		t.Fatalf("memory = %+v", r)
+	}
+	for _, k := range []string{"memory_usage", "input_buffer", "compressor_internal", "internal_memory_ratio", "relative_memory_usage"} {
+		if r.Missing[k] {
+			t.Errorf("%s reported but marked missing", k)
+		}
+	}
+	bad := strings.Replace(csv, ",8000,2000", ",8000,-1", 1)
+	if _, err := ParseCSVLenient(strings.NewReader(bad)); err == nil {
+		t.Fatal("negative compressor_internal must be rejected")
+	}
 }
 
 func TestAverageRowsMissingPropagation(t *testing.T) {

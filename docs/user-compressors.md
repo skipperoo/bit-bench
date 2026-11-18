@@ -174,6 +174,15 @@ compressor,dataset,num_values,original_size,memory_usage,uncompressed_bits,compr
   and any `range_query_<N>` (or `range_<N>_mbs`, as the built-in harness writes) columns. **Leave a cell empty to store `NULL`
   instead of a misleading zero** (the platform does not run its Massif
   harness on user programs).
+- Optional memory breakdown (extra columns, any position after the header's
+  required ones): `input_buffer` (bytes of the input array) and
+  `compressor_internal` (peak bytes the codec itself allocates). Report
+  `memory_usage` as the total peak, input included, to match the built-ins.
+  With these the platform derives `internal_memory_ratio`
+  (`compressor_internal / input_buffer`) and `relative_memory_usage`
+  (`memory_usage / input_buffer`), so the package gets every Memory chart.
+  The packages in `examples/user-compressors/c-compressors/` show one way to
+  measure them (a size-tracking `malloc` wrapper).
 - Throughputs are MiB/s of input data: `(bytes / 1048576) / seconds`.
 
 Example row:
