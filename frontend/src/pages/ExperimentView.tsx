@@ -357,7 +357,7 @@ export default function ExperimentView() {
                         .map((r) => ({ compressor: r.compressor, ratio: r.compression_ratio!, value: metricValue(r, key)! }))
                       return rows.length ? (
                         <Card key={key}>
-                          <CardHeader><CardTitle className="text-base">{metricLabel(key)} vs ratio — dashed: Pareto front</CardTitle></CardHeader>
+                          <CardHeader><CardTitle className="text-base">{metricLabel(key)} vs ratio</CardTitle></CardHeader>
                           <CardContent><MetricScatterChart rows={rows} metric={key} colors={colors} shapes={shapes} front /></CardContent>
                         </Card>
                       ) : null
