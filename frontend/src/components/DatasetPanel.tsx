@@ -82,10 +82,8 @@ export default function DatasetPanel({ catalog, selection, onChange, disabled }:
             id="dataset-select"
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
             value={selection.dataset}
-            onChange={(e) => {
-              const ds = datasets.find((d) => d.name === e.target.value)
-              set({ dataset: e.target.value, series: (ds?.series ?? []).filter((s) => !s.error).map((s) => s.name) })
-            }}
+            // Series start unchecked: the user picks what to benchmark.
+            onChange={(e) => set({ dataset: e.target.value, series: [] })}
           >
             <option value="">{catalog ? 'Choose…' : 'Loading…'}</option>
             {datasets.map((d) => (

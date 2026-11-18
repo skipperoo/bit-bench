@@ -246,36 +246,6 @@ export default function NewExperimentPage() {
     }
   }, [rerun, compressors])
 
-  // Restore the last used configuration once the registry is available.
-  useEffect(() => {
-    if (restoredRef.current || Object.keys(compressors).length === 0) return
-    restoredRef.current = true
-    apiFetch<{ last_bench_config?: { compressors?: unknown } }>('/me')
-      .then((u) => {
-        const saved = u.last_bench_config?.compressors
-        if (!saved) return
-        const drafts: InstanceDraft[] = []
-        if (Array.isArray(saved)) {
-          for (const item of saved as CompressorInstance[]) {
-            if (!item || typeof item.name !== 'string') continue
-            const schema = compressors[item.name]
-            if (!schema) continue
-            drafts.push({ name: item.name, options: canonicalOptions(schema, item.options || {}) })
-          }
-        } else if (typeof saved === 'object') {
-          for (const [compName, opts] of Object.entries(saved as Record<string, Record<string, unknown>>)) {
-            const schema = compressors[compName]
-            if (!schema) continue
-            drafts.push({ name: compName, options: canonicalOptions(schema, opts || {}) })
-          }
-        }
-        if (drafts.length > 0) {
-          setInstances(drafts.slice(0, MAX_INSTANCES_PER_BENCHMARK))
-        }
-      })
-      .catch(() => {})
-  }, [compressors])
-
   const customNames = useMemo(() => {
     const builtin = new Set(FAMILIES.flatMap((f) => f.compressors))
     return new Set(Object.keys(compressors).filter((c) => !builtin.has(c)))
@@ -355,7 +325,7 @@ export default function NewExperimentPage() {
     if (!ds) return
     datasetPrefilled.current = true
     setSource('dataset')
-    setDatasetSelection({ ...DEFAULT_DATASET_SELECTION, dataset: ds.name, series: ds.series.filter((x) => !x.error).map((x) => x.name) })
+    setDatasetSelection({ ...DEFAULT_DATASET_SELECTION, dataset: ds.name })
     setName((n) => n || ds.name)
   }, [presetDataset, datasetCatalog])
 
