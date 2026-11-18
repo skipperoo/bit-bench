@@ -2,6 +2,7 @@ import {
   Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, ReferenceLine,
   ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis,
 } from 'recharts'
+import { useRef, useState } from 'react'
 import { renameCompressor } from '@/lib/compressors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { isLowerBetter } from '@/lib/metrics'
@@ -187,6 +188,28 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
   shapes?: Map<string, string>
   front?: boolean
 }) {
+  // The marker under the mouse and where to draw its card. Recharts'
+  // ComposedChart only has axis tooltips (nearest x anywhere in the plot), so
+  // the card is drawn here, beside the hovered marker only.
+  const [hovered, setHovered] = useState<{ compressor: string; cx: number; cy: number; flip: boolean } | null>(null)
+  const plot = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markerShape = (props: any) => (
+    <g
+      data-marker
+      onMouseEnter={() => setHovered({
+        compressor: props.payload?.compressor ?? '',
+        cx: props.cx,
+        cy: props.cy,
+        // Open the card to the left on the right half of the plot.
+        flip: props.cx > (plot.current?.clientWidth ?? 0) / 2,
+      })}
+    >
+      {/* Invisible hit area, larger than the marker. */}
+      <circle cx={props.cx} cy={props.cy} r={10} fill="transparent" />
+      <MarkerShape cx={props.cx} cy={props.cy} r={6.5} ring name={props.payload?.compressor ?? ''} color={props.payload?.color ?? FALLBACK} shape={props.payload?.shape} />
+    </g>
+  )
   if (rows.length === 0) return null
   const points = rows
     .map((r) => ({
@@ -200,9 +223,17 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
     .sort((a, b) => a.x - b.x)
   const frontPoints = front ? paretoFront(points) : []
   const onFront = new Set(frontPoints.map((p) => p.compressor))
+  const active = hovered ? points.find((p) => p.compressor === hovered.compressor) : undefined
   return (
     <div data-testid={`scatter-${metric}`}>
-      <div className="h-[420px]">
+      <div
+        ref={plot}
+        className="relative h-[420px]"
+        // Recharts may replace the hovered marker's node on re-render, so the
+        // card closes on any move off a marker rather than on mouseleave.
+        onMouseMove={(e) => { if (hovered && !(e.target as Element).closest('[data-marker]')) setHovered(null) }}
+        onMouseLeave={() => setHovered(null)}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart margin={{ left: 8, right: 24, top: 16, bottom: 36 }}>
             <CartesianGrid {...GRID_PROPS} />
@@ -215,43 +246,31 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
               {...AXIS_PROPS}
             />
             <YAxis dataKey="y" type="number" domain={[0, 'auto']} tickFormatter={fmt(metric)} width={80} {...AXIS_PROPS} axisLine={false} />
-            <Tooltip
-              // Item mode: ComposedChart defaults to axis mode, which shows the
-              // point nearest the cursor's x anywhere in the plot.
-              shared={false}
-              cursor={false}
-              content={({ active, payload }) => {
-                const p = active ? (payload?.[0]?.payload as (typeof points)[number] | undefined) : undefined
-                if (!p) return null
-                return (
-                  <TooltipCard
-                    title={<span className="flex items-center gap-1.5"><LegendMarker name={p.compressor} color={p.color} shape={p.shape} size={12} />{p.name}</span>}
-                    rows={[
-                      { key: 'ratio', name: 'Ratio', value: `${p.x.toFixed(2)}%`, color: p.color, marker: <span className="w-3" /> },
-                      { key: 'metric', name: metricLabel(metric), value: formatMetricValue(p.y, metric), color: p.color, marker: <span className="w-3" /> },
-                    ]}
-                    footer={front && onFront.has(p.compressor) ? 'On the Pareto front' : undefined}
-                  />
-                )
-              }}
-            />
             {front && frontPoints.length > 1 && (
               <Line data={frontPoints} dataKey="y" type="stepAfter" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="5 4" dot={false} activeDot={false} isAnimationActive={false} legendType="none" />
             )}
             <Scatter
               data={points}
               isAnimationActive={false}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              shape={(props: any) => (
-                <g>
-                  {/* Invisible hit area, larger than the marker. */}
-                  <circle cx={props.cx} cy={props.cy} r={10} fill="transparent" />
-                  <MarkerShape cx={props.cx} cy={props.cy} r={6.5} ring name={props.payload?.compressor ?? ''} color={props.payload?.color ?? FALLBACK} shape={props.payload?.shape} />
-                </g>
-              )}
+              shape={markerShape}
             />
           </ComposedChart>
         </ResponsiveContainer>
+        {active && (
+          <div
+            className="pointer-events-none absolute z-10"
+            style={{ left: hovered!.cx, top: hovered!.cy, transform: `translate(${hovered!.flip ? 'calc(-100% - 14px)' : '14px'}, -50%)` }}
+          >
+            <TooltipCard
+              title={<span className="flex items-center gap-1.5"><LegendMarker name={active.compressor} color={active.color} shape={active.shape} size={12} />{active.name}</span>}
+              rows={[
+                { key: 'ratio', name: 'Ratio', value: `${active.x.toFixed(2)}%`, color: active.color, marker: <span className="w-3" /> },
+                { key: 'metric', name: metricLabel(metric), value: formatMetricValue(active.y, metric), color: active.color, marker: <span className="w-3" /> },
+              ]}
+              footer={front && onFront.has(active.compressor) ? 'On the Pareto front' : undefined}
+            />
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1">
         {points.map((p) => (
