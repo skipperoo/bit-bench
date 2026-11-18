@@ -298,3 +298,17 @@ describe('UploadPage guided layout', () => {
     expect(screen.getByRole('button', { name: 'Remove LZ4' })).toBeInTheDocument()
   })
 })
+
+describe('UploadPage compressor selection', () => {
+  it('starts empty instead of restoring the last configuration', async () => {
+    mockedFetch.mockImplementation((path: string) => {
+      if (path === '/compressors') return Promise.resolve({ gzip: {} } as never)
+      if (path === '/me') return Promise.resolve({ last_bench_config: { compressors: [{ name: 'gzip', options: {} }] } } as never)
+      return Promise.resolve({} as never)
+    })
+    renderPage()
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith('/compressors'))
+    expect(await screen.findByText(/No compressors configured yet/)).toBeInTheDocument()
+    expect(mockedFetch).not.toHaveBeenCalledWith('/me')
+  })
+})

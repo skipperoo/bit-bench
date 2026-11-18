@@ -40,13 +40,16 @@ describe('DatasetPanel', () => {
     expect(screen.getByText(/make_synthetic.py/)).toBeInTheDocument()
   })
 
-  it('selects the usable series and summarizes the planned benchmarks', async () => {
+  it('starts with no series, selects the usable ones and summarizes the plan', async () => {
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)
     await userEvent.selectOptions(screen.getByLabelText('Dataset'), 'finance')
 
     const last = onChange.mock.calls.at(-1)![0] as DatasetSelection
-    expect(last.series).toEqual(['NVDA', 'TINY']) // BROKEN cannot be selected
+    expect(last.series).toEqual([]) // series start unchecked
+    expect(screen.queryByTestId('dataset-plan')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'All' }))
+    expect((onChange.mock.calls.at(-1)![0] as DatasetSelection).series).toEqual(['NVDA', 'TINY']) // BROKEN cannot be selected
     expect(screen.getByText('Daily closes')).toBeInTheDocument()
     expect((screen.getByRole('checkbox', { name: /BROKEN/ }) as HTMLInputElement).disabled).toBe(true)
 
