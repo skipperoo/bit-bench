@@ -55,7 +55,8 @@ type BenchmarkRow struct {
 	DecompressionThroughputMbs float64
 	RandomAccessNs             float64
 	RandomAccessMbs            float64
-	// Memory metrics measured by the native harness (built-in tasks only).
+	// Memory breakdown: measured by the native harness for built-ins,
+	// self-reported (optional columns) by user packages.
 	InputBuffer         int64
 	CompressorInternal  int64
 	InternalMemoryRatio float64
@@ -138,6 +139,11 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 		} else if row.MemoryUsage, err = parseInt(record, colIndex, "memory_usage"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
+		if lenient {
+			if err := parseReportedMemory(&row, record, colIndex); err != nil {
+				return nil, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+		}
 		if row.UncompressedBits, err = parseInt(record, colIndex, "uncompressed_bits"); err != nil {
 			return nil, fmt.Errorf("line %d: %w", lineNum, err)
 		}
@@ -202,6 +208,42 @@ func parseCSV(r io.Reader, lenient bool) ([]BenchmarkRow, error) {
 	}
 
 	return rows, nil
+}
+
+// parseReportedMemory reads the optional memory breakdown a user package may
+// report (input_buffer, compressor_internal; absent or empty = missing) and
+// derives the two memory ratios like the native harness does.
+func parseReportedMemory(row *BenchmarkRow, record []string, colIndex map[string]int) error {
+	for _, m := range []struct {
+		col string
+		dst *int64
+	}{{"input_buffer", &row.InputBuffer}, {"compressor_internal", &row.CompressorInternal}} {
+		if cellEmpty(record, colIndex, m.col) {
+			row.Missing[m.col] = true
+			continue
+		}
+		v, err := parseInt(record, colIndex, m.col)
+		if err != nil {
+			return err
+		}
+		if v < 0 {
+			return fmt.Errorf("%s must not be negative", m.col)
+		}
+		*m.dst = v
+	}
+	ratio := computeInternalMemoryRatio(row.CompressorInternal, row.InputBuffer)
+	if ratio == nil || row.Missing["input_buffer"] || row.Missing["compressor_internal"] {
+		row.Missing["internal_memory_ratio"] = true
+	} else {
+		row.InternalMemoryRatio = *ratio
+	}
+	rel := computeRelativeMemoryUsage(row.MemoryUsage, row.InputBuffer)
+	if rel == nil || row.Missing["input_buffer"] || row.Missing["memory_usage"] {
+		row.Missing["relative_memory_usage"] = true
+	} else {
+		row.RelativeMemoryUsage = *rel
+	}
+	return nil
 }
 
 func cellEmpty(record []string, colIndex map[string]int, col string) bool {
