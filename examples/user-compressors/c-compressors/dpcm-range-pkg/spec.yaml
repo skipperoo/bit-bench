@@ -1,0 +1,25 @@
+name: dpcm_range
+version: "2.0.0"
+description: >-
+  DPCM-Range (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). DPCM on the error-bounded grid step 2*eps + 1 (closed loop; eps = 0 skips the quantiser and is lossless), residuals coded as exponent + mantissa bits with a 204-context adaptive binary range coder. The model carries across chunks. This replaces the earlier package that also offered static-Huffman coders; those remain in lib/dpcm_static.h and in git history.  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  epsilon:
+    type: number
+    min: 0
+    max: 32767
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

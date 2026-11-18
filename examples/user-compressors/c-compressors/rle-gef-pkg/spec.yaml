@@ -1,0 +1,25 @@
+name: rle_gef
+version: "2.0.0"
+description: >-
+  RLE-GEF (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). Run-length encoding of the int16 values followed by the generalized Elias-Fano bit layout (sequential decode in this MCU port, no rank/select index). Lossy rows code the LSB-dropped quotients, as in the firmware benchmark. Stateless. This replaces the earlier int64 package (delta and drop options); that version remains in git history.  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  drop_bits:
+    type: number
+    min: 0
+    max: 15
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

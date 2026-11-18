@@ -881,7 +881,7 @@ Higher is better: everything else (throughputs `*_mbs`, range queries).
 
 ### 6.6 User-provided compressor packages (D20-D24)
 
-A package is a `.zip` archive with `spec.yaml` at the root, its sources under `src/`, an optional `Makefile` (compiled languages) and optionally vendored dependencies. Full user documentation lives in `docs/user-compressors.md`; working examples in `examples/user-compressors/<language>/` (Python, C, C++, Go, Rust), E2E-tested in CI.
+A package is a `.zip` archive with `spec.yaml` at the root, its sources under `src/`, an optional `Makefile` (compiled languages) and optionally vendored dependencies. Full user documentation lives in `docs/user-compressors.md`; working examples in `examples/user-compressors/basic-compressors/<language>/` (Python, C, C++, Go, Rust), E2E-tested in CI; `examples/user-compressors/c-compressors/` holds thesis codecs that also self-report their memory breakdown.
 
 **`spec.yaml`**: `name` (`[a-z0-9_]{1,64}`, globally unique, no built-in collision), `version`, `description?`, `language?`, `color?` (`#rrggbb` chart colour), `platform?` (`linux/amd64` or `linux/arm64`, variants normalized; empty = host platform), `entrypoint` (command relative to the package root), `workers` (default 1), optional `build.command`/`build.timeout_seconds`, and `options` (same schema as the built-in registry).
 

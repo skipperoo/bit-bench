@@ -1,0 +1,25 @@
+name: pfd_optpfor
+version: "2.0.0"
+description: >-
+  PFD-OptPFor (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). Zig-zag int16 wrap-around delta + OptPFor blocks of 128: the cost-optimal bit width per block with fixed-width exceptions (7-bit position list or bitmap). Lossy rows code the LSB-dropped quotients. Stateless, no workspace.  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  drop_bits:
+    type: number
+    min: 0
+    max: 15
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

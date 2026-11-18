@@ -1,0 +1,25 @@
+name: loco_rice
+version: "2.0.0"
+description: >-
+  LOCO-Rice (thesis name), the implementation of the thesis benchmark
+  (lib/, vendored unchanged). 1-D JPEG-LS (LOCO-I): median/edge predictor on the reconstructed samples, 24 contexts with bias correction, near-lossless quantisation of the residual with step 2*eps + 1 inside the prediction loop, adaptive Rice codes. The context state carries across chunks (snapshotted when a chunk falls back).  Standard int64 sequence in
+  4096-value chunks mapped to a sticky base + int16 offsets; each chunk uses
+  the smaller of the codec payload and an exact fallback (raw int64 or
+  zig-zag LEB128 deltas), so the output never expands.
+language: c
+entrypoint: ./codec
+workers: 1
+build:
+  command: make -j2
+  timeout_seconds: 600
+options:
+  epsilon:
+    type: number
+    min: 0
+    max: 255
+    default: 2
+    step: 1
+  mode:
+    type: select
+    options: [lossy, lossless]
+    default: lossy

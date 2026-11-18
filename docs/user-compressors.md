@@ -288,11 +288,11 @@ Complete example packages for every supported language live in
 
 | Language | Path |
 |:--|:--|
-| Python | `examples/user-compressors/python` |
-| C | `examples/user-compressors/c` |
-| C++ | `examples/user-compressors/cpp` |
-| Go | `examples/user-compressors/go` |
-| Rust | `examples/user-compressors/rust` |
+| Python | `examples/user-compressors/basic-compressors/python` |
+| C | `examples/user-compressors/basic-compressors/c` |
+| C++ | `examples/user-compressors/basic-compressors/cpp` |
+| Go | `examples/user-compressors/basic-compressors/go` |
+| Rust | `examples/user-compressors/basic-compressors/rust` |
 
 Each example implements the same delta + zigzag varint codec, exposes `mode`
 and `verify` options, and handles both `.bin` header formats.
