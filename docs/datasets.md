@@ -190,7 +190,7 @@ On **New Benchmark**, switch the data source to **Standard dataset**:
 
 | Control | Meaning |
 |:--|:--|
-| Dataset / Series | Which recordings to use (all valid series are preselected). |
+| Dataset / Series | Which recordings to use (series start unchecked; **All** selects every valid one). |
 | Chunk size (samples) | `whole series` benchmarks each recording as one input; numbers cut it into fixed-length chunks (a trailing partial chunk is dropped). Presets match the thesis sizes: `size_<B>` counts bytes of the original 16-bit stream, so it is **B / 2 samples** (512→256, 1536→768, 8192→4096, 16384→8192, 32768→16384, 65536→32768, 1572864→786432). Custom sizes are allowed. |
 | Max chunks per series | Keep at most this many chunks, evenly spaced over the recording (numpy `linspace(...).round()`, like `MAX_CHUNKS_PER_SIGNAL = 10`). `0` keeps every chunk. |
 | Transform | `std` values as recorded; `gap` first value then differences; `gap_shifted` see below. |
