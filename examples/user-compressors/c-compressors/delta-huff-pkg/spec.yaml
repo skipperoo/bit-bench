@@ -1,4 +1,4 @@
-name: huff_delta
+name: delta_huff
 version: "1.1.0"
 description: >-
   Lossy-then-Huffman delta codec: the sequence is quantized by discarding N

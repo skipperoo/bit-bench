@@ -1,4 +1,4 @@
-# BitBench package `huff_delta`
+# BitBench package `delta_huff` (Delta-Huff)
 
 > Visual, from-the-ground-up explanation of this codec (theory + byte layout + tunables):
 > [`../../docs/huff-codec.html`](../../docs/huff-codec.html) — open it in a browser. — the Huffman-coded delta codec, in depth
@@ -308,9 +308,9 @@ one: ~10 KB extra per 10.2 MiB axis (~0.1 %) to remove the lookahead.
 | `drop_bits 2` | 5.962 | 0.3726 | ±2 | 524 B/axis |
 | **`drop_bits 4`** | **4.014 full / 3.957 held-out** | **0.2509 / 0.2473** | ±8 | 524 B/axis |
 | reference: RLE-GEF absolute+drop4 | 5.01 | 0.3133 | ±8 | – |
-| reference: v24 delta+Rice(2,4) | ~5.1 | ~0.32 | ±8 | – |
+| reference: v24 Delta-Rice(2,4) | ~5.1 | ~0.32 | ±8 | – |
 | reference: RLE-GEF delta lossless | 8.870 | 0.5541 | 0 | – |
-| reference: v23 delta+Rice lossless | 7.0569 | 0.4411 | 0 | – |
+| reference: v23 Delta-Rice lossless | 7.0569 | 0.4411 | 0 | – |
 
 Throughput on the same run: **106 MB/s compress** (training included),
 **67 MB/s decode**. All 7842 chunks round-trip verified.
@@ -333,7 +333,7 @@ make bench      # ./bench — reproduces the table above on the RSA1 capture
 Upload archive (spec.yaml must sit at the archive root):
 
 ```
-cd pkg/huff-pkg && zip -r ../huff-pkg.zip spec.yaml Makefile README.md src
+cd pkg/delta-huff-pkg && zip -r ../delta-huff-pkg.zip spec.yaml Makefile README.md src
 ```
 
 The platform invocation is

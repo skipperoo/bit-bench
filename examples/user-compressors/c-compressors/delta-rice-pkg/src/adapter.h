@@ -1,4 +1,4 @@
-/* Delta+Rice: the shipped v23/v24 delta + Rice format (lib/v23_rice.h), one axis.
+/* Delta-Rice: the shipped v23/v24 delta + Rice format (lib/v23_rice.h), one axis.
  * Level = LSB drop d (0 = lossless v23, 1..7 = v24 lossy_qshift). Stateless. */
 #include "v23_rice.h"
 #define PKG_NAME          "delta_rice"
