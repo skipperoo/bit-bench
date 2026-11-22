@@ -1,6 +1,6 @@
-# `delta_rice` — Delta+Rice (BitBench package)
+# `delta_rice` — Delta-Rice (BitBench package)
 
-**Delta+Rice** as named in the thesis, packaged from the exact implementation the
+**Delta-Rice** as named in the thesis, packaged from the exact implementation the
 benchmark ran: `src/v23_rice.c` and headers are vendored unchanged from `lib/`
 (`firmware/stm32wb_mcu_bench/src/` carries the same files). Regenerate with
 `python3 scripts/make_thesis_packages.py`; do not edit the copies here.

@@ -1,5 +1,5 @@
 /*
- * BitBench user compressor package `huff_delta`.
+ * BitBench user compressor package `delta_huff` (Delta-Huff).
  *
  * Runs ONLY the lossy-then-Huffman delta codec: the sequence is quantized by
  * discarding N LSBs (device quantizer), delta-coded, and each delta is Huffman
@@ -33,7 +33,7 @@
 
 #include "huff_delta.h"
 
-#define NAME "huff_delta"
+#define NAME "delta_huff"
 #define CHUNK_SAMPLES 4096
 #define TRAIN_CHUNKS  8
 

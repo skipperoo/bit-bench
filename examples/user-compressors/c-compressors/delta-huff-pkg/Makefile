@@ -1,4 +1,4 @@
-# BitBench package `huff_delta` — see spec.yaml / docs/user-compressors.md.
+# BitBench package `delta_huff` (Delta-Huff) — see spec.yaml / docs/user-compressors.md.
 CC      ?= cc
 CFLAGS  ?= -O3 -march=native -std=c11 -Wall -Wextra
 LDLIBS  ?= -lm

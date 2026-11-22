@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
            (unsigned)(2u * K + 2u) * (unsigned)sizeof(uint64_t), 2u * K + 2u,
            (unsigned)(2 * K + 2) * 4);
     printf("  reference (same capture, delta+drop4): RLE-GEF 5.14 b/s "
-           "(CR 0.3209), v24 delta+Rice ~5.1 b/s\n");
+           "(CR 0.3209), v24 Delta-Rice ~5.1 b/s\n");
 
     free(buf); free(dec); free(x);
     fclose(f);
