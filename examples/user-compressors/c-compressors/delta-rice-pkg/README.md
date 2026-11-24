@@ -1,11 +1,7 @@
 # `delta_rice` — Delta-Rice (BitBench package)
 
-**Delta-Rice** as named in the thesis, packaged from the exact implementation the
-benchmark ran: `src/v23_rice.c` and headers are vendored unchanged from `lib/`
-(`firmware/stm32wb_mcu_bench/src/` carries the same files). Regenerate with
-`python3 scripts/make_thesis_packages.py`; do not edit the copies here.
 
-The shipped v23/v24 delta + Rice format, the thesis baseline: per batch of 199 samples an int16 anchor, then zig-zag first differences in Rice blocks of 64 with the exhaustive best k (4-bit header). drop_bits > 0 is the v24 lossy_qshift quantiser. Byte-identical to the Python reference model (pkg/v23-rice-pkg, reference/sa_test/imu_compression.py); one axis per stream here (the firmware codes the 3-axis sensor block). Stateless: every chunk is independent.
+Delta + Rice: per batch of 199 samples an int16 anchor, then zig-zag first differences in Rice blocks of 64 with the exhaustive best k (4-bit header). drop_bits > 0 is the lossy_qshift quantiser.
 
 - **Level:** `drop_bits` (0..7, default 2): LSB drop d before coding, reconstruction q << d, |err| <= 2^(d-1); 0 = lossless.
   `mode=lossless` forces 0. JSON options win over flags.
