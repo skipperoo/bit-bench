@@ -1,4 +1,4 @@
-# BitBench -- Compression Algorithm Benchmarking Platform
+# BitBench - Compression Benchmarking Platform
 
 BitBench is a **web-based platform** for evaluating lossless compression algorithms on integer sequence data. Researchers upload their datasets, select compressors with tunable parameters, and receive ranked results with Pareto-optimal trade-off analysis.
 
