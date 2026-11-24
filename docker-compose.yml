@@ -85,7 +85,7 @@ services:
       - JWT_EXPIRY=24h
       # Total worker budget: defaults to the cores allocatable to this
       # container (cgroup-aware). Uncomment to pin an explicit cap.
-      # - MAX_PARALLELISM=8
+      - MAX_PARALLELISM=16
       - MAX_FILE_SIZE_MB=500
       # Uploads per user per minute (benchmarks, dataset runs, packages); 0 disables.
       - UPLOAD_RATE_LIMIT=10

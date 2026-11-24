@@ -1,48 +1,9 @@
 #!/usr/bin/env python3
-"""Export the thesis datasets (WildPPG, PAMAP2) as BitBench full series.
-
-This is the full-recording counterpart of ``convert_ds_full.py`` from the
-gef-experiments repository: it applies the same ADC projections but writes
-each signal *whole* (``datasets/<dataset>/<series>.bin``) instead of
-pre-cut ``datasets/<std|gap|gap_shifted>/size_<N>/`` chunks. BitBench cuts the
-chunks at run time:
-
-* ``size_<B>`` folders correspond to a chunk size of B/2 samples (the thesis
-  sizes count bytes of the original 16-bit stream): 512->256, 1536->768,
-  8192->4096, 16384->8192, 32768->16384, 65536->32768, 1572864->786432;
-* "max chunks per series" = 10 reproduces ``MAX_CHUNKS_PER_SIGNAL``
-  (evenly spaced, numpy rounding);
-* transform std/gap match the thesis variants. gap_shifted is the corrected
-  version (every value >= 0), so it intentionally differs from the thesis
-  files.
-
-WildPPG chunks hold exactly the values of the thesis std/gap files (byte-identical
-with ``--decimals 1``, the header value the thesis used; the default is 0 because
-the values are integer ADC codes). PAMAP2
-chunks may differ for small sizes: the thesis cut each NaN-free run
-separately, while a single full series concatenates the valid runs.
-
-By default only the thesis signals are written (WildPPG sternum ECG + wrist
-PPG/accelerometer, PAMAP2 hand accelerometer/gyroscope). ``--all-signals``
-writes every signal instead, and ``--exclude`` drops series by name (shell
-patterns), e.g. ``--exclude '*_acc_*'``:
-
-* WildPPG, every site (sternum, head, ankle, wrist): PPG as 19-bit codes
-  (value x 2^19, the stored fractions are exact multiples of 2^-19), ECG as its
-  raw 18-bit codes, accelerometer as 10-bit codes, and the 0.5 Hz altitude and
-  temperature projected to 19 bits over fixed ranges shared by every site
-  (altitude [0, 4096) m -> 1/128 m, temperature [0, 64) degC -> 1/8192 degC);
-* PAMAP2, every IMU (hand -> ``wrist``, chest, ankle): temperature in its
-  native 1/16 degC steps, the +/-16 g and +/-6 g accelerometers and the
-  gyroscope as 13-bit codes, the magnetometer in 0.1 uT steps, and the heart
-  rate in bpm. The orientation columns are skipped (invalid in this
-  collection, per the PAMAP2 readme).
-
-Usage::
-
-    python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat
-    python3 scripts/datasets/export_thesis_datasets.py pamap2 /path/to/PAMAP2_Dataset/Protocol
-    python3 scripts/datasets/export_thesis_datasets.py wildppg WildPPG.mat --all-signals --exclude '*_acc_*'
+"""
+Usage:
+    python3 scripts/datasets/export_datasets.py wildppg /path/to/WildPPG.mat
+    python3 scripts/datasets/export_datasets.py pamap2 /path/to/PAMAP2_Dataset/Protocol
+    python3 scripts/datasets/export_datasets.py wildppg WildPPG.mat --all-signals --exclude '*_acc_*'
 """
 
 from __future__ import annotations
@@ -96,13 +57,25 @@ PAMAP2_MAG_LSB_UT = 0.1
 def project_wildppg(values, signal_name: str) -> np.ndarray:
     values = np.asarray(values, dtype=np.float64)
     if signal_name.startswith("ppg_"):
-        return np.clip(np.rint(values * (1 << PPG_ADC_BITS)), 0, PPG_ADC_MAX).astype(np.int64)
+        return np.clip(np.rint(values * (1 << PPG_ADC_BITS)), 0, PPG_ADC_MAX).astype(
+            np.int64
+        )
     if signal_name.startswith("acc_"):
-        return np.clip(np.rint(values / ACC_LSB_G), ACC_ADC_MIN, ACC_ADC_MAX).astype(np.int64)
+        return np.clip(np.rint(values / ACC_LSB_G), ACC_ADC_MIN, ACC_ADC_MAX).astype(
+            np.int64
+        )
     if signal_name == "altitude":
-        return np.clip(np.rint(values * (1 << PPG_ADC_BITS) / WILDPPG_ALTITUDE_RANGE_M), 0, PPG_ADC_MAX).astype(np.int64)
+        return np.clip(
+            np.rint(values * (1 << PPG_ADC_BITS) / WILDPPG_ALTITUDE_RANGE_M),
+            0,
+            PPG_ADC_MAX,
+        ).astype(np.int64)
     if signal_name == "temperature":
-        return np.clip(np.rint(values * (1 << PPG_ADC_BITS) / WILDPPG_TEMPERATURE_RANGE_C), 0, PPG_ADC_MAX).astype(np.int64)
+        return np.clip(
+            np.rint(values * (1 << PPG_ADC_BITS) / WILDPPG_TEMPERATURE_RANGE_C),
+            0,
+            PPG_ADC_MAX,
+        ).astype(np.int64)
     if signal_name == "ecg":
         if not np.array_equal(values, np.rint(values)):
             raise SystemExit("WildPPG ECG is expected to hold integer ADC codes")
@@ -114,13 +87,19 @@ def excluded(name: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 
-def export_wildppg(mat_path: Path, out_root: Path, decimals: int, all_signals: bool, exclude: list[str]) -> None:
+def export_wildppg(
+    mat_path: Path, out_root: Path, decimals: int, all_signals: bool, exclude: list[str]
+) -> None:
     import scipy.io as sio
 
     mat = sio.loadmat(str(mat_path))
     out_dir = out_root / "wildppg"
     if all_signals:
-        selection = {loc: list(mat[loc].dtype.names) for loc in ("sternum", "head", "ankle", "wrist") if loc in mat}
+        selection = {
+            loc: list(mat[loc].dtype.names)
+            for loc in ("sternum", "head", "ankle", "wrist")
+            if loc in mat
+        }
     else:
         selection = WILDPPG_SIGNALS
     written = 0
@@ -137,7 +116,9 @@ def export_wildppg(mat_path: Path, out_root: Path, decimals: int, all_signals: b
             n = write_series(path, raw, decimals)
             written += 1
             kinds.add(signal.split("_")[0])
-            print(f"wrote {path} ({n} values, fs={series[0][0][0, 0]} Hz, codes {raw.min()}..{raw.max()})")
+            print(
+                f"wrote {path} ({n} values, fs={series[0][0][0, 0]} Hz, codes {raw.min()}..{raw.max()})"
+            )
     if not written:
         raise SystemExit("no WildPPG series left after --exclude")
     if all_signals:
@@ -148,8 +129,10 @@ def export_wildppg(mat_path: Path, out_root: Path, decimals: int, all_signals: b
             "altitude": "altitude projected to 19 bits (1/128 m)",
             "temperature": "device temperature projected to 19 bits (1/8192 degC)",
         }
-        description = "WildPPG, one participant, full recordings of every site: " + ", ".join(
-            text for kind, text in parts.items() if kind in kinds)
+        description = (
+            "WildPPG, one participant, full recordings of every site: "
+            + ", ".join(text for kind, text in parts.items() if kind in kinds)
+        )
     else:
         description = "WildPPG: wrist PPG (19-bit ADC codes) and accelerometer (10-bit), sternum ECG (18-bit), full recordings"
     write_metadata(
@@ -166,22 +149,47 @@ def _valid_runs(values: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(edges[::2], edges[1::2]))
 
 
-def export_pamap2_all(files: list[Path], out_dir: Path, decimals: int, exclude: list[str]) -> None:
+def export_pamap2_all(
+    files: list[Path], out_dir: Path, decimals: int, exclude: list[str]
+) -> None:
     """Every IMU signal of every block plus the heart rate (--all-signals)."""
     import pandas as pd
 
     def acc(lsb_g: float):
-        return lambda v: np.clip(np.rint((v / STANDARD_GRAVITY) / lsb_g), PAMAP2_ACC_MIN, PAMAP2_ACC_MAX)
+        return lambda v: np.clip(
+            np.rint((v / STANDARD_GRAVITY) / lsb_g), PAMAP2_ACC_MIN, PAMAP2_ACC_MAX
+        )
 
     # (series suffix, offset inside the IMU block, projection)
     block = [("temperature", 0, lambda v: np.rint(v * 16))]
-    block += [(f"acc_{a}", 1 + j, acc(PAMAP2_ACC_LSB_G)) for j, a in enumerate(PAMAP2_AXES)]
-    block += [(f"acc6_{a}", 4 + j, acc(PAMAP2_ACC6_LSB_G)) for j, a in enumerate(PAMAP2_AXES)]
-    block += [(f"gyro_{a}", 7 + j, lambda v: np.clip(np.rint(np.degrees(v) / PAMAP2_GYRO_LSB_DPS),
-                                                     PAMAP2_GYRO_MIN, PAMAP2_GYRO_MAX)) for j, a in enumerate(PAMAP2_AXES)]
-    block += [(f"mag_{a}", 10 + j, lambda v: np.rint(v / PAMAP2_MAG_LSB_UT)) for j, a in enumerate(PAMAP2_AXES)]
+    block += [
+        (f"acc_{a}", 1 + j, acc(PAMAP2_ACC_LSB_G)) for j, a in enumerate(PAMAP2_AXES)
+    ]
+    block += [
+        (f"acc6_{a}", 4 + j, acc(PAMAP2_ACC6_LSB_G)) for j, a in enumerate(PAMAP2_AXES)
+    ]
+    block += [
+        (
+            f"gyro_{a}",
+            7 + j,
+            lambda v: np.clip(
+                np.rint(np.degrees(v) / PAMAP2_GYRO_LSB_DPS),
+                PAMAP2_GYRO_MIN,
+                PAMAP2_GYRO_MAX,
+            ),
+        )
+        for j, a in enumerate(PAMAP2_AXES)
+    ]
+    block += [
+        (f"mag_{a}", 10 + j, lambda v: np.rint(v / PAMAP2_MAG_LSB_UT))
+        for j, a in enumerate(PAMAP2_AXES)
+    ]
     specs = [("heart_rate", PAMAP2_HEART_RATE, np.rint)]
-    specs += [(f"{imu}_{suffix}", base + offset, project) for imu, base in PAMAP2_IMUS.items() for suffix, offset, project in block]
+    specs += [
+        (f"{imu}_{suffix}", base + offset, project)
+        for imu, base in PAMAP2_IMUS.items()
+        for suffix, offset, project in block
+    ]
     specs = [s for s in specs if not excluded(s[0], exclude)]
     if not specs:
         raise SystemExit("no PAMAP2 series left after --exclude")
@@ -190,14 +198,25 @@ def export_pamap2_all(files: list[Path], out_dir: Path, decimals: int, exclude: 
     runs: dict[str, list[np.ndarray]] = {name: [] for name, _, _ in specs}
     clipped: dict[str, int] = {name: 0 for name, _, _ in specs}
     for file_path in files:
-        df = pd.read_csv(file_path, sep=r"\s+", header=None, usecols=usecols, na_values="NaN", low_memory=False)
+        df = pd.read_csv(
+            file_path,
+            sep=r"\s+",
+            header=None,
+            usecols=usecols,
+            na_values="NaN",
+            low_memory=False,
+        )
         for name, col, project in specs:
             values = df[col].to_numpy(dtype=np.float64)
             for start, end in _valid_runs(values):
                 part = values[start:end]
                 codes = project(part).astype(np.int64)
                 if "acc" in name or "gyro" in name:
-                    clipped[name] += int(np.count_nonzero((codes == PAMAP2_ACC_MIN) | (codes == PAMAP2_ACC_MAX)))
+                    clipped[name] += int(
+                        np.count_nonzero(
+                            (codes == PAMAP2_ACC_MIN) | (codes == PAMAP2_ACC_MAX)
+                        )
+                    )
                 runs[name].append(codes)
         print(f"loaded {file_path} ({len(df):,} rows)")
 
@@ -205,12 +224,18 @@ def export_pamap2_all(files: list[Path], out_dir: Path, decimals: int, exclude: 
     for name, parts in runs.items():
         if not parts:
             continue
-        kinds.add("heart_rate" if name == "heart_rate" else name.split("_", 1)[1].split("_")[0])
+        kinds.add(
+            "heart_rate"
+            if name == "heart_rate"
+            else name.split("_", 1)[1].split("_")[0]
+        )
         data = np.concatenate(parts)
         path = out_dir / f"{name}.bin"
         n = write_series(path, data, decimals)
         note = f", {clipped[name]} at the 13-bit limit" if clipped[name] else ""
-        print(f"wrote {path} ({n} values from {len(parts)} NaN-free runs, codes {data.min()}..{data.max()}{note})")
+        print(
+            f"wrote {path} ({n} values from {len(parts)} NaN-free runs, codes {data.min()}..{data.max()}{note})"
+        )
     parts = {
         "temperature": "temperature (1/16 degC)",
         "acc": "+/-16 g accelerometer (13-bit codes)",
@@ -227,7 +252,9 @@ def export_pamap2_all(files: list[Path], out_dir: Path, decimals: int, exclude: 
     )
 
 
-def export_pamap2(path: Path, out_root: Path, decimals: int, all_signals: bool, exclude: list[str]) -> None:
+def export_pamap2(
+    path: Path, out_root: Path, decimals: int, all_signals: bool, exclude: list[str]
+) -> None:
     import pandas as pd
 
     files = [path] if path.is_file() else sorted(path.rglob("*.dat"))
@@ -238,24 +265,51 @@ def export_pamap2(path: Path, out_root: Path, decimals: int, all_signals: bool, 
         return
 
     specs = (
-        ("acc", range(0, 3), lambda v: np.clip(np.rint((v / STANDARD_GRAVITY) / PAMAP2_ACC_LSB_G),
-                                              PAMAP2_ACC_MIN, PAMAP2_ACC_MAX)),
-        ("gyro", range(6, 9), lambda v: np.clip(np.rint(np.degrees(v) / PAMAP2_GYRO_LSB_DPS),
-                                               PAMAP2_GYRO_MIN, PAMAP2_GYRO_MAX)),
+        (
+            "acc",
+            range(0, 3),
+            lambda v: np.clip(
+                np.rint((v / STANDARD_GRAVITY) / PAMAP2_ACC_LSB_G),
+                PAMAP2_ACC_MIN,
+                PAMAP2_ACC_MAX,
+            ),
+        ),
+        (
+            "gyro",
+            range(6, 9),
+            lambda v: np.clip(
+                np.rint(np.degrees(v) / PAMAP2_GYRO_LSB_DPS),
+                PAMAP2_GYRO_MIN,
+                PAMAP2_GYRO_MAX,
+            ),
+        ),
     )
     usecols = sorted(PAMAP2_HAND_BASE + o for _, offsets, _ in specs for o in offsets)
     runs = {(s, a): [] for s, _, _ in specs for a in PAMAP2_AXES}
 
     for file_path in files:
-        df = pd.read_csv(file_path, sep=r"\s+", header=None, usecols=usecols, na_values="NaN", low_memory=False)
+        df = pd.read_csv(
+            file_path,
+            sep=r"\s+",
+            header=None,
+            usecols=usecols,
+            na_values="NaN",
+            low_memory=False,
+        )
         for signal, offsets, project in specs:
-            block = df.iloc[:, [usecols.index(PAMAP2_HAND_BASE + o) for o in offsets]].to_numpy(dtype=np.float64)
+            block = df.iloc[
+                :, [usecols.index(PAMAP2_HAND_BASE + o) for o in offsets]
+            ].to_numpy(dtype=np.float64)
             for j, axis in enumerate(PAMAP2_AXES):
                 values = block[:, j]
                 valid = np.isfinite(values)
-                edges = np.flatnonzero(np.diff(np.r_[False, valid, False].astype(np.int8)))
+                edges = np.flatnonzero(
+                    np.diff(np.r_[False, valid, False].astype(np.int8))
+                )
                 for start, end in zip(edges[::2], edges[1::2]):
-                    runs[(signal, axis)].append(project(values[start:end]).astype(np.int64))
+                    runs[(signal, axis)].append(
+                        project(values[start:end]).astype(np.int64)
+                    )
         print(f"loaded {file_path} ({len(df):,} rows)")
 
     out_dir = out_root / "pamap2"
@@ -273,27 +327,50 @@ def export_pamap2(path: Path, out_root: Path, decimals: int, all_signals: bool, 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("dataset", choices=["wildppg", "pamap2"])
-    parser.add_argument("input", type=Path, help="WildPPG.mat, or a PAMAP2 .dat file / directory")
-    parser.add_argument("--out", type=Path, default=Path("datasets"), help="datasets root (default: ./datasets)")
-    parser.add_argument("--decimals", type=int, default=0,
-                        help="decimals written in the .bin header (default 0: the values are integer ADC codes). "
-                             "The thesis files used 1 as a workaround for Camel, which is fixed; pass "
-                             "--decimals 1 to reproduce them byte for byte.")
-    parser.add_argument("--all-signals", action="store_true",
-                        help="write every signal of every site/IMU instead of the thesis selection")
-    parser.add_argument("--exclude", action="append", default=[], metavar="PATTERN",
-                        help="skip series whose name matches this shell pattern (repeatable), e.g. '*_acc_*'")
+    parser.add_argument(
+        "input", type=Path, help="WildPPG.mat, or a PAMAP2 .dat file / directory"
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("datasets"),
+        help="datasets root (default: ./datasets)",
+    )
+    parser.add_argument(
+        "--decimals",
+        type=int,
+        default=0,
+        help="decimals written in the .bin header (default 0: the values are integer ADC codes). ",
+    )
+    parser.add_argument(
+        "--all-signals",
+        action="store_true",
+        help="write every signal of every site/IMU instead of the thesis selection",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="skip series whose name matches this shell pattern (repeatable), e.g. '*_acc_*'",
+    )
     args = parser.parse_args()
     if not 0 <= args.decimals <= 18:
         raise SystemExit("--decimals must be between 0 and 18")
     if not args.input.exists():
         raise SystemExit(f"{args.input} does not exist")
     if args.dataset == "wildppg":
-        export_wildppg(args.input, args.out, args.decimals, args.all_signals, args.exclude)
+        export_wildppg(
+            args.input, args.out, args.decimals, args.all_signals, args.exclude
+        )
     else:
-        export_pamap2(args.input, args.out, args.decimals, args.all_signals, args.exclude)
+        export_pamap2(
+            args.input, args.out, args.decimals, args.all_signals, args.exclude
+        )
 
 
 if __name__ == "__main__":

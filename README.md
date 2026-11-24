@@ -124,15 +124,15 @@ The benchmark binary, compressor implementations, dataset preparation scripts, a
 
 ### Services
 
-| Service            | Port          | Description                                                                  |
-| :----------------- | :------------ | :--------------------------------------------------------------------------- |
-| **nginx**          | 80 / 81       | Reverse proxy: `/*` → frontend, `/api/*` → backend, port 81 → admin frontend |
-| **frontend**       | 80 (internal) | Vite/React main app -- upload, results, compare, compressor pages            |
-| **admin-frontend** | 80 (internal) | Vite/React management panel -- user & group CRUD, benchmark management       |
-| **backend**        | 8080          | Go HTTP server + background benchmark runner + package builder               |
+| Service            | Port          | Description                                                                                                                                          |
+| :----------------- | :------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **nginx**          | 80 / 81       | Reverse proxy: `/*` → frontend, `/api/*` → backend, port 81 → admin frontend                                                                         |
+| **frontend**       | 80 (internal) | Vite/React main app -- upload, results, compare, compressor pages                                                                                    |
+| **admin-frontend** | 80 (internal) | Vite/React management panel -- user & group CRUD, benchmark management                                                                               |
+| **backend**        | 8080          | Go HTTP server + background benchmark runner + package builder                                                                                       |
 | **runner**         | —             | Build-only services producing the sandbox images `bitbench-runner:amd64` and `bitbench-runner:arm64` (both are built by `docker compose up --build`) |
-| **postgres**       | 5432          | Database (users, groups, benchmarks, results, packages)                      |
-| **redis**          | 6379          | JWT blocklist + rate limiting (ephemeral, no volume)                         |
+| **postgres**       | 5432          | Database (users, groups, benchmarks, results, packages)                                                                                              |
+| **redis**          | 6379          | JWT blocklist + rate limiting (ephemeral, no volume)                                                                                                 |
 
 ---
 
@@ -161,11 +161,23 @@ Each compressor exposes its tunable parameters (inferred from the C++ source). E
     "level": { "type": "number", "min": 1, "max": 9, "default": 6, "step": 1 }
   },
   "neats": {
-    "max_bpc": { "type": "number", "min": 0, "max": 64, "default": 32, "step": 1 },
+    "max_bpc": {
+      "type": "number",
+      "min": 0,
+      "max": 64,
+      "default": 32,
+      "step": 1
+    },
     "lossy": { "type": "boolean", "default": false }
   },
   "falcon": {
-    "decimals": { "type": "number", "min": -1, "max": 18, "default": -1, "step": 1 }
+    "decimals": {
+      "type": "number",
+      "min": -1,
+      "max": 18,
+      "default": -1,
+      "step": 1
+    }
   }
 }
 ```
@@ -295,8 +307,7 @@ with open("column.bin", "wb") as f:
 ### Standardized Datasets
 
 Besides uploads, BitBench can benchmark **standardized datasets** stored on the
-server, like the thesis `run_all_benchmarks.sh` sweeps. Put each full
-recording, uncut, in `./datasets/<dataset>/<series>.bin` (mounted read-only into
+server. Put each full recording, uncut, in `./datasets/<dataset>/<series>.bin` (mounted read-only into
 the backend by `docker-compose.yml`), then pick **Standard dataset** on the
 upload page and choose the chunk size in samples (or the whole series), max
 chunks per series, the `std`/`gap`/`gap_shifted` transform and how results are
@@ -306,7 +317,7 @@ becomes one benchmark you can compare.
 ```bash
 python3 scripts/datasets/make_synthetic.py                       # sample data
 python3 scripts/datasets/make_dataset.py csv prices.csv --dataset finance --columns NVDA,SPCX --decimals 2
-python3 scripts/datasets/export_thesis_datasets.py wildppg /path/to/WildPPG.mat
+python3 scripts/datasets/export_datasets.py wildppg /path/to/WildPPG.mat
 ```
 
 See [`docs/datasets.md`](docs/datasets.md) for the layout, the tools and the
@@ -345,37 +356,37 @@ This watches `./frontend`, `./admin-frontend`, `./backend`, and the C++ benchmar
 
 ### Environment Variables
 
-| Variable                | Default                          | Description                                         |
-| :---------------------- | :------------------------------- | :-------------------------------------------------- |
-| `DB_HOST`               | `postgres`                       | Postgres hostname                                   |
-| `DB_PORT`               | `5432`                           | Postgres port                                       |
-| `DB_USER`               | `bitbench`                       | Postgres user                                       |
-| `DB_NAME`               | `bitbench`                       | Postgres database                                   |
-| `REDIS_HOST`            | `redis`                          | Redis hostname                                      |
-| `REDIS_PORT`            | `6379`                           | Redis port                                          |
-| `JWT_EXPIRY`            | `24h`                            | JWT token lifetime                                  |
-| `MAX_PARALLELISM`       | allocatable CPU cores            | Total CPU worker budget for benchmark tasks         |
-| `MAX_FILE_SIZE_MB`      | `500`                            | Maximum upload file size (MB)                       |
-| `BENCH_TIMEOUT_SECONDS` | `3600`                           | Per-benchmark subprocess timeout                    |
-| `BENCH_MAX_RETRIES`     | `2`                              | Number of retries on non-zero exit                  |
-| `DATA_DIR`              | `/data/benchmarks`               | Ephemeral workspace for uploaded files              |
-| `DATASET_DIR`           | `/data/datasets`                 | Standardized datasets (`./datasets`, read-only)     |
-| `LISTEN_ADDR`           | `:8080`                          | Backend HTTP listen address                         |
-| `UPLOAD_RATE_LIMIT`     | `10`                             | Uploads per user per minute (0 disables)            |
-| `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                        |
-| `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages        |
-| `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)       |
-| `RUNNER_IMAGE_AMD64`    | `bitbench-runner:amd64`         | Sandbox image for amd64 packages                    |
-| `RUNNER_IMAGE_ARM64`    | `bitbench-runner:arm64`         | Sandbox image for arm64 packages (QEMU on x86 hosts)|
-| `RUNNER_MEMORY_MB`      | `4096`                           | Per-container memory limit for user compressors     |
-| `RUNNER_PIDS_LIMIT`     | `512`                            | Per-container pid limit                             |
-| `BUILD_TIMEOUT_SECONDS` | `600`                            | Default package build timeout                       |
-| `BENCH_VOLUME`          | `bitbench_bench_data`            | Named volume mounted in runner containers (bench)   |
-| `COMPRESSOR_VOLUME`     | `bitbench_compressor_data`       | Named volume mounted in runner containers (packages)|
-| `SMTP_HOST`             | _(empty)_                        | SMTP server hostname (leave empty to disable email) |
-| `SMTP_PORT`             | `587`                            | SMTP port                                           |
-| `SMTP_USER`             | _(empty)_                        | SMTP username                                       |
-| `SMTP_FROM`             | _(empty)_                        | SMTP from address                                   |
+| Variable                | Default                          | Description                                          |
+| :---------------------- | :------------------------------- | :--------------------------------------------------- |
+| `DB_HOST`               | `postgres`                       | Postgres hostname                                    |
+| `DB_PORT`               | `5432`                           | Postgres port                                        |
+| `DB_USER`               | `bitbench`                       | Postgres user                                        |
+| `DB_NAME`               | `bitbench`                       | Postgres database                                    |
+| `REDIS_HOST`            | `redis`                          | Redis hostname                                       |
+| `REDIS_PORT`            | `6379`                           | Redis port                                           |
+| `JWT_EXPIRY`            | `24h`                            | JWT token lifetime                                   |
+| `MAX_PARALLELISM`       | allocatable CPU cores            | Total CPU worker budget for benchmark tasks          |
+| `MAX_FILE_SIZE_MB`      | `500`                            | Maximum upload file size (MB)                        |
+| `BENCH_TIMEOUT_SECONDS` | `3600`                           | Per-benchmark subprocess timeout                     |
+| `BENCH_MAX_RETRIES`     | `2`                              | Number of retries on non-zero exit                   |
+| `DATA_DIR`              | `/data/benchmarks`               | Ephemeral workspace for uploaded files               |
+| `DATASET_DIR`           | `/data/datasets`                 | Standardized datasets (`./datasets`, read-only)      |
+| `LISTEN_ADDR`           | `:8080`                          | Backend HTTP listen address                          |
+| `UPLOAD_RATE_LIMIT`     | `10`                             | Uploads per user per minute (0 disables)             |
+| `BENCH_BINARY_PATH`     | `/app/bin/LosslessBenchmarkFull` | Path to the benchmark binary                         |
+| `COMPRESSOR_DIR`        | `/data/compressors`              | Persistent root for user compressor packages         |
+| `MAX_PACKAGE_SIZE_MB`   | `50`                             | Maximum uploaded compressor package size (MB)        |
+| `RUNNER_IMAGE_AMD64`    | `bitbench-runner:amd64`          | Sandbox image for amd64 packages                     |
+| `RUNNER_IMAGE_ARM64`    | `bitbench-runner:arm64`          | Sandbox image for arm64 packages (QEMU on x86 hosts) |
+| `RUNNER_MEMORY_MB`      | `4096`                           | Per-container memory limit for user compressors      |
+| `RUNNER_PIDS_LIMIT`     | `512`                            | Per-container pid limit                              |
+| `BUILD_TIMEOUT_SECONDS` | `600`                            | Default package build timeout                        |
+| `BENCH_VOLUME`          | `bitbench_bench_data`            | Named volume mounted in runner containers (bench)    |
+| `COMPRESSOR_VOLUME`     | `bitbench_compressor_data`       | Named volume mounted in runner containers (packages) |
+| `SMTP_HOST`             | _(empty)_                        | SMTP server hostname (leave empty to disable email)  |
+| `SMTP_PORT`             | `587`                            | SMTP port                                            |
+| `SMTP_USER`             | _(empty)_                        | SMTP username                                        |
+| `SMTP_FROM`             | _(empty)_                        | SMTP from address                                    |
 
 ### Secrets (mounted at `/run/secrets/`)
 

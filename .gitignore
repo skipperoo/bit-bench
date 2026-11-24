@@ -16,3 +16,10 @@ compression/1
 # Standardized datasets (mounted into the backend); only the README is tracked.
 datasets/*
 !datasets/README.md
+AGENTS.md
+BACKLOG.md
+DESIGN.md
+PRODUCT.md
+opencode.json
+.impeccable
+.opencode
