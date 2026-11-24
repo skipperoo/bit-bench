@@ -29,6 +29,10 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed fro
 > `docker run --privileged --rm tonistiigi/binfmt --install all`.
 > Building the foreign architecture takes a few minutes under emulation.
 
+## Demo
+
+~[Benchmark Demo](./bitbench.gif)
+
 ---
 
 ## Table of Contents
