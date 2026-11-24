@@ -4,6 +4,10 @@ BitBench is a **web-based platform** for evaluating lossless compression algorit
 
 Born from the [GEF Experiments](https://github.com/mxpucci/gef-experiments) benchmarking suite, BitBench wraps the same C++ benchmark binary (`LosslessBenchmark`) in a full-stack web application: a Go backend with PostgreSQL, Redis, and a React frontend that renders the ranked tables, bar charts, and Pareto scatter plots that compression researchers rely on.
 
+## Demo
+
+![Benchmark Demo](./bitbench.gif)
+
 ## Quick Start
 
 ```bash
@@ -28,10 +32,6 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed fro
 > emulation; on plain Linux hosts register it once before the first build:
 > `docker run --privileged --rm tonistiigi/binfmt --install all`.
 > Building the foreign architecture takes a few minutes under emulation.
-
-## Demo
-
-![Benchmark Demo](./bitbench.gif)
 
 ---
 
