@@ -31,7 +31,7 @@ Default admin credentials: `admin@bitbench.org` / `changeme` (can be changed fro
 
 ## Demo
 
-~[Benchmark Demo](./bitbench.gif)
+![Benchmark Demo](./bitbench.gif)
 
 ---
 
