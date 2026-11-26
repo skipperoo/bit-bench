@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Sheet } from '@/components/ui/sheet'
 import { apiFetch } from '@/lib/api'
 import { EXPIRY_PRESETS, expiryIn, expiryOnDate, shareState, shareUrl } from '@/lib/shares'
 import type { Share, ShareKind } from '@/types'
@@ -131,7 +132,8 @@ function ShareRow({ share, tab, onChange }: { share: Share; tab: string; onChang
  * Creates and manages read-only links to the benchmarks on the results page:
  * private links for named BitBench accounts, or one stable public link.
  */
-export default function ShareDialog({ benchmarkIds, title, tab, onClose }: {
+export default function ShareDialog({ open, benchmarkIds, title, tab, onClose }: {
+  open: boolean
   benchmarkIds: string[]
   title: string
   tab: string
@@ -146,7 +148,6 @@ export default function ShareDialog({ benchmarkIds, title, tab, onClose }: {
   const [created, setCreated] = useState<Share | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const dialog = useRef<HTMLDivElement>(null)
   const key = benchmarkIds.join(',')
 
   const loadShares = useCallback(() => {
@@ -154,13 +155,7 @@ export default function ShareDialog({ benchmarkIds, title, tab, onClose }: {
       .then((d) => setShares(d?.shares ?? []))
       .catch(() => setShares([]))
   }, [key])
-  useEffect(() => { loadShares() }, [loadShares])
-  useEffect(() => {
-    dialog.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEffect(() => { if (open) loadShares() }, [open, loadShares])
 
   const addDraft = () => {
     const more = splitEmails(draft).filter((e) => !recipients.some((r) => r.toLowerCase() === e.toLowerCase()))
@@ -200,22 +195,12 @@ export default function ShareDialog({ benchmarkIds, title, tab, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="share-title"
-        className="w-full max-w-lg space-y-4 rounded-lg border border-border bg-background p-5 shadow-lg outline-none">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 id="share-title" className="truncate text-lg font-semibold">Share “{title}”</h2>
-            <p className="text-xs text-muted-foreground">
-              Read-only: viewers can browse and restyle the charts for themselves, and hide benchmarks, but change nothing.
-              {benchmarkIds.length > 1 && ` ${benchmarkIds.length} benchmarks.`}
-            </p>
-          </div>
-          <button type="button" aria-label="Close" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Sheet open={open} onClose={onClose} title={`Share “${title}”`}>
+      <div className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Read-only: viewers can browse and restyle the charts for themselves, and hide benchmarks, but change nothing.
+          {benchmarkIds.length > 1 && ` ${benchmarkIds.length} benchmarks.`}
+        </p>
 
         <div className="inline-flex rounded-md border border-border p-0.5" role="group" aria-label="Who can open the link">
           {(['private', 'public'] as const).map((k) => (
@@ -288,6 +273,6 @@ export default function ShareDialog({ benchmarkIds, title, tab, onClose }: {
               )}
         </div>
       </div>
-    </div>
+    </Sheet>
   )
 }

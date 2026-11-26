@@ -29,7 +29,7 @@ beforeEach(() => {
   })
 })
 
-const renderDialog = () => render(<ShareDialog benchmarkIds={['a', 'b']} title="Sweep" tab="pareto" onClose={() => {}} />)
+const renderDialog = () => render(<ShareDialog open benchmarkIds={['a', 'b']} title="Sweep" tab="pareto" onClose={() => {}} />)
 
 describe('ShareDialog', () => {
   it('creates a private link for the listed accounts', async () => {

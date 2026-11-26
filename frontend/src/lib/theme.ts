@@ -32,6 +32,8 @@ export function applyTheme(choice: ThemeChoice): void {
     // Storage blocked: the theme still applies for this page view.
   }
   document.documentElement.classList.toggle('dark', isDark(choice))
+  // The installed app's status bar follows the chosen theme, not only the system one.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = isDark(choice) ? '#25262a' : '#ffffff'
 }
 
 /** Whether the document is currently dark (follows the `dark` class on <html>). */

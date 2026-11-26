@@ -71,6 +71,12 @@
   * {
     border-color: var(--color-border);
   }
+  html {
+    /* No pinch or double-tap zoom (iOS ignores user-scalable=no). */
+    touch-action: pan-x pan-y;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -85,4 +91,11 @@
 .file-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 2.75rem;
+}
+
+/* iOS zooms into any field under 16px: phones get 16px fields, desktop keeps its sizes. */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }
