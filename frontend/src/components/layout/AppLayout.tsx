@@ -10,11 +10,10 @@ import {
   Upload,
   Activity,
   LogOut,
-  Menu,
-  X,
   Database,
 } from 'lucide-react'
-import { useState } from 'react'
+import { PhoneNav } from '@/components/layout/PhoneNav'
+import { OfflineNotice } from '@/components/layout/OfflineNotice'
 
 const navItems = [
   { path: '/new', label: 'New', icon: Upload },
@@ -28,7 +27,6 @@ export function AppLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const logout = useAuthStore((s) => s.logout)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   // Result pages are dense (sidebar + charts + wide tables): give them the
   // screen width; task pages keep the narrower reading width.
   const container = location.pathname.startsWith('/experiments')
@@ -47,8 +45,9 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b sticky top-0 bg-background z-20">
+    <div className="min-h-screen flex flex-col max-md:pt-[env(safe-area-inset-top)]">
+      {/* Phones navigate with the bottom tab bar (PhoneNav). */}
+      <header className="max-md:hidden border-b sticky top-0 bg-background z-20">
         <div className={`${container} mx-auto h-14 flex items-center justify-between`}>
           <Link to="/experiments" className="font-bold text-lg">
             BitBench
@@ -60,6 +59,7 @@ export function AppLayout() {
                 <Link
                   key={item.path}
                   to={item.path}
+                  viewTransition
                   className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
                     location.pathname.startsWith(item.path)
                       ? 'bg-secondary text-secondary-foreground'
@@ -77,45 +77,13 @@ export function AppLayout() {
               Logout
             </Button>
           </nav>
-          <button
-            className="md:hidden"
-            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </div>
-        {mobileMenuOpen && (
-          <div className="md:hidden border-t p-4 space-y-2">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${
-                    location.pathname.startsWith(item.path)
-                      ? 'bg-secondary text-secondary-foreground'
-                      : ''
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                </Link>
-              )
-            })}
-            <ThemeToggle />
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="w-full justify-start">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
-          </div>
-        )}
       </header>
-      <main className={`${container} flex-1 mx-auto w-full py-6`}>
+      <main className={`${container} flex-1 mx-auto w-full py-6 max-md:pt-4 max-md:pb-[calc(5.5rem+env(safe-area-inset-bottom))]`}>
+        <OfflineNotice />
         <Outlet />
       </main>
+      <PhoneNav onLogout={handleLogout} />
     </div>
   )
 }

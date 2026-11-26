@@ -25,7 +25,7 @@ export default function SharedView() {
   usePrivateMeta()
   const container = 'max-w-[120rem] px-4 lg:px-6 mx-auto w-full'
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col pt-[env(safe-area-inset-top)]">
       <header className="border-b sticky top-0 bg-background z-20">
         <div className={`${container} h-14 flex items-center justify-between gap-3`}>
           <span className="font-bold text-lg">BitBench</span>
