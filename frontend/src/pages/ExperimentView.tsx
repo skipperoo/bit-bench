@@ -519,7 +519,6 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
                             {visible.map((v) => <option key={v.benchmark.id} value={v.benchmark.id}>{v.benchmark.name}</option>)}
                           </select>
                         </label>
-                        {paretoAverage && <p className="text-xs text-muted-foreground">Each compressor's metrics are averaged over every benchmark it ran in.</p>}
                       </div>
                     )}
                     <TopFive entries={topFive} results={paretoResults} colors={colors} shapes={shapes} />
