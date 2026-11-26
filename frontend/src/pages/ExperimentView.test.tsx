@@ -137,6 +137,19 @@ describe('ExperimentView', () => {
   })
 })
 
+describe('ExperimentView Pareto tab', () => {
+  it('defaults to every compressor averaged over the benchmarks', async () => {
+    renderAt('/experiments/view?ids=a,b&tab=pareto')
+    const select = await screen.findByRole('combobox', { name: /Benchmark/ })
+    expect(select).toHaveValue('average')
+    expect(within(select).getByRole('option', { name: 'Average of all 2 benchmarks' })).toBeInTheDocument()
+    // gzip: ratio (0.30 + 0.25) / 2.
+    expect(screen.getByText(/27\.50?%/)).toBeInTheDocument()
+    await userEvent.selectOptions(select, 'b')
+    expect(screen.getByText(/25\.00?%/)).toBeInTheDocument()
+  })
+})
+
 describe('ExperimentView on a phone', () => {
   beforeEach(() => setPhone(true))
   afterEach(() => { vi.unstubAllGlobals(); useAuthStore.setState({ token: null }) })

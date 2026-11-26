@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import SharedView from './SharedView'
@@ -55,7 +55,7 @@ describe('SharedView', () => {
     expect(screen.getByRole('button', { name: /Download all results/ })).toBeInTheDocument()
 
     // The owner's styles apply locally.
-    expect(useChartStyles.getState()).toMatchObject({ local: true, colors: { gzip: '#123456' } })
+    await waitFor(() => expect(useChartStyles.getState()).toMatchObject({ local: true, colors: { gzip: '#123456' } }))
 
     // Hide one benchmark; the last visible one cannot be hidden.
     await userEvent.click(screen.getByRole('button', { name: 'Hide Run A' }))
