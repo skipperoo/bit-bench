@@ -11,7 +11,8 @@ import { useIsDark } from '@/lib/theme'
 import { LegendMarker, MarkerShape } from '@/components/charts/CompressorMarker'
 import { LegendRow, TooltipCard } from '@/components/charts/chrome'
 import { animationProps, AXIS_PROPS, BAR_CURSOR, GRID_PROPS, LINE_CURSOR } from '@/lib/chart-style'
-import { BENCHMARK_COLORS_DARK, BENCHMARK_COLORS_LIGHT, HORIZONTAL_THRESHOLD, MAX_GROUPED_SERIES } from '@/lib/charts'
+import { BENCHMARK_COLORS_DARK, BENCHMARK_COLORS_LIGHT, HORIZONTAL_THRESHOLD, MAX_GROUPED_SERIES, PHONE_HORIZONTAL_THRESHOLD } from '@/lib/charts'
+import { useIsPhone } from '@/lib/responsive'
 
 const fmt = (metric: string) => (v: unknown) => (typeof v === 'number' ? formatMetricValue(v, metric) : String(v ?? '–'))
 const FALLBACK = '#64748b'
@@ -26,18 +27,21 @@ export interface BarRow {
 }
 
 /** One bar per compressor, coloured like the compressor, its marker at the bar end. */
-export function MetricBarChart({ rows, metric, colors, shapes, reference }: {
+export function MetricBarChart({ rows, metric, colors, shapes, reference, tall = false }: {
   rows: BarRow[]
   metric: string
   colors: Map<string, string>
   /** Marker shape per compressor, drawn at the end of each bar. */
   shapes?: Map<string, string>
   reference?: { y: number; label: string }
+  /** Full-screen view: the desktop layout regardless of the screen. */
+  tall?: boolean
 }) {
+  const phone = useIsPhone() && !tall
   if (rows.length === 0) return null
   const data = rows.map((r) => ({ ...r, name: renameCompressor(r.compressor) }))
-  const horizontal = data.length > HORIZONTAL_THRESHOLD
-  const height = horizontal ? Math.max(240, data.length * 28 + 60) : 360
+  const horizontal = data.length > (phone ? PHONE_HORIZONTAL_THRESHOLD : HORIZONTAL_THRESHOLD)
+  const height = horizontal ? Math.max(240, data.length * 28 + 60) : phone ? 280 : 360
   const anim = animationProps()
   return (
     <div style={{ height }} data-testid={`bar-${metric}`}>
@@ -47,7 +51,7 @@ export function MetricBarChart({ rows, metric, colors, shapes, reference }: {
           {horizontal ? (
             <>
               <XAxis type="number" tickFormatter={fmt(metric)} {...AXIS_PROPS} axisLine={false} />
-              <YAxis type="category" dataKey="name" width={170} interval={0} {...AXIS_PROPS} />
+              <YAxis type="category" dataKey="name" width={phone ? 110 : 170} interval={0} {...AXIS_PROPS} />
             </>
           ) : (
             <>
@@ -101,12 +105,14 @@ export function MetricBarChart({ rows, metric, colors, shapes, reference }: {
 }
 
 /** Compressors on the axis, one bar per benchmark (at most one per palette slot). */
-export function GroupedBarChart({ compressors, series, metric }: {
+export function GroupedBarChart({ compressors, series, metric, tall = false }: {
   compressors: string[]
   series: { id: string; name: string; values: Map<string, number> }[]
   metric: string
+  tall?: boolean
 }) {
   const dark = useIsDark()
+  const phone = useIsPhone() && !tall
   if (compressors.length === 0 || series.length === 0) return null
   const palette = dark ? BENCHMARK_COLORS_DARK : BENCHMARK_COLORS_LIGHT
   // Colours are never cycled: past the palette, the table carries the rest.
@@ -120,7 +126,7 @@ export function GroupedBarChart({ compressors, series, metric }: {
     }
     return point
   })
-  const horizontal = compressors.length > HORIZONTAL_THRESHOLD
+  const horizontal = compressors.length > (phone ? PHONE_HORIZONTAL_THRESHOLD : HORIZONTAL_THRESHOLD)
   const barSize = shown.length > 4 ? 14 : 20
   const height = horizontal ? Math.max(260, compressors.length * (12 + (barSize + 2) * shown.length) + 80) : 380
   const anim = animationProps()
@@ -137,7 +143,7 @@ export function GroupedBarChart({ compressors, series, metric }: {
             {horizontal ? (
               <>
                 <XAxis type="number" tickFormatter={fmt(metric)} {...AXIS_PROPS} axisLine={false} />
-                <YAxis type="category" dataKey="name" width={170} interval={0} {...AXIS_PROPS} />
+                <YAxis type="category" dataKey="name" width={phone ? 110 : 170} interval={0} {...AXIS_PROPS} />
               </>
             ) : (
               <>
@@ -181,12 +187,14 @@ export interface ScatterRow {
  * Metric vs compression ratio, one marker per compressor (family shape +
  * colour). With `front`, the Pareto front (min ratio, max metric) is drawn.
  */
-export function MetricScatterChart({ rows, metric, colors, shapes, front = false }: {
+export function MetricScatterChart({ rows, metric, colors, shapes, front = false, tall = false }: {
   rows: ScatterRow[]
   metric: string
   colors: Map<string, string>
   shapes?: Map<string, string>
   front?: boolean
+  /** Full-screen view: most of the screen height. */
+  tall?: boolean
 }) {
   // The marker under the mouse and where to draw its card. Recharts'
   // ComposedChart only has axis tooltips (nearest x anywhere in the plot), so
@@ -228,7 +236,7 @@ export function MetricScatterChart({ rows, metric, colors, shapes, front = false
     <div data-testid={`scatter-${metric}`}>
       <div
         ref={plot}
-        className="relative h-[420px]"
+        className={tall ? 'relative h-[70dvh]' : 'relative h-[420px] max-md:h-[280px]'}
         // Recharts may replace the hovered marker's node on re-render, so the
         // card closes on any move off a marker rather than on mouseleave.
         onMouseMove={(e) => { if (hovered && !(e.target as Element).closest('[data-marker]')) setHovered(null) }}
@@ -305,7 +313,7 @@ export function SweepChart({ chunkLabels, lines, metric, colors, shapes }: {
       <g key={props.key}><MarkerShape cx={props.cx} cy={props.cy} r={r} ring name={compressor} shape={shapes?.get(compressor)} color={colors.get(compressor) ?? FALLBACK} /></g>
     ))
   return (
-    <div className="h-[340px]">
+    <div className="h-[340px] max-md:h-[260px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ left: 8, right: 24, top: 12, bottom: 24 }}>
           <CartesianGrid {...GRID_PROPS} vertical={false} />

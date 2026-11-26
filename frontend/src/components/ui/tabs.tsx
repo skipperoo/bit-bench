@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +25,13 @@ interface TabsProps {
 export function Tabs({ items, value, onChange, ariaLabel, className, idPrefix = 'tab' }: TabsProps) {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
   const enabled = items.filter((i) => !i.disabled)
+  const mounted = useRef(false)
+  // In a scrolling tab strip (phones) keep the active tab in view.
+  const active = items.findIndex((i) => i.value === value)
+  useEffect(() => {
+    if (mounted.current) refs.current[active]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+    mounted.current = true
+  }, [active])
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const idx = enabled.findIndex((i) => i.value === value)
@@ -57,7 +64,7 @@ export function Tabs({ items, value, onChange, ariaLabel, className, idPrefix = 
             disabled={item.disabled}
             onClick={() => onChange(item.value)}
             className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-sm transition-colors disabled:opacity-40',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors disabled:opacity-40',
               selected ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >

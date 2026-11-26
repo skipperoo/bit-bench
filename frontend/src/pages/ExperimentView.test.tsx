@@ -1,10 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ExperimentView from './ExperimentView'
 import { apiFetch } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
+import { setPhone } from '@/test/phone'
 import type { Benchmark, BenchmarkResult, DatasetSource } from '@/types'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
@@ -133,5 +134,29 @@ describe('ExperimentView', () => {
     await screen.findByRole('heading', { name: 'wild · std · 768' })
     expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument()
     useAuthStore.setState({ token: null })
+  })
+})
+
+describe('ExperimentView on a phone', () => {
+  beforeEach(() => setPhone(true))
+  afterEach(() => { vi.unstubAllGlobals(); useAuthStore.setState({ token: null }) })
+
+  it('moves the compressor filter and page actions into sheets', async () => {
+    useAuthStore.setState({ token: `h.${btoa(JSON.stringify({ sub: 'u', exp: 9999999999 }))}.s` })
+    renderAt('/experiments/view?ids=a')
+    await screen.findByRole('heading', { name: 'wild · std · 768' })
+    expect(screen.queryByRole('button', { name: /Download all results/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Compressor filter')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /Compressors 3\/3/ }))
+    const filter = screen.getByRole('dialog', { name: 'Compressors' })
+    await userEvent.click(within(filter).getByRole('checkbox', { name: /Gzip/ }))
+    expect(screen.getByRole('button', { name: /Compressors 2\/3/ })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    const actions = screen.getByRole('dialog', { name: 'Actions' })
+    expect(within(actions).getByRole('button', { name: /Download all results/ })).toBeInTheDocument()
+    expect(within(actions).getByRole('button', { name: 'Share' })).toBeInTheDocument()
+    expect(within(actions).getByLabelText(/Aggregate time series/)).toBeInTheDocument()
   })
 })

@@ -46,6 +46,8 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen flex flex-col max-md:pt-[env(safe-area-inset-top)]">
+      {/* Phones: an opaque band behind the status bar so content never scrolls under it. */}
+      <div className="md:hidden fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-background" aria-hidden="true" />
       {/* Phones navigate with the bottom tab bar (PhoneNav). */}
       <header className="max-md:hidden border-b sticky top-0 bg-background z-20">
         <div className={`${container} mx-auto h-14 flex items-center justify-between`}>
