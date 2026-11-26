@@ -74,4 +74,18 @@ describe('ShareDialog', () => {
     expect(await screen.findByText('Revoked')).toBeInTheDocument()
     expect(within(screen.getByTestId('share-row')).getByRole('button', { name: 'Restore' })).toBeInTheDocument()
   })
+
+  it('copies with execCommand when the Clipboard API is missing (plain HTTP)', async () => {
+    listed = [share()]
+    const original = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+    const exec = vi.fn(() => true)
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true })
+    renderDialog()
+    const row = await screen.findByTestId('share-row')
+    await userEvent.click(within(row).getByRole('button', { name: 'Copy' }))
+    expect(exec).toHaveBeenCalledWith('copy')
+    expect(within(row).getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    Object.defineProperty(navigator, 'clipboard', { value: original, configurable: true })
+  })
 })
