@@ -1,3 +1,4 @@
+import { useIsPhone } from '@/lib/responsive'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Database, Play } from 'lucide-react'
@@ -28,7 +29,7 @@ function Sparkline({ points, width = 200, height = 32 }: { points: [number, numb
   const top = points.map((p, i) => `${x(i)},${y(p[1])}`)
   const bottom = points.map((p, i) => `${x(i)},${y(p[0])}`).reverse()
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Sparkline of the first values" className="text-foreground">
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Sparkline of the first values" className="text-foreground">
       <polygon points={[...top, ...bottom].join(' ')} fill="currentColor" fillOpacity={0.15} stroke="currentColor" strokeWidth={0.75} />
     </svg>
   )
@@ -40,6 +41,7 @@ function scaled(v: number, decimals: number): string {
 
 function DatasetCard({ dataset }: { dataset: StandardDataset }) {
   const navigate = useNavigate()
+  const phone = useIsPhone()
   const [previews, setPreviews] = useState<Record<string, Preview | 'error'>>({})
 
   useEffect(() => {
@@ -69,10 +71,34 @@ function DatasetCard({ dataset }: { dataset: StandardDataset }) {
             {usable.length < dataset.series.length && ` · ${dataset.series.length - usable.length} invalid`}
           </p>
         </div>
-        <Button size="sm" disabled={usable.length === 0} onClick={() => navigate('/new', { state: { dataset: dataset.name } })}>
+        <Button size="sm" className="max-md:w-full" disabled={usable.length === 0} onClick={() => navigate('/new', { state: { dataset: dataset.name } })}>
           <Play className="w-4 h-4 mr-1" />Benchmark this dataset
         </Button>
       </header>
+      {phone ? (
+        <ul className="divide-y divide-border">
+          {dataset.series.map((s) => {
+            const p = previews[s.name]
+            return (
+              <li key={s.name} className="space-y-1 px-4 py-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate font-mono text-sm">{s.name}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{s.error ? formatBytes(s.size_bytes) : `${s.values.toLocaleString()} · ${formatBytes(s.size_bytes)}`}</span>
+                </div>
+                {s.error ? <p className="text-xs text-destructive">{s.error}</p> : (
+                  <>
+                    {p && p !== 'error' && <div className="text-foreground [&_svg]:h-8 [&_svg]:w-full"><Sparkline points={p.sparkline} /></div>}
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {p && p !== 'error' ? `${scaled(p.min, p.decimals)} … ${scaled(p.max, p.decimals)}` : p === 'error' ? '–' : '…'}
+                      {s.decimals > 0 && ` · decimals ${s.decimals}`}
+                    </p>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[720px]">
           <thead>
@@ -113,6 +139,7 @@ function DatasetCard({ dataset }: { dataset: StandardDataset }) {
           </tbody>
         </table>
       </div>
+      )}
     </section>
   )
 }
