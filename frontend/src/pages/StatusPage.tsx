@@ -34,7 +34,7 @@ export default function StatusPage() {
       <h1 className="text-2xl font-bold">System Status</h1>
       {status && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">Queue Depth</CardTitle>
@@ -95,13 +95,13 @@ export default function StatusPage() {
           {status.cpu && (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold">CPU</h2>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="sm:col-span-2">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+                <Card className="col-span-2">
                   <CardHeader>
                     <CardTitle className="text-sm">Model</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xl font-bold break-words">{status.cpu.model || 'Unknown'}</p>
+                    <p className="text-base font-bold break-words sm:text-xl">{status.cpu.model || 'Unknown'}</p>
                     <p className="text-xs text-muted-foreground mt-1">{formatMHz(status.cpu.mhz)}</p>
                   </CardContent>
                 </Card>

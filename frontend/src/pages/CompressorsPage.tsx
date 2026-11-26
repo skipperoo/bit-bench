@@ -1,3 +1,4 @@
+import { useIsPhone } from '@/lib/responsive'
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import CompressorSwatch from '@/components/CompressorSwatch'
 import { packageColor } from '@/lib/compressors'
@@ -31,6 +32,8 @@ export default function CompressorsPage() {
   const [groupId, setGroupId] = useState('')
   const [uploading, setUploading] = useState(false)
   const [openLog, setOpenLog] = useState<string | null>(null)
+  const phone = useIsPhone()
+  const [openDescription, setOpenDescription] = useState<string | null>(null)
   const [catalogTab, setCatalogTab] = useState<'packages' | 'builtin'>('packages')
 
   const load = useCallback(async () => {
@@ -193,6 +196,52 @@ export default function CompressorsPage() {
           </p>
         </div>
       ) : (
+        phone ? (
+        <ul className="space-y-2">
+          {packages.map((pkg) => (
+            <li key={pkg.id} className="space-y-1.5 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex min-w-0 items-center gap-1.5 font-mono font-medium">
+                  <CompressorSwatch name={pkg.name} color={packageColor(pkg.spec)} />
+                  <span className="truncate">{pkg.name}</span>
+                </p>
+                <Badge className={PACKAGE_STATUS_CLASSES[pkg.status]}>
+                  {pkg.status === 'building' && <span className={`w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse ${PACKAGE_STATUS_DOT[pkg.status]}`} />}
+                  {packageStatusLabel(pkg.status)}
+                </Badge>
+              </div>
+              <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                <span>v{pkg.version}</span>
+                {pkg.language && <span>· {pkg.language}</span>}
+                <span>· {pkg.workers} worker{pkg.workers === 1 ? '' : 's'}</span>
+                {pkg.platform && <span>· linux/{platformArch(pkg.platform)}</span>}
+                {pkg.emulated && <Badge className="text-xs bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:border-amber-800">emulated</Badge>}
+              </p>
+              {pkg.description && (
+                <button type="button" onClick={() => setOpenDescription(openDescription === pkg.id ? null : pkg.id)}
+                  className={`text-left text-xs text-muted-foreground ${openDescription === pkg.id ? 'block' : 'line-clamp-2'}`}
+                  aria-expanded={openDescription === pkg.id}>
+                  {pkg.description}
+                </button>
+              )}
+              {pkg.status === 'failed' && pkg.error && <p className="text-xs text-destructive">{pkg.error}</p>}
+              {((pkg.status === 'failed' && pkg.build_log) || canManagePackage(role, userId, groupID, pkg)) && (
+                <div className="flex gap-2 pt-1">
+                  {pkg.status === 'failed' && pkg.build_log && (
+                    <Button variant="outline" size="sm" onClick={() => setOpenLog(openLog === pkg.id ? null : pkg.id)}>{openLog === pkg.id ? 'Hide log' : 'Build log'}</Button>
+                  )}
+                  {canManagePackage(role, userId, groupID, pkg) && (
+                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => handleDelete(pkg)}><Trash2 className="mr-1 h-4 w-4" />Delete</Button>
+                  )}
+                </div>
+              )}
+              {openLog === pkg.id && pkg.build_log && (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-secondary/40 p-2 font-mono text-xs">{pkg.build_log}</pre>
+              )}
+            </li>
+          ))}
+        </ul>
+        ) : (
         <div className="overflow-x-auto border border-border rounded-lg">
           <table className="w-full text-sm">
             <thead>
@@ -290,6 +339,7 @@ export default function CompressorsPage() {
             </tbody>
           </table>
         </div>
+        )
       )}
       </TabPanel>
       )}
