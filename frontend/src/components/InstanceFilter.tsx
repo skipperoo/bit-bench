@@ -1,7 +1,7 @@
 import { useId, useMemo } from 'react'
 import { LegendMarker } from '@/components/charts/CompressorMarker'
 import StylePicker from '@/components/StylePicker'
-import { getCompressorFamily, renameCompressor } from '@/lib/compressors'
+import { LABEL_SEPARATOR, getCompressorFamily, shortCompressorNames } from '@/lib/compressors'
 import type { CompressorStyle } from '@/lib/compressors'
 
 /** Per-user marker styles: with it, every marker becomes a shape/colour picker. */
@@ -49,6 +49,7 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
     }
     onChange(next)
   }
+  const short = shortCompressorNames(names)
   const shown = names.length - names.filter((n) => hidden.has(n)).length
   const customised = styleEditing ? names.filter((n) => { const o = styleEditing.overridden(n); return o.shape || o.color || o.name }) : []
 
@@ -64,7 +65,8 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
       {families.map(([family, members]) => {
         const visibleCount = members.filter((m) => !hidden.has(m)).length
         return (
-          <fieldset key={family} className="space-y-1">
+          // min-w-0: a fieldset otherwise never shrinks below its widest name.
+          <fieldset key={family} className="min-w-0 space-y-1">
             <legend className="flex w-full items-center gap-2 text-xs font-medium text-muted-foreground">
               <input
                 type="checkbox"
@@ -100,7 +102,10 @@ export default function InstanceFilter({ names, colors, shapes, hidden, onChange
                   ) : (
                     <LegendMarker name={m} color={color} shape={shape} />
                   )}
-                  <label htmlFor={id} className="min-w-0 cursor-pointer truncate font-mono text-xs" title={renameCompressor(m)}>{renameCompressor(m)}</label>
+                  <label htmlFor={id} className="flex min-w-0 cursor-pointer font-mono text-xs" title={short.get(m)!.full}>
+                    <span className="min-w-[3ch] truncate">{short.get(m)!.base}</span>
+                    {short.get(m)!.options && <span className="max-w-[75%] shrink-0 truncate text-muted-foreground">{LABEL_SEPARATOR}{short.get(m)!.options}</span>}
+                  </label>
                 </div>
               )
             })}

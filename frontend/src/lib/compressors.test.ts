@@ -127,3 +127,15 @@ describe('assignCompressorStyles', () => {
     expect(assignCompressorStyles(['zstd'], { colors: { zstd: 'red' } }).get('zstd')!.color).toBe(getCompressorColor('zstd'))
   })
 })
+
+describe('shortCompressorNames', () => {
+  it('keeps only what tells instances apart', async () => {
+    const { shortCompressorNames } = await import('./compressors')
+    const s = shortCompressorNames(['gzip · level 9', 'neats · lossy · max_bpc 16', 'neats · lossy · max_bpc 20', 'zstd'])
+      .entries()
+    const got = Object.fromEntries([...s].map(([k, v]) => [k, `${v.base}|${v.options}`]))
+    expect(got['zstd']).toBe('Zstd|')
+    expect(got['gzip · level 9']).toMatch(/^Gzip\|$/)
+    expect(got['neats · lossy · max_bpc 16']).toBe('NeaTS|max_bpc 16')
+  })
+})

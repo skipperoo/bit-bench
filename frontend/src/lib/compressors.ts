@@ -332,3 +332,32 @@ export function assignCompressorStyles(names: string[], overrides: ChartStyleOve
   }
   return styles
 }
+
+/**
+ * The shortest names that still tell the given compressors apart, for narrow
+ * lists: the algorithm name plus only the options that differ between its
+ * instances (a lone instance keeps just the algorithm). Returns
+ * {full, base, options} per name; `options` is '' when nothing is needed.
+ */
+export function shortCompressorNames(names: string[]): Map<string, { full: string; base: string; options: string }> {
+  const parts = new Map(names.map((n) => {
+    const full = renameCompressor(n)
+    const [base, ...opts] = full.split(LABEL_SEPARATOR)
+    return [n, { full, base, opts }] as const
+  }))
+  const byBase = new Map<string, string[][]>()
+  for (const p of parts.values()) byBase.set(p.base, [...(byBase.get(p.base) ?? []), p.opts])
+  const out = new Map<string, { full: string; base: string; options: string }>()
+  for (const [n, p] of parts) {
+    const siblings = byBase.get(p.base)!
+    const options = siblings.length === 1 ? '' : p.opts.filter((o) => !siblings.every((s) => s.includes(o))).join(LABEL_SEPARATOR)
+    out.set(n, { full: p.full, base: p.base, options })
+  }
+  // Fall back to the full name if two still look the same.
+  const seen = new Map<string, number>()
+  for (const v of out.values()) seen.set(`${v.base}|${v.options}`, (seen.get(`${v.base}|${v.options}`) ?? 0) + 1)
+  for (const v of out.values()) {
+    if (seen.get(`${v.base}|${v.options}`)! > 1) v.options = v.full.split(LABEL_SEPARATOR).slice(1).join(LABEL_SEPARATOR)
+  }
+  return out
+}
