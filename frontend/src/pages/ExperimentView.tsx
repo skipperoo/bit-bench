@@ -417,7 +417,8 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
           {phone ? (
             <>
               <button type="button" onClick={() => setFilterOpen(true)}
-                className="fixed right-4 z-20 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-transform active:scale-95 bottom-[calc(4.75rem+env(safe-area-inset-bottom))]">
+                // Shared links have no tab bar to clear.
+                className={`fixed right-4 z-20 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-transform active:scale-95 ${shareToken ? 'bottom-[calc(1rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(4.75rem+env(safe-area-inset-bottom))]'}`}>
                 <SlidersHorizontal className="h-4 w-4" />Compressors {visibleNames.length}/{allNames.length}
               </button>
               <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title="Show compressors"
