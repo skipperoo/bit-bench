@@ -133,3 +133,40 @@ func RequireAdminOrProfessor(next http.HandlerFunc) http.HandlerFunc {
 func RequireUploader(next http.HandlerFunc) http.HandlerFunc {
 	return requireRole(model.RoleAdmin, model.RoleProfessor, model.RolePhD)(next)
 }
+
+// OptionalAuth attaches the claims and the current user when the request
+// carries a valid, unrevoked token, and otherwise lets it through anonymously
+// (shared read-only links).
+func OptionalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw := r.Header.Get("Authorization")
+		if !strings.HasPrefix(raw, "Bearer ") || userLookup == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		claims, err := model.ValidateToken(strings.TrimPrefix(raw, "Bearer "))
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if rdb != nil {
+			if blocked, _ := rdb.Exists(r.Context(), "jwt_blocklist:"+claims.ID).Result(); blocked > 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		id, err := uuid.Parse(claims.Sub)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		user, err := userLookup.FindByID(r.Context(), id)
+		if err != nil || user == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
+		ctx = context.WithValue(ctx, UserKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
