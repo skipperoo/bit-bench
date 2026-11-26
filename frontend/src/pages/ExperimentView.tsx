@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { Download, Eye, EyeOff, Share, X, SlidersHorizontal } from 'lucide-react'
+import { Download, Eye, EyeOff, Maximize2, MoreHorizontal, Share, X, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,6 +19,8 @@ import { assignCompressorStyles, registerCompressorColors, renameCompressor, sha
 import { useChartStyles } from '@/stores/chart-styles-store'
 import { useAuthStore } from '@/stores/auth-store'
 import ShareDialog from '@/components/ShareDialog'
+import { Sheet } from '@/components/ui/sheet'
+import { useIsPhone } from '@/lib/responsive'
 import { SharedLinkError, sharedFetch } from '@/lib/shares'
 import { usePackageColors } from '@/lib/package-colors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
@@ -110,6 +112,12 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [paretoTarget, setParetoTarget] = useState('')
   const [sharing, setSharing] = useState(false)
+  const phone = useIsPhone()
+  // Phones: page actions in a sheet from ⋯, the compressor filter in a sheet from a floating button.
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  // Phones: one chart full screen (pinch zoom is off).
+  const [expanded, setExpanded] = useState<string | null>(null)
   usePackageColors(!shareToken)
   // A shared page starts from the owner's styles once; later polls keep the viewer's edits.
   const sharedStyles = useRef(false)
@@ -219,21 +227,61 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
     return r ? metricValue(r, metric) ?? null : null
   }
 
+  // The chart of a metric; `tall` is the full-screen version (phones).
+  const chartFor = (m: MetricDef, tall = false) => {
+    if (multi) {
+      return (
+        <GroupedBarChart
+          compressors={visibleNames}
+          metric={m.key}
+          tall={tall}
+          series={visible.map((v) => ({
+            id: v.benchmark.id,
+            name: v.benchmark.name,
+            values: new Map(v.results.map((r) => [r.compressor, metricValue(r, m.key)]).filter((e): e is [string, number] => e[1] != null)),
+          }))}
+        />
+      )
+    }
+    const results = visible[0]?.results ?? []
+    const present = results.filter((r) => metricValue(r, m.key) != null)
+    const uncompressedRef = m.key === 'bits_per_element' ? results.find((r) => r.uncompressed_bits_per_element != null)?.uncompressed_bits_per_element : undefined
+    return m.chart === 'bar' ? (
+      <MetricBarChart
+        rows={present.map((r) => ({ compressor: r.compressor, value: metricValue(r, m.key)! }))}
+        metric={m.key}
+        colors={colors} shapes={shapes}
+        tall={tall}
+        reference={uncompressedRef != null ? { y: uncompressedRef, label: `input container ${uncompressedRef.toFixed(0)} b/e` } : undefined}
+      />
+    ) : (
+      <MetricScatterChart
+        rows={present.filter((r) => r.compression_ratio != null).map((r) => ({ compressor: r.compressor, ratio: r.compression_ratio!, value: metricValue(r, m.key)! }))}
+        metric={m.key}
+        colors={colors} shapes={shapes}
+        tall={tall}
+      />
+    )
+  }
+  const cardHeader = (m: MetricDef) => (
+    <CardHeader className={phone ? 'flex-row items-center justify-between space-y-0' : undefined}>
+      <CardTitle className="text-base">{metricLabel(m.key)}</CardTitle>
+      {phone && (
+        <button type="button" aria-label={`Full screen: ${metricLabel(m.key)}`} onClick={() => setExpanded(m.key)}
+          className="-m-1 rounded-md p-1.5 text-muted-foreground active:bg-secondary">
+          <Maximize2 className="h-4 w-4" />
+        </button>
+      )}
+    </CardHeader>
+  )
+
   const metricCard = (m: MetricDef) => {
     if (multi) {
       return (
         <Card key={m.key}>
-          <CardHeader><CardTitle className="text-base">{metricLabel(m.key)}</CardTitle></CardHeader>
+          {cardHeader(m)}
           <CardContent className="space-y-4">
-            <GroupedBarChart
-              compressors={visibleNames}
-              metric={m.key}
-              series={visible.map((v) => ({
-                id: v.benchmark.id,
-                name: v.benchmark.name,
-                values: new Map(v.results.map((r) => [r.compressor, metricValue(r, m.key)]).filter((e): e is [string, number] => e[1] != null)),
-              }))}
-            />
+            {chartFor(m)}
             <ComparisonTable
               benchmarks={visible.map((v) => ({ id: v.benchmark.id, name: v.benchmark.name }))}
               compressors={visibleNames}
@@ -248,25 +296,11 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
     const results = visible[0]?.results ?? []
     const present = results.filter((r) => metricValue(r, m.key) != null)
     if (present.length === 0) return null
-    const uncompressedRef = m.key === 'bits_per_element' ? results.find((r) => r.uncompressed_bits_per_element != null)?.uncompressed_bits_per_element : undefined
     return (
       <Card key={m.key}>
-        <CardHeader><CardTitle className="text-base">{metricLabel(m.key)}</CardTitle></CardHeader>
+        {cardHeader(m)}
         <CardContent className="space-y-4">
-          {m.chart === 'bar' ? (
-            <MetricBarChart
-              rows={present.map((r) => ({ compressor: r.compressor, value: metricValue(r, m.key)! }))}
-              metric={m.key}
-              colors={colors} shapes={shapes}
-              reference={uncompressedRef != null ? { y: uncompressedRef, label: `input container ${uncompressedRef.toFixed(0)} b/e` } : undefined}
-            />
-          ) : (
-            <MetricScatterChart
-              rows={present.filter((r) => r.compression_ratio != null).map((r) => ({ compressor: r.compressor, ratio: r.compression_ratio!, value: metricValue(r, m.key)! }))}
-              metric={m.key}
-              colors={colors} shapes={shapes}
-            />
-          )}
+          {chartFor(m)}
           <RankedTable
             title={title}
             metric={m.key}
@@ -288,11 +322,15 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
   const topFive = paretoItem ? paretoRanking(paretoItem.results).slice(0, 5) : []
 
   return (
-    <div className="space-y-5">
+    // Phones: room below the last card for the floating compressor button.
+    <div className="space-y-5 max-md:pb-14">
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight max-md:min-w-0 max-md:flex-1 max-md:text-xl max-md:break-words">{title}</h1>
           {single && <StatusPill status={single.status} progress={single.progress} />}
+          {phone && ready.length > 0 && (
+            <Button variant="ghost" size="sm" aria-label="More actions" onClick={() => setActionsOpen(true)} className="-mr-2"><MoreHorizontal className="h-5 w-5" /></Button>
+          )}
         </div>
         {shared && (
           <p className="text-xs text-muted-foreground">
@@ -309,11 +347,11 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
             {single.source && <span className="block font-mono text-xs truncate" title={single.source.series.join(', ')}>series: {single.source.series.join(', ')}</span>}
           </p>
         ) : (
-          <ul className="flex flex-wrap gap-2" aria-label="Benchmarks in this view">
+          <ul className="flex flex-wrap gap-2 max-md:-mx-4 max-md:flex-nowrap max-md:overflow-x-auto max-md:px-4 max-md:pb-1 max-md:[scrollbar-width:none]" aria-label="Benchmarks in this view">
             {(shareToken ? allItems : items).map((i) => {
               const off = hiddenBenchmarks.has(i.benchmark.id)
               return (
-                <li key={i.benchmark.id} className={`flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs ${off ? 'opacity-50' : ''}`}>
+                <li key={i.benchmark.id} className={`flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs max-md:py-1.5 ${off ? 'opacity-50' : ''}`}>
                   {shareToken
                     ? <span className={off ? 'line-through' : ''}>{i.benchmark.name}</span>
                     : <Link to={viewPath([i.benchmark.id])} className="hover:underline">{i.benchmark.name}</Link>}
@@ -366,10 +404,49 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
 
       <EmulationNotice instances={instances} />
 
+      {phone && (
+        <Sheet open={expanded !== null} onClose={() => setExpanded(null)} title={expanded ? metricLabel(expanded) : ''} className="max-h-[96dvh]">
+          {expanded && metrics.some((m) => m.key === expanded) && chartFor(metrics.find((m) => m.key === expanded)!, true)}
+          <p className="mt-2 text-center text-xs text-muted-foreground">Turn your phone sideways for a wider chart.</p>
+        </Sheet>
+      )}
       <ShareDialog open={sharing} benchmarkIds={ids} title={title} tab={tab} onClose={() => setSharing(false)} />
 
       {ready.length === 0 ? null : (
         <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+          {phone ? (
+            <>
+              <button type="button" onClick={() => setFilterOpen(true)}
+                className="fixed right-4 z-20 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-transform active:scale-95 bottom-[calc(4.75rem+env(safe-area-inset-bottom))]">
+                <SlidersHorizontal className="h-4 w-4" />Compressors {visibleNames.length}/{allNames.length}
+              </button>
+              <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title="Show compressors"
+                footer={<Button className="w-full" onClick={() => setFilterOpen(false)}>Done</Button>}>
+                <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} styleEditing={styleEditing} />
+              </Sheet>
+              <Sheet open={actionsOpen} onClose={() => setActionsOpen(false)} title="Actions">
+                <div className="space-y-1">
+                  {canShare && (
+                    <button type="button" onClick={() => { setActionsOpen(false); setSharing(true) }} className="flex w-full items-center gap-3 rounded-md px-2 py-3 text-left active:bg-secondary">
+                      <Share className="h-5 w-5 text-muted-foreground" />Share
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setActionsOpen(false); downloadAll() }} className="flex w-full items-center gap-3 rounded-md px-2 py-3 text-left active:bg-secondary">
+                    <Download className="h-5 w-5 text-muted-foreground" />Download all results (CSV)
+                  </button>
+                  {splittable && (
+                    <label htmlFor="aggregate-signals-phone" className="flex items-start justify-between gap-3 px-2 py-3">
+                      <span>
+                        Aggregate time series
+                        <span className="block text-xs text-muted-foreground">{aggregate ? 'One result per benchmark over all its signals.' : 'Every signal on its own after the aggregate.'}</span>
+                      </span>
+                      <Switch id="aggregate-signals-phone" checked={aggregate} onCheckedChange={setAggregate} />
+                    </label>
+                  )}
+                </div>
+              </Sheet>
+            </>
+          ) : (
           <aside className="lg:sticky lg:top-16 lg:self-start">
             <details className="lg:hidden rounded-md border border-border p-3">
               <summary className="flex items-center gap-2 text-sm cursor-pointer"><SlidersHorizontal className="w-4 h-4" />Filter compressors ({visibleNames.length}/{allNames.length})</summary>
@@ -379,9 +456,10 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
               <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} styleEditing={styleEditing} />
             </div>
           </aside>
+          )}
 
           <div className="space-y-4 min-w-0">
-            {splittable && (
+            {!phone && splittable && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <label htmlFor="aggregate-signals" className="flex items-center gap-2">
                   <Switch id="aggregate-signals" checked={aggregate} onCheckedChange={setAggregate} />
@@ -394,14 +472,18 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
                 </span>
               </div>
             )}
-            <Tabs items={tabItems} value={tab} onChange={setTab} ariaLabel="Result sections" idPrefix="exp" />
+            {/* Phones: the section strip scrolls sideways and sticks under the status bar. */}
+            <div className="max-md:sticky max-md:top-[env(safe-area-inset-top)] max-md:z-10 max-md:-mx-4 max-md:bg-background max-md:px-4">
+              <Tabs items={tabItems} value={tab} onChange={setTab} ariaLabel="Result sections" idPrefix="exp"
+                className="max-md:flex-nowrap max-md:overflow-x-auto max-md:[scrollbar-width:none]" />
+            </div>
             {visibleNames.length === 0 ? (
               <p className="text-sm text-muted-foreground">Every compressor is hidden by the filter.</p>
             ) : (
               <TabPanel value={tab} idPrefix="exp" className="space-y-4">
                 {tab === 'overview' && (
                   <>
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    {!phone && <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span>Every metric of every benchmark, signal and compressor in one file; each metric's table also has its own CSV.</span>
                       <div className="flex flex-wrap gap-2">
                         {canShare && (
@@ -413,7 +495,7 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
                           <Download className="mr-1 h-4 w-4" />Download all results (CSV)
                         </Button>
                       </div>
-                    </div>
+                    </div>}
                     {!multi && topFive.length > 0 && <TopFive entries={topFive} results={paretoItem!.results} colors={colors} shapes={shapes} />}
                     {metrics.filter((m) => m.key === 'compression_ratio').map(metricCard)}
                   </>
@@ -470,6 +552,40 @@ function TopFive({ entries, results, colors, shapes }: {
   colors: Map<string, string>
   shapes?: Map<string, string>
 }) {
+  const phone = useIsPhone()
+  if (phone) {
+    // Phones: one row per compressor, the numbers on a second line.
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base">Top 5 <span className="font-normal text-muted-foreground">· ratio vs compression speed</span></CardTitle></CardHeader>
+        <CardContent>
+          <ol className="divide-y divide-border">
+            {entries.map((e, i) => {
+              const r = results.find((x) => x.compressor === e.compressor)
+              return (
+                <li key={e.compressor} className="flex gap-3 py-2">
+                  <span className="w-4 pt-0.5 text-sm tabular-nums text-muted-foreground">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <CompressorSwatch name={e.compressor} color={colors.get(e.compressor)} shape={shapes?.get(e.compressor)} />
+                      <span className="truncate font-mono">{renameCompressor(e.compressor)}</span>
+                      <SelfTestBadge failures={r?.self_test_failures} />
+                      {e.dominationCount === 0 && <span className="ml-auto shrink-0 rounded border border-green-200 bg-green-100 px-1.5 text-[11px] text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200">Pareto</span>}
+                    </div>
+                    <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                      {r?.compression_ratio != null ? formatMetricValue(r.compression_ratio, 'compression_ratio') : '–'}
+                      {' · '}{r?.compression_throughput_mbs != null ? `${r.compression_throughput_mbs.toFixed(1)} MB/s` : '–'}
+                      {' · '}{r?.bits_per_element != null ? `${r.bits_per_element.toFixed(2)} b/e` : '–'}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </CardContent>
+      </Card>
+    )
+  }
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Top 5 (Pareto score: ratio vs compression throughput)</CardTitle></CardHeader>

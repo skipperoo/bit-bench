@@ -1,5 +1,7 @@
 /** Above this many bars, bar charts switch to horizontal so labels stay readable. */
 export const HORIZONTAL_THRESHOLD = 12
+/** Phones switch bar charts to horizontal bars sooner so the labels stay readable. */
+export const PHONE_HORIZONTAL_THRESHOLD = 6
 
 /**
  * Categorical palette for benchmark series in comparisons, in fixed order

@@ -26,7 +26,10 @@ export default function SharedView() {
   const container = 'max-w-[120rem] px-4 lg:px-6 mx-auto w-full'
   return (
     <div className="min-h-screen flex flex-col pt-[env(safe-area-inset-top)]">
-      <header className="border-b sticky top-0 bg-background z-20">
+      {/* Phones: an opaque band behind the status bar so content never scrolls under it. */}
+      <div className="md:hidden fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-background" aria-hidden="true" />
+
+      <header className="border-b sticky top-[env(safe-area-inset-top)] bg-background z-20">
         <div className={`${container} h-14 flex items-center justify-between gap-3`}>
           <span className="font-bold text-lg">BitBench</span>
           <div className="flex items-center gap-2 text-sm">

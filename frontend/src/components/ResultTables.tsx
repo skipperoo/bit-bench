@@ -128,7 +128,7 @@ export function ComparisonTable({ benchmarks, compressors, value, metric, colors
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-border bg-secondary/40">
-              <th className="text-left p-2 font-medium">Benchmark</th>
+              <th className="sticky left-0 z-[1] bg-card text-left p-2 font-medium">Benchmark</th>
               {compressors.map((c) => (
                 <th key={c} className="text-right p-2 font-mono text-xs font-medium">
                   <span className="inline-flex items-center gap-1 justify-end">
@@ -143,7 +143,7 @@ export function ComparisonTable({ benchmarks, compressors, value, metric, colors
               const ranks = rankValues(row.values, lower)
               return (
                 <tr key={ri} className={`border-b border-border ${ri === all.length - 1 ? 'font-semibold border-t-2' : ''}`}>
-                  <td className="p-2 text-xs">{row.label}</td>
+                  <td className="sticky left-0 z-[1] bg-card p-2 text-xs max-md:max-w-[9rem] max-md:truncate" title={row.label}>{row.label}</td>
                   {row.values.map((v, ci) => (
                     <td key={ci} className={`text-right p-2 tabular-nums font-mono text-xs ${v == null ? 'text-muted-foreground' : rankClass(ranks[ci] ?? 99)}`}>
                       {v == null ? '–' : formatMetricValue(v, metric)}
