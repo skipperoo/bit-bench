@@ -366,7 +366,7 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
 
       <EmulationNotice instances={instances} />
 
-      {sharing && <ShareDialog benchmarkIds={ids} title={title} tab={tab} onClose={() => setSharing(false)} />}
+      <ShareDialog open={sharing} benchmarkIds={ids} title={title} tab={tab} onClose={() => setSharing(false)} />
 
       {ready.length === 0 ? null : (
         <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
