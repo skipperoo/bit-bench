@@ -4,6 +4,10 @@ BitBench is a **web-based platform** for evaluating lossless compression algorit
 
 Born from the [GEF Experiments](https://github.com/mxpucci/gef-experiments) benchmarking suite, BitBench wraps the same C++ benchmark binary (`LosslessBenchmark`) in a full-stack web application: a Go backend with PostgreSQL, Redis, and a React frontend that renders the ranked tables, bar charts, and Pareto scatter plots that compression researchers rely on.
 
+## Demo
+
+![Benchmark Demo](./bitbench.gif)
+
 ## Quick Start
 
 ```bash
