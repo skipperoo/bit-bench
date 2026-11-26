@@ -322,7 +322,8 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
   const topFive = paretoItem ? paretoRanking(paretoItem.results).slice(0, 5) : []
 
   return (
-    <div className="space-y-5">
+    // Phones: room below the last card for the floating compressor button.
+    <div className="space-y-5 max-md:pb-14">
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight max-md:min-w-0 max-md:flex-1 max-md:text-xl max-md:break-words">{title}</h1>
@@ -419,7 +420,7 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
                 className="fixed right-4 z-20 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg transition-transform active:scale-95 bottom-[calc(4.75rem+env(safe-area-inset-bottom))]">
                 <SlidersHorizontal className="h-4 w-4" />Compressors {visibleNames.length}/{allNames.length}
               </button>
-              <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title="Compressors"
+              <Sheet open={filterOpen} onClose={() => setFilterOpen(false)} title="Show compressors"
                 footer={<Button className="w-full" onClick={() => setFilterOpen(false)}>Done</Button>}>
                 <InstanceFilter names={allNames} colors={colors} shapes={shapes} hidden={hidden} onChange={setHidden} styleEditing={styleEditing} />
               </Sheet>
@@ -551,6 +552,40 @@ function TopFive({ entries, results, colors, shapes }: {
   colors: Map<string, string>
   shapes?: Map<string, string>
 }) {
+  const phone = useIsPhone()
+  if (phone) {
+    // Phones: one row per compressor, the numbers on a second line.
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-base">Top 5 <span className="font-normal text-muted-foreground">· ratio vs compression speed</span></CardTitle></CardHeader>
+        <CardContent>
+          <ol className="divide-y divide-border">
+            {entries.map((e, i) => {
+              const r = results.find((x) => x.compressor === e.compressor)
+              return (
+                <li key={e.compressor} className="flex gap-3 py-2">
+                  <span className="w-4 pt-0.5 text-sm tabular-nums text-muted-foreground">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <CompressorSwatch name={e.compressor} color={colors.get(e.compressor)} shape={shapes?.get(e.compressor)} />
+                      <span className="truncate font-mono">{renameCompressor(e.compressor)}</span>
+                      <SelfTestBadge failures={r?.self_test_failures} />
+                      {e.dominationCount === 0 && <span className="ml-auto shrink-0 rounded border border-green-200 bg-green-100 px-1.5 text-[11px] text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-200">Pareto</span>}
+                    </div>
+                    <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+                      {r?.compression_ratio != null ? formatMetricValue(r.compression_ratio, 'compression_ratio') : '–'}
+                      {' · '}{r?.compression_throughput_mbs != null ? `${r.compression_throughput_mbs.toFixed(1)} MB/s` : '–'}
+                      {' · '}{r?.bits_per_element != null ? `${r.bits_per_element.toFixed(2)} b/e` : '–'}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </CardContent>
+      </Card>
+    )
+  }
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Top 5 (Pareto score: ratio vs compression throughput)</CardTitle></CardHeader>

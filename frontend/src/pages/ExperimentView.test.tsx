@@ -149,7 +149,7 @@ describe('ExperimentView on a phone', () => {
     expect(screen.queryByLabelText('Compressor filter')).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /Compressors 3\/3/ }))
-    const filter = screen.getByRole('dialog', { name: 'Compressors' })
+    const filter = screen.getByRole('dialog', { name: 'Show compressors' })
     await userEvent.click(within(filter).getByRole('checkbox', { name: /Gzip/ }))
     expect(screen.getByRole('button', { name: /Compressors 2\/3/ })).toBeInTheDocument()
 
