@@ -99,3 +99,17 @@
     font-size: 16px !important;
   }
 }
+
+/* Page changes: a short cross-fade (View Transitions API; instant where unsupported). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
