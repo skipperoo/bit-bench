@@ -1,10 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import ExperimentsPage from './ExperimentsPage'
 import { apiFetch } from '@/lib/api'
 import type { Benchmark } from '@/types'
+import { setPhone } from '@/test/phone'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
 const mockedFetch = vi.mocked(apiFetch)
@@ -159,5 +160,38 @@ describe('ExperimentsPage', () => {
     const q = new URLSearchParams(call.split('?')[1])
     expect([q.get('status'), q.get('dataset'), q.get('compressor')]).toEqual(['ready', 'wildppg', 'gzip'])
     expect((screen.getByLabelText('Data source') as HTMLSelectElement).value).toBe('dataset:wildppg')
+  })
+})
+
+describe('ExperimentsPage on a phone', () => {
+  beforeEach(() => setPhone(true))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('lists experiments as rows, filters by status chips and keeps the rest in a sheet', async () => {
+    renderPage()
+    const row = await screen.findByRole('link', { name: /single upload/ })
+    expect(row).toHaveAttribute('href', '/experiments/view?ids=3')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ready' }))
+    expect(screen.getByRole('button', { name: 'Ready' })).toHaveAttribute('aria-pressed', 'true')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    expect(screen.getByRole('dialog', { name: 'Filters' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Data source')).toBeInTheDocument()
+  })
+
+  it('select mode shows checkboxes and an action bar; one experiment can be renamed', async () => {
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Select' }))
+    const bar = screen.getByRole('toolbar', { name: 'Selection' })
+    expect(bar).toHaveTextContent('Tap experiments to select them')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select wild' }))
+    expect(bar).toHaveTextContent('2 benchmarks selected')
+    expect(screen.getByRole('button', { name: 'Compare' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    expect(screen.getByRole('dialog', { name: 'Rename experiment' })).toBeInTheDocument()
+    expect(screen.getByLabelText('New name for wild')).toHaveValue('wild')
   })
 })
