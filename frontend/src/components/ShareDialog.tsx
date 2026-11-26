@@ -21,12 +21,20 @@ function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = useState(false)
   const field = useRef<HTMLInputElement>(null)
   const copy = async () => {
+    let ok = false
     try {
+      // navigator.clipboard only exists on HTTPS or localhost.
       await navigator.clipboard.writeText(url)
+      ok = true
+    } catch {
+      // Plain-HTTP deployments: copy the selected field the old way.
+      field.current?.focus()
+      field.current?.select()
+      try { ok = document.execCommand('copy') } catch { ok = false }
+    }
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      field.current?.select()
     }
   }
   return (
