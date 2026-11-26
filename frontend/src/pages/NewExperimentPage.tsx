@@ -1,5 +1,5 @@
 import { Fragment, useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -7,7 +7,9 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Trash2, Search } from 'lucide-react'
+import { Loader2, FileUp, AlertCircle, CheckCircle2, AlertTriangle, X, Plus, Trash2, Search, ChevronLeft } from 'lucide-react'
+import { Sheet } from '@/components/ui/sheet'
+import { useIsPhone } from '@/lib/responsive'
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
 import { shouldUseSlider } from '@/lib/options'
@@ -177,6 +179,11 @@ export default function NewExperimentPage() {
   useChartStyles((st) => st.names) // re-render with the user's compressor names
   useEffect(() => { useChartStyles.getState().load() }, [])
   const [name, setName] = useState('')
+  // Phones: one step per screen (the sections stay mounted, so nothing typed is lost).
+  const phone = useIsPhone()
+  const [step, setStep] = useState(0)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [stepHint, setStepHint] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [multiMode, setMultiMode] = useState<'average' | 'sequential'>('average')
   const [source, setSource] = useState<'files' | 'dataset'>('files')
@@ -685,9 +692,125 @@ export default function NewExperimentPage() {
 
   const instanceCount = (compName: string) => instances.filter((i) => i.name === compName).length
 
+  // The algorithm picker: the left pane on desktop, a sheet on phones.
+  const pickerPane = (
+            <div className="border border-border rounded-lg">
+              <div className="p-3 border-b border-border">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search compressors..."
+                    className="h-8 pl-8"
+                  />
+                </div>
+              </div>
+              <div className="max-h-[28rem] overflow-y-auto p-3 space-y-4">
+                {Object.keys(compressors).length === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading compressors…
+                  </div>
+                ) : pickerFamilies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No compressor matches the search.</p>
+                ) : (
+                  pickerFamilies.map((family) => (
+                    <section key={family.name}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                          {family.name}
+                        </h3>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+                          aria-label={`Add all ${family.name}`}
+                          disabled={family.compressors.every((c) => instanceCount(c) > 0)}
+                          onClick={() => addAll(family.compressors)}
+                        >
+                          Add all
+                        </button>
+                      </div>
+                      <div className="space-y-0.5">
+                        {family.compressors.map((c) => {
+                          const schema = compressors[c] || {}
+                          const disabled = !canAddInstance(c, schema, customNames.has(c), instanceCount(c), instances.length)
+                          const emulated = isEmulated(packagePlatforms[c], hostPlatform)
+                          return (
+                            <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
+                              <span className="flex items-center gap-1.5 min-w-0">
+                                <CompressorSwatch name={c} />
+                                <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
+                                {emulated && (
+                                  <span
+                                    className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                                    title={`Targets ${platformArch(packagePlatforms[c])} — runs under emulation on this host`}
+                                  >
+                                    {platformArch(packagePlatforms[c])} emulated
+                                  </span>
+                                )}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 shrink-0"
+                                aria-label={`Add ${renameCompressor(c)}`}
+                                disabled={disabled}
+                                title={!customNames.has(c) && !hasVariableOptions(c, compressors[c] || {}) && instanceCount(c) > 0
+                                  ? 'This compressor has no configurable options'
+                                  : undefined}
+                                onClick={() => addInstance(c)}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  ))
+                )}
+              </div>
+            </div>
+  )
+
+  const goTo = (next: number) => {
+    setStepHint('')
+    setStep(next)
+    window.scrollTo?.({ top: 0 })
+  }
+  // Next checks the current step and points at what is missing instead of being a dead button.
+  const nextStep = () => {
+    if (step === 0 && !steps[0].done) {
+      setStepHint(!name ? 'Enter a name' : source === 'files' ? 'Select a file' : datasetError ?? '')
+      if (!name) document.getElementById('name')?.focus()
+      return
+    }
+    if (step === 1 && !steps[1].done) {
+      setStepHint(instances.length === 0 ? 'Add at least one compressor' : validationError ?? '')
+      return
+    }
+    goTo(step + 1)
+  }
+
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
+    <div className="max-w-7xl mx-auto max-md:pb-36">
+      {phone && (
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            {step === 0
+              ? <Link to="/experiments" viewTransition className="-ml-1 flex items-center text-sm text-muted-foreground"><ChevronLeft className="h-4 w-4" />Cancel</Link>
+              : <button type="button" onClick={() => goTo(step - 1)} className="-ml-1 flex items-center text-sm text-muted-foreground"><ChevronLeft className="h-4 w-4" />{steps[step - 1].label}</button>}
+            <span className="text-sm font-semibold">{steps[step].label}</span>
+            <span className="text-xs text-muted-foreground">{step + 1} of {steps.length}</span>
+          </div>
+          <div className="flex gap-1" aria-hidden="true">
+            {steps.map((st, i) => <span key={st.id} className={`h-1 flex-1 rounded-full transition-colors duration-200 ${i <= step ? 'bg-foreground' : 'bg-border'}`} />)}
+          </div>
+        </div>
+      )}
+      <div className="mb-6 max-md:sr-only">
         <h1 className="text-2xl font-semibold tracking-tight mb-1">New experiment</h1>
         <p className="text-sm text-muted-foreground">
           Pick the data, configure the compressors, choose how results are combined. The summary keeps the Run button in reach.
@@ -713,10 +836,10 @@ export default function NewExperimentPage() {
           </ol>
         </nav>
 
-        <div className="min-w-0">
+        <div className={`min-w-0 ${phone ? 'wizard' : ''}`}>
         {/* Step 1: data */}
-        <section id="step-data" aria-label="Data" className="mb-10 scroll-mt-20">
-          <h2 className="text-base font-medium text-foreground mb-3">1 · Data</h2>
+        <section id="step-data" aria-label="Data" className="mb-10 scroll-mt-20" hidden={phone && step !== 0}>
+          <h2 className="text-base font-medium text-foreground mb-3 max-md:sr-only">1 · Data</h2>
           <div className="mb-6">
           <div className="space-y-1.5">
             <Label htmlFor="name">Name</Label>
@@ -842,7 +965,7 @@ export default function NewExperimentPage() {
               <label className="flex flex-col items-center justify-center p-8 cursor-pointer">
                 <FileUp className="w-8 h-8 text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground mb-0.5">
-                  Drag & drop your file(s) here
+                  {phone ? 'Tap to choose files' : 'Drag & drop your file(s) here'}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   .bin, .csv, .zip, or .tar{maxFileSizeMb > 0 ? ` — max ${maxFileSizeMb} MB each` : ''}
@@ -863,9 +986,9 @@ export default function NewExperimentPage() {
         </section>
 
         {/* Step 2: compressors */}
-        <section id="step-compressors" aria-label="Compressors" className="mb-10 scroll-mt-20">
+        <section id="step-compressors" aria-label="Compressors" className="mb-10 scroll-mt-20" hidden={phone && step !== 1}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h2 className="text-base font-medium text-foreground">2 · Compressors</h2>
+            <h2 className="text-base font-medium text-foreground max-md:sr-only">2 · Compressors</h2>
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -988,87 +1111,7 @@ export default function NewExperimentPage() {
           )}
 
           <div className="grid gap-4 lg:grid-cols-2">
-            {/* Picker */}
-            <div className="border border-border rounded-lg">
-              <div className="p-3 border-b border-border">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search compressors..."
-                    className="h-8 pl-8"
-                  />
-                </div>
-              </div>
-              <div className="max-h-[28rem] overflow-y-auto p-3 space-y-4">
-                {Object.keys(compressors).length === 0 ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading compressors…
-                  </div>
-                ) : pickerFamilies.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">No compressor matches the search.</p>
-                ) : (
-                  pickerFamilies.map((family) => (
-                    <section key={family.name}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                          {family.name}
-                        </h3>
-                        <button
-                          type="button"
-                          className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-                          aria-label={`Add all ${family.name}`}
-                          disabled={family.compressors.every((c) => instanceCount(c) > 0)}
-                          onClick={() => addAll(family.compressors)}
-                        >
-                          Add all
-                        </button>
-                      </div>
-                      <div className="space-y-0.5">
-                        {family.compressors.map((c) => {
-                          const schema = compressors[c] || {}
-                          const disabled = !canAddInstance(c, schema, customNames.has(c), instanceCount(c), instances.length)
-                          const emulated = isEmulated(packagePlatforms[c], hostPlatform)
-                          return (
-                            <div key={c} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
-                              <span className="flex items-center gap-1.5 min-w-0">
-                                <CompressorSwatch name={c} />
-                                <span className="font-mono text-sm truncate">{renameCompressor(c)}</span>
-                                {emulated && (
-                                  <span
-                                    className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1 text-[10px] font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-                                    title={`Targets ${platformArch(packagePlatforms[c])} — runs under emulation on this host`}
-                                  >
-                                    {platformArch(packagePlatforms[c])} emulated
-                                  </span>
-                                )}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 shrink-0"
-                                aria-label={`Add ${renameCompressor(c)}`}
-                                disabled={disabled}
-                                title={!customNames.has(c) && !hasVariableOptions(c, compressors[c] || {}) && instanceCount(c) > 0
-                                  ? 'This compressor has no configurable options'
-                                  : undefined}
-                                onClick={() => addInstance(c)}
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </section>
-                  ))
-                )}
-              </div>
-            </div>
-
+            {!phone && pickerPane}
             {/* Configured instances */}
             <div className="border border-border rounded-lg">
               <div className="p-3 border-b border-border">
@@ -1091,7 +1134,7 @@ export default function NewExperimentPage() {
               <div className="max-h-[28rem] overflow-y-auto p-3 space-y-2">
                 {instances.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4">
-                    No compressors configured yet. Add one from the list on the left.
+                    No compressors configured yet. {phone ? 'Tap Add compressor below.' : 'Add one from the list on the left.'}
                   </p>
                 ) : (
                   instances.map((inst, index) => {
@@ -1158,6 +1201,15 @@ export default function NewExperimentPage() {
             </div>
           </div>
 
+          {phone && (
+            <>
+              <Button type="button" variant="outline" className="mt-3 w-full" onClick={() => setPickerOpen(true)}><Plus className="mr-1 h-4 w-4" />Add compressor</Button>
+              <Sheet open={pickerOpen} onClose={() => setPickerOpen(false)} title="Add compressor" className="h-[90dvh]"
+                footer={<Button className="w-full" onClick={() => setPickerOpen(false)}>Done · {instances.length} configured</Button>}>
+                {pickerPane}
+              </Sheet>
+            </>
+          )}
           {validationError && (
             <p className={`text-xs mt-2 ${instances.length === 0 ? 'text-muted-foreground' : 'text-destructive'}`}>{validationError}</p>
           )}
@@ -1197,8 +1249,8 @@ export default function NewExperimentPage() {
         </section>
 
         {/* Step 3: run settings */}
-        <section id="step-settings" aria-label="Run settings" className="mb-10 scroll-mt-20">
-          <h2 className="text-base font-medium text-foreground mb-3">3 · Run settings</h2>
+        <section id="step-settings" aria-label="Run settings" className="mb-10 scroll-mt-20" hidden={phone && step !== 2}>
+          <h2 className="text-base font-medium text-foreground mb-3 max-md:sr-only">3 · Run settings</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="aggregation">Aggregate results over inputs</Label>
@@ -1231,14 +1283,14 @@ export default function NewExperimentPage() {
 
         </div>
 
-        <aside aria-label="Summary" className="sticky bottom-0 lg:bottom-auto lg:top-20 self-end lg:self-start z-10 -mx-4 lg:mx-0 border-t lg:border border-border bg-background lg:rounded-md p-4 space-y-3">
+        <aside aria-label="Summary" className="sticky bottom-0 max-md:fixed max-md:inset-x-0 max-md:mx-0 max-md:pb-[max(1rem,env(safe-area-inset-bottom))] lg:bottom-auto lg:top-20 self-end lg:self-start z-10 -mx-4 lg:mx-0 border-t lg:border border-border bg-background lg:rounded-md p-4 space-y-3">
           <h2 className="text-sm font-medium hidden lg:block">Summary</h2>
           <dl data-testid="run-summary" className="hidden lg:grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             {summaryRows.map(([k, v]) => (
               <Fragment key={k}><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-mono truncate" title={v}>{v}</dd></Fragment>
             ))}
           </dl>
-          <p className="text-xs text-muted-foreground lg:hidden truncate">{summaryRows.map(([, v]) => v).join(' · ')}</p>
+          <p className="text-xs text-muted-foreground lg:hidden truncate">{summaryRows.map(([, v]) => v).filter((v) => v !== '—').join(' · ')}</p>
         {/* Error */}
         {error && (
           <div className="flex items-start gap-2 mb-4 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
@@ -1249,6 +1301,12 @@ export default function NewExperimentPage() {
 
         {/* Submit */}
         <div className="flex flex-col gap-2">
+          {phone && step < steps.length - 1 ? (
+            <>
+              <Button type="button" onClick={nextStep} className="w-full">Next: {steps[step + 1].label}</Button>
+              {stepHint && <p role="alert" className="text-xs text-destructive">{stepHint}</p>}
+            </>
+          ) : (
           <Button type="button" onClick={handleSubmit} disabled={!canSubmit || loading} className="w-full">
             {loading ? (
               <span className="flex items-center gap-2">
@@ -1259,7 +1317,8 @@ export default function NewExperimentPage() {
               'Run Benchmark'
             )}
           </Button>
-          {!canSubmit && !loading && (
+          )}
+          {!canSubmit && !loading && !(phone && step < steps.length - 1) && (
             <p data-testid="submit-hint" className="text-xs text-muted-foreground">
               {!name && 'Enter a name'}
               {name && !inputReady && (source === 'files' ? ' · Select a file' : ` · ${datasetError}`)}
