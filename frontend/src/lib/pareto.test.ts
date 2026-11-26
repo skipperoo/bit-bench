@@ -37,3 +37,17 @@ describe('paretoRanking', () => {
     expect(paretoRanking([noRatio, r('a', 0.5, 1)]).map((e) => e.compressor)).toEqual(['a'])
   })
 })
+
+describe('averageResults', () => {
+  it('averages each compressor over the benchmarks that have it', async () => {
+    const { averageResults } = await import('./pareto')
+    const r = (compressor: string, ratio: number, tp?: number, fails = 0) =>
+      ({ id: compressor, benchmark_id: 'b', compressor, dataset: 'd', compression_ratio: ratio, compression_throughput_mbs: tp, self_test_failures: fails })
+    const avg = averageResults([[r('gzip', 0.2, 10, 1), r('zstd', 0.3, 100)], [r('gzip', 0.4, 30, 2)]])
+    const gzip = avg.find((x) => x.compressor === 'gzip')!
+    expect(gzip.compression_ratio).toBeCloseTo(0.3)
+    expect(gzip.compression_throughput_mbs).toBe(20)
+    expect(gzip.self_test_failures).toBe(3)
+    expect(avg.find((x) => x.compressor === 'zstd')!.compression_throughput_mbs).toBe(100)
+  })
+})

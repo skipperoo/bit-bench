@@ -27,7 +27,7 @@ import { formatMetricValue, metricLabel } from '@/lib/format'
 import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics'
 import type { MetricDef, MetricGroup } from '@/lib/metrics'
 import { METRIC_GROUP_LABELS } from '@/lib/metrics'
-import { paretoRanking } from '@/lib/pareto'
+import { averageResults, paretoRanking } from '@/lib/pareto'
 import { detectSweep, orderByChunkSize } from '@/lib/sweep'
 import { allResultsCSV, downloadText } from '@/lib/csv'
 import { VIEW_LIMIT, dataSourceText, experimentName, signalEntry, viewPath, withSignals } from '@/lib/experiments'
@@ -319,7 +319,12 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
   }
 
   const paretoItem = visible.find((v) => v.benchmark.id === paretoTarget) ?? visible[0]
-  const topFive = paretoItem ? paretoRanking(paretoItem.results).slice(0, 5) : []
+  // Several benchmarks: the Pareto view defaults to every compressor averaged over all of them.
+  const paretoAverage = multi && !visible.some((v) => v.benchmark.id === paretoTarget)
+  const paretoResults = paretoAverage
+    ? averageResults(ready.map((i) => i.results.filter((r) => !hidden.has(r.compressor))))
+    : paretoItem?.results ?? []
+  const topFive = paretoRanking(paretoResults).slice(0, 5)
 
   return (
     // Phones: room below the last card for the floating compressor button.
@@ -505,16 +510,21 @@ export default function ExperimentView({ shareToken }: { shareToken?: string } =
                 {tab === 'pareto' && paretoItem && (
                   <>
                     {multi && (
-                      <label className="flex items-center gap-2 text-sm">
-                        Benchmark
-                        <select className="h-8 rounded-md border border-input bg-transparent px-2 text-sm" value={paretoItem.benchmark.id} onChange={(e) => setParetoTarget(e.target.value)}>
-                          {visible.map((v) => <option key={v.benchmark.id} value={v.benchmark.id}>{v.benchmark.name}</option>)}
-                        </select>
-                      </label>
+                      <div className="space-y-1">
+                        <label className="flex min-w-0 items-center gap-2 text-sm">
+                          <span className="shrink-0">Benchmark</span>
+                          <select className="h-8 w-full min-w-0 max-w-md truncate rounded-md border border-input bg-transparent px-2 text-sm"
+                            value={paretoAverage ? 'average' : paretoItem.benchmark.id} onChange={(e) => setParetoTarget(e.target.value)}>
+                            <option value="average">Average of all {ready.length} benchmarks</option>
+                            {visible.map((v) => <option key={v.benchmark.id} value={v.benchmark.id}>{v.benchmark.name}</option>)}
+                          </select>
+                        </label>
+                        {paretoAverage && <p className="text-xs text-muted-foreground">Each compressor's metrics are averaged over every benchmark it ran in.</p>}
+                      </div>
                     )}
-                    <TopFive entries={topFive} results={paretoItem.results} colors={colors} shapes={shapes} />
+                    <TopFive entries={topFive} results={paretoResults} colors={colors} shapes={shapes} />
                     {(['compression_throughput_mbs', 'decompression_throughput_mbs'] as const).map((key) => {
-                      const rows = paretoItem.results
+                      const rows = paretoResults
                         .filter((r) => r.compression_ratio != null && metricValue(r, key) != null)
                         .map((r) => ({ compressor: r.compressor, ratio: r.compression_ratio!, value: metricValue(r, key)! }))
                       return rows.length ? (

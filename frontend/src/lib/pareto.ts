@@ -52,3 +52,23 @@ export function paretoFront<T extends { x: number; y: number }>(points: T[]): T[
   }
   return front
 }
+
+/**
+ * One row per compressor averaged over several benchmarks (plain mean of each
+ * numeric metric over the benchmarks that have it; self-test failures are summed),
+ * for the "all benchmarks" Pareto view.
+ */
+export function averageResults(sets: BenchmarkResult[][]): BenchmarkResult[] {
+  const byCompressor = new Map<string, BenchmarkResult[]>()
+  for (const rows of sets) for (const r of rows) byCompressor.set(r.compressor, [...(byCompressor.get(r.compressor) ?? []), r])
+  return [...byCompressor.entries()].map(([compressor, rows]) => {
+    const out: Record<string, unknown> = { id: `average-${compressor}`, benchmark_id: 'average', compressor, dataset: 'average' }
+    const keys = new Set(rows.flatMap((r) => Object.keys(r)))
+    for (const k of keys) {
+      const vals = rows.map((r) => (r as unknown as Record<string, unknown>)[k]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+      if (vals.length === 0) continue
+      out[k] = k === 'self_test_failures' ? vals.reduce((a, b) => a + b, 0) : vals.reduce((a, b) => a + b, 0) / vals.length
+    }
+    return out as unknown as BenchmarkResult
+  })
+}
