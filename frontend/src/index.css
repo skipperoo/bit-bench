@@ -113,3 +113,14 @@
     animation: none !important;
   }
 }
+
+/* New experiment wizard on phones: the step that appears slides in. */
+@keyframes step-in {
+  from { opacity: 0; transform: translateX(16px); }
+}
+.wizard > section:not([hidden]) {
+  animation: step-in 220ms cubic-bezier(.2, .8, .2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wizard > section:not([hidden]) { animation: none; }
+}

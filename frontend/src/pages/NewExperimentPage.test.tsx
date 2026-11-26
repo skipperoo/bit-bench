@@ -1,10 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import UploadPage from './NewExperimentPage'
 import { apiFetch, apiUploadWithProgress } from '@/lib/api'
 import type { UploadProgress } from '@/lib/api'
+import { setPhone } from '@/test/phone'
 
 vi.mock('@/lib/api', () => ({
   apiFetch: vi.fn(),
@@ -310,5 +311,37 @@ describe('UploadPage compressor selection', () => {
     await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith('/compressors'))
     expect(await screen.findByText(/No compressors configured yet/)).toBeInTheDocument()
     expect(mockedFetch).not.toHaveBeenCalledWith('/me')
+  })
+})
+
+describe('New experiment on a phone', () => {
+  beforeEach(() => setPhone(true))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('walks one step per screen and points at what is missing', async () => {
+    mockedFetch.mockImplementation(async (path: string) => (path === '/compressors' ? { gzip: {} } : {}) as never)
+    const { container } = renderPage()
+    const section = (id: string) => container.querySelector(`#${id}`) as HTMLElement
+    expect(section('step-data').hidden).toBe(false)
+    expect(section('step-compressors').hidden).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Run Benchmark' })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next: Compressors' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a name')
+    await userEvent.type(screen.getByLabelText('Name'), 'run')
+    await userEvent.click(screen.getByRole('button', { name: 'Next: Compressors' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Select a file')
+    await userEvent.upload(container.querySelector('input[type="file"]') as HTMLInputElement, new File(['x'], 'a.bin'))
+    await userEvent.click(screen.getByRole('button', { name: 'Next: Compressors' }))
+
+    expect(section('step-compressors').hidden).toBe(false)
+    expect(section('step-data').hidden).toBe(true)
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add compressor' }))
+    expect(screen.getByRole('dialog', { name: 'Add compressor' })).toBeInTheDocument()
+
+    // Back returns to the data step with everything kept.
+    await userEvent.click(screen.getByRole('button', { name: /^Data$/ }))
+    expect(screen.getByLabelText('Name')).toHaveValue('run')
   })
 })

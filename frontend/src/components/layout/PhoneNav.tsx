@@ -27,6 +27,8 @@ export function PhoneNav({ onLogout }: { onLogout: () => void }) {
       setIosHelp(true)
     }
   }
+  // The New experiment wizard has its own bottom bar (Next / Run).
+  if (pathname.startsWith('/new')) return null
   const tab = 'flex flex-col items-center gap-0.5 pt-1.5 text-[10px] transition-colors active:opacity-60'
   return (
     <>
