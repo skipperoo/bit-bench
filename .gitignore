@@ -10,8 +10,6 @@ secrets/
 compression/build/
 compression/datasets
 compression/benchmark_results
-compression/lib/sdsl-lite/
-compression/lib/sux/
 compression/1
 # Standardized datasets (mounted into the backend); only the README is tracked.
 datasets/*
