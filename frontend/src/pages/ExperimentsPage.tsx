@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2, LineChart }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import StatusPill from '@/components/StatusPill'
+import SharedWithMe from '@/components/SharedWithMe'
 import { apiFetch } from '@/lib/api'
 import { renameCompressor } from '@/lib/compressors'
 import { useChartStyles } from '@/stores/chart-styles-store'
@@ -208,6 +209,8 @@ export default function ExperimentsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Experiments</h1>
         <Button asChild size="sm"><Link to="/new"><Plus className="w-4 h-4 mr-1" />New experiment</Link></Button>
       </div>
+
+      <SharedWithMe />
 
       <div className="flex flex-wrap items-center gap-2" role="search">
         <Input aria-label="Search by name" placeholder="Search by name…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full sm:w-64" />

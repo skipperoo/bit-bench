@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Download, X, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Download, Eye, EyeOff, Share, X, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,8 +15,11 @@ import { GroupedBarChart, MetricBarChart, MetricScatterChart } from '@/component
 import SweepPanel from '@/components/SweepPanel'
 import { ComparisonTable, RankedTable } from '@/components/ResultTables'
 import { apiFetch } from '@/lib/api'
-import { assignCompressorStyles, renameCompressor, shapeKey } from '@/lib/compressors'
+import { assignCompressorStyles, registerCompressorColors, renameCompressor, shapeKey } from '@/lib/compressors'
 import { useChartStyles } from '@/stores/chart-styles-store'
+import { useAuthStore } from '@/stores/auth-store'
+import ShareDialog from '@/components/ShareDialog'
+import { SharedLinkError, sharedFetch } from '@/lib/shares'
 import { usePackageColors } from '@/lib/package-colors'
 import { formatMetricValue, metricLabel } from '@/lib/format'
 import { availableMetrics, metricValue, withDerivedMetrics } from '@/lib/metrics'
@@ -27,7 +30,7 @@ import { detectSweep, orderByChunkSize } from '@/lib/sweep'
 import { allResultsCSV, downloadText } from '@/lib/csv'
 import { VIEW_LIMIT, dataSourceText, experimentName, signalEntry, viewPath, withSignals } from '@/lib/experiments'
 import { isActive } from '@/lib/status'
-import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult, SeriesResults } from '@/types'
+import type { Benchmark, BenchmarkDetailResponse, BenchmarkListResponse, BenchmarkResult, SeriesResults, SharedPage } from '@/types'
 
 const GROUP_LABELS = METRIC_GROUP_LABELS
 
@@ -36,13 +39,27 @@ interface Loaded {
   results: BenchmarkResult[]
 }
 
-function useExperimentData(ids: string[]) {
+/** Loads the benchmarks in `ids`, or every benchmark of a shared link. */
+function useExperimentData(ids: string[], shareToken?: string) {
   const [items, setItems] = useState<Loaded[]>([])
   const [missing, setMissing] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [shared, setShared] = useState<SharedPage | null>(null)
+  const [linkError, setLinkError] = useState(0)
   const key = ids.join(',')
 
   const load = useCallback(async (only?: string[]) => {
+    if (shareToken) {
+      try {
+        const page = await sharedFetch<SharedPage>(shareToken)
+        setShared(page)
+        setItems((page.benchmarks ?? []).map((d) => ({ benchmark: d.benchmark, results: withDerivedMetrics(d.results ?? []) })))
+      } catch (err) {
+        setLinkError(err instanceof SharedLinkError ? err.status : 500)
+      }
+      setLoading(false)
+      return
+    }
     const targets = only ?? key.split(',').filter(Boolean)
     const settled = await Promise.allSettled(targets.map((id) => apiFetch<BenchmarkDetailResponse>(`/benchmarks/${id}`)))
     const fresh = new Map<string, Loaded>()
@@ -62,7 +79,7 @@ function useExperimentData(ids: string[]) {
     })
     if (!only) setMissing(lost)
     setLoading(false)
-  }, [key])
+  }, [key, shareToken])
 
   useEffect(() => { setLoading(true); setItems([]); load() }, [load])
 
@@ -74,17 +91,34 @@ function useExperimentData(ids: string[]) {
     return () => clearInterval(timer)
   }, [active, load])
 
-  return { items, missing, loading, reload: load }
+  return { items, missing, loading, reload: load, shared, linkError }
 }
 
-export default function ExperimentView() {
+/**
+ * Results of one or more benchmarks. With `shareToken` it is the read-only page
+ * of a shared link: nothing is saved, benchmarks can be hidden but not added
+ * or removed, and running benchmarks show no task monitor.
+ */
+export default function ExperimentView({ shareToken }: { shareToken?: string } = {}) {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const ids = useMemo(() => (params.get('ids') ?? '').split(',').filter(Boolean).slice(0, VIEW_LIMIT), [params])
-  const { items, missing, loading, reload } = useExperimentData(ids)
+  const urlIds = useMemo(() => (params.get('ids') ?? '').split(',').filter(Boolean).slice(0, VIEW_LIMIT), [params])
+  const { items: allItems, missing, loading, reload, shared, linkError } = useExperimentData(urlIds, shareToken)
+  const ids = shareToken ? allItems.map((i) => i.benchmark.id) : urlIds
+  const [hiddenBenchmarks, setHiddenBenchmarks] = useState<Set<string>>(new Set())
+  const items = allItems.filter((i) => !hiddenBenchmarks.has(i.benchmark.id))
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [paretoTarget, setParetoTarget] = useState('')
-  usePackageColors()
+  const [sharing, setSharing] = useState(false)
+  usePackageColors(!shareToken)
+  // A shared page starts from the owner's styles once; later polls keep the viewer's edits.
+  const sharedStyles = useRef(false)
+  useEffect(() => {
+    if (!shared || sharedStyles.current) return
+    sharedStyles.current = true
+    registerCompressorColors(shared.package_colors ?? {})
+    useChartStyles.getState().useLocal(shared.chart_styles ?? {})
+  }, [shared])
 
   const ready = orderByChunkSize(items.filter((i) => i.benchmark.status === 'ready' && i.results.length > 0), (i) => i.benchmark)
   // "Aggregate time series" off (URL signals=split): every signal of each
@@ -95,12 +129,14 @@ export default function ExperimentView() {
   const loadSeries = useCallback(async (benchmarkIds: string[]) => {
     const known = new Map(seriesById)
     const fetched = await Promise.all(benchmarkIds.filter((id) => !known.has(id)).map(async (id) =>
-      [id, (await apiFetch<{ series: SeriesResults[] }>(`/benchmarks/${id}/series`))?.series ?? []] as const))
+      [id, (await (shareToken
+        ? sharedFetch<{ series: SeriesResults[] }>(`${shareToken}/series/${id}`)
+        : apiFetch<{ series: SeriesResults[] }>(`/benchmarks/${id}/series`)))?.series ?? []] as const))
     if (fetched.length === 0) return known
     for (const [id, s] of fetched) known.set(id, s)
     setSeriesById(known)
     return known
-  }, [seriesById])
+  }, [seriesById, shareToken])
   const readyKey = ready.map((i) => i.benchmark.id).join(',')
   useEffect(() => {
     if (!aggregate && readyKey) loadSeries(readyKey.split(',')).catch(() => { /* aggregate rows still show */ })
@@ -124,7 +160,7 @@ export default function ExperimentView() {
   const colorOverrides = useChartStyles((st) => st.colors)
   const nameOverrides = useChartStyles((st) => st.names)
   const styleError = useChartStyles((st) => st.error)
-  useEffect(() => { useChartStyles.getState().load() }, [])
+  useEffect(() => { if (!shareToken) useChartStyles.getState().load() }, [shareToken])
   const styles = assignCompressorStyles(allNames, { shapes: shapeOverrides, colors: colorOverrides })
   const styleEditing = {
     defaults: assignCompressorStyles(allNames),
@@ -164,7 +200,9 @@ export default function ExperimentView() {
 
   const removeId = (id: string) => navigate(viewPath(ids.filter((x) => x !== id)) + `&tab=${tab}`)
 
-  if (ids.length === 0) return <p className="text-muted-foreground">No benchmark selected. <Link className="underline" to="/experiments">Back to experiments</Link></p>
+  if (linkError === 401) return <Navigate to={`/login?next=${encodeURIComponent(`/s/${shareToken}`)}`} replace />
+  if (linkError) return <p className="text-muted-foreground">This link is not available. Ask the person who shared it for a new one.</p>
+  if (!shareToken && ids.length === 0) return <p className="text-muted-foreground">No benchmark selected. <Link className="underline" to="/experiments">Back to experiments</Link></p>
   if (loading) return <p className="text-muted-foreground">Loading…</p>
   if (items.length === 0) return <p className="text-destructive">Benchmark not found.</p>
 
@@ -172,6 +210,8 @@ export default function ExperimentView() {
   const title = single ? single.name : experimentName(items.map((i) => i.benchmark.name))
   const instances = Array.from(new Map(items.flatMap((i) => i.benchmark.compressors).map((c) => [c.label, c])).values())
   const notReady = items.filter((i) => i.benchmark.status !== 'ready')
+  const myId = useAuthStore.getState().getUserID()
+  const canShare = !shareToken && !!myId && allItems.every((i) => i.benchmark.user_id === myId)
 
   const valueOf = (benchmarkId: string, compressor: string, metric: string) => {
     const item = visible.find((v) => v.benchmark.id === benchmarkId)
@@ -254,7 +294,14 @@ export default function ExperimentView() {
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           {single && <StatusPill status={single.status} progress={single.progress} />}
         </div>
-        {single ? (
+        {shared && (
+          <p className="text-xs text-muted-foreground">
+            Read-only{shared.owner_email && ` · shared by ${shared.owner_email}`}
+            {shared.expires_at && ` · link expires ${new Date(shared.expires_at).toLocaleDateString()}`}
+            {' · changes to names, colours and shapes are not saved'}
+          </p>
+        )}
+        {single && allItems.length === 1 ? (
           <p className="text-sm text-muted-foreground">
             {dataSourceText(single)}
             {` · ${new Date(single.created_at).toLocaleString()}`}
@@ -263,23 +310,46 @@ export default function ExperimentView() {
           </p>
         ) : (
           <ul className="flex flex-wrap gap-2" aria-label="Benchmarks in this view">
-            {items.map((i) => (
-              <li key={i.benchmark.id} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
-                <Link to={viewPath([i.benchmark.id])} className="hover:underline">{i.benchmark.name}</Link>
-                {i.benchmark.status !== 'ready' && <StatusPill status={i.benchmark.status} progress={i.benchmark.progress} />}
-                <button type="button" aria-label={`Remove ${i.benchmark.name}`} className="text-muted-foreground hover:text-foreground" onClick={() => removeId(i.benchmark.id)}>
-                  <X className="w-3 h-3" />
-                </button>
-              </li>
-            ))}
+            {(shareToken ? allItems : items).map((i) => {
+              const off = hiddenBenchmarks.has(i.benchmark.id)
+              return (
+                <li key={i.benchmark.id} className={`flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs ${off ? 'opacity-50' : ''}`}>
+                  {shareToken
+                    ? <span className={off ? 'line-through' : ''}>{i.benchmark.name}</span>
+                    : <Link to={viewPath([i.benchmark.id])} className="hover:underline">{i.benchmark.name}</Link>}
+                  {i.benchmark.status !== 'ready' && <StatusPill status={i.benchmark.status} progress={i.benchmark.progress} />}
+                  {shareToken ? (
+                    <button
+                      type="button"
+                      aria-label={`${off ? 'Show' : 'Hide'} ${i.benchmark.name}`}
+                      aria-pressed={off}
+                      disabled={!off && items.length === 1}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      onClick={() => setHiddenBenchmarks((prev) => {
+                        const next = new Set(prev)
+                        if (off) next.delete(i.benchmark.id)
+                        else next.add(i.benchmark.id)
+                        return next
+                      })}
+                    >
+                      {off ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  ) : (
+                    <button type="button" aria-label={`Remove ${i.benchmark.name}`} className="text-muted-foreground hover:text-foreground" onClick={() => removeId(i.benchmark.id)}>
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
-        <AddBenchmark ids={ids} onAdd={(id) => navigate(viewPath([...ids, id]) + `&tab=${tab}`)} />
+        {!shareToken && <AddBenchmark ids={ids} onAdd={(id) => navigate(viewPath([...ids, id]) + `&tab=${tab}`)} />}
       </div>
 
       {missing.length > 0 && <p className="text-sm text-destructive">{missing.length} benchmark(s) could not be loaded (deleted or not yours).</p>}
 
-      {notReady.length > 0 && (
+      {!shareToken && notReady.length > 0 && (
         <RunMonitor benchmarks={notReady.map((i) => i.benchmark)} onChange={() => reload()} />
       )}
 
@@ -295,6 +365,8 @@ export default function ExperimentView() {
       )}
 
       <EmulationNotice instances={instances} />
+
+      {sharing && <ShareDialog benchmarkIds={ids} title={title} tab={tab} onClose={() => setSharing(false)} />}
 
       {ready.length === 0 ? null : (
         <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
@@ -331,9 +403,16 @@ export default function ExperimentView() {
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                       <span>Every metric of every benchmark, signal and compressor in one file; each metric's table also has its own CSV.</span>
-                      <Button variant="outline" size="sm" onClick={downloadAll}>
-                        <Download className="mr-1 h-4 w-4" />Download all results (CSV)
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        {canShare && (
+                          <Button variant="outline" size="sm" onClick={() => setSharing(true)}>
+                            <Share className="mr-1 h-4 w-4" />Share
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={downloadAll}>
+                          <Download className="mr-1 h-4 w-4" />Download all results (CSV)
+                        </Button>
+                      </div>
                     </div>
                     {!multi && topFive.length > 0 && <TopFive entries={topFive} results={paretoItem!.results} colors={colors} shapes={shapes} />}
                     {metrics.filter((m) => m.key === 'compression_ratio').map(metricCard)}

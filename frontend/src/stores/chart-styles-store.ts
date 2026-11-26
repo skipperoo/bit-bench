@@ -12,7 +12,11 @@ interface ChartStylesState {
   /** The user's display name per compressor label (keyed by shapeKey). */
   names: StyleMap
   error: string
+  /** Local mode (shared read-only links): changes apply but are never saved. */
+  local: boolean
   load: () => Promise<void>
+  /** Starts local mode from the given styles (the share owner's). */
+  useLocal: (styles: Partial<Record<'shapes' | 'colors' | 'names', StyleMap>>) => void
   /** Sets (or with `null` clears) one compressor's shape and saves it. */
   setShape: (name: string, shape: string | null) => Promise<void>
   /** Sets (or with `null` clears) one compressor's colour and saves it. */
@@ -40,6 +44,7 @@ export const useChartStyles = create<ChartStylesState>((set, get) => {
   const commit = async (shapes: StyleMap, colors: StyleMap, names: StyleMap = get().names) => {
     const previous = { shapes: get().shapes, colors: get().colors, names: get().names }
     set({ shapes, colors, names, error: '' })
+    if (get().local) return
     try {
       const res = await apiFetch<Partial<Record<'shapes' | 'colors' | 'names', StyleMap>>>('/me/chart-styles', {
         method: 'PUT',
@@ -55,7 +60,10 @@ export const useChartStyles = create<ChartStylesState>((set, get) => {
     colors: {},
     names: {},
     error: '',
+    local: false,
+    useLocal: (styles) => set({ shapes: styles.shapes ?? {}, colors: styles.colors ?? {}, names: styles.names ?? {}, error: '', local: true }),
     load: async () => {
+      set({ local: false })
       try {
         const res = await apiFetch<Partial<Record<'shapes' | 'colors' | 'names', StyleMap>>>('/me/chart-styles')
         set({ shapes: res?.shapes ?? {}, colors: res?.colors ?? {}, names: res?.names ?? {}, error: '' })
@@ -77,7 +85,7 @@ export const useChartStyles = create<ChartStylesState>((set, get) => {
       }
       return commit(shapes, colors, names)
     },
-    clear: () => set({ shapes: {}, colors: {}, names: {}, error: '' }),
+    clear: () => set({ shapes: {}, colors: {}, names: {}, error: '', local: false }),
   }
 })
 

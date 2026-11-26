@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import ExperimentView from './ExperimentView'
 import { apiFetch } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 import type { Benchmark, BenchmarkResult, DatasetSource } from '@/types'
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
@@ -118,5 +119,19 @@ describe('ExperimentView', () => {
     expect(await screen.findByRole('region', { name: 'Run running one' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cancel run' })).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40')
+  })
+
+  it('offers Share only to the owner of every benchmark', async () => {
+    const jwt = (sub: string) => `h.${btoa(JSON.stringify({ sub, exp: 9999999999 }))}.s`
+    useAuthStore.setState({ token: jwt('u') })
+    const { unmount } = renderAt('/experiments/view?ids=a,b')
+    await userEvent.click(await screen.findByRole('button', { name: 'Share' }))
+    expect(screen.getByRole('dialog', { name: /Share/ })).toBeInTheDocument()
+    unmount()
+    useAuthStore.setState({ token: jwt('someone-else') })
+    renderAt('/experiments/view?ids=a')
+    await screen.findByRole('heading', { name: 'wild · std · 768' })
+    expect(screen.queryByRole('button', { name: 'Share' })).not.toBeInTheDocument()
+    useAuthStore.setState({ token: null })
   })
 })

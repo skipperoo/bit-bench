@@ -84,13 +84,19 @@ func main() {
 	// submissions ("separate benchmarks" uploads are a single request).
 	uploadRL := middleware.NewRateLimiter(rdb, cfg.UploadRateLimit, time.Minute, middleware.UserKeyFunc).WithPrefix("upload:")
 
+	// Shared links are public: limit per IP so tokens cannot be probed in bulk.
+	sharedRL := middleware.NewRateLimiter(rdb, 120, time.Minute, middleware.IPKeyFunc).WithPrefix("shared:")
+	optionalAuth := func(h http.HandlerFunc) http.HandlerFunc { return middleware.OptionalAuth(h).ServeHTTP }
+
 	router := routy.NewRouter()
 	router.
 		AddMiddleware(recoverMw.GetMiddleware()).
 		AddMiddleware(loggingMw.GetMiddleware()).
 		AddHandler("POST /api/v1/auth/login", loginHandler).
 		AddHandler("GET  /api/v1/health", handler.HealthCheck).
-		AddHandler("GET  /api/v1/config", handler.GetConfig)
+		AddHandler("GET  /api/v1/config", handler.GetConfig).
+		AddHandler("GET  /api/v1/shared/{token}", sharedRL.Wrap(optionalAuth(handler.GetShared))).
+		AddHandler("GET  /api/v1/shared/{token}/series/{id}", sharedRL.Wrap(optionalAuth(handler.GetSharedSeries)))
 
 	protected := routy.NewRouter()
 	protected.
@@ -127,7 +133,12 @@ func main() {
 		AddHandler("GET   /benchmarks/{id}/series", handler.ListBenchmarkSeries).
 		AddHandler("POST  /benchmarks/{id}/cancel", handler.CancelBenchmark).
 		AddHandler("GET   /benchmarks/compare", handler.CompareBenchmarks).
-		AddHandler("GET   /status", handler.GetStatus)
+		AddHandler("GET   /status", handler.GetStatus).
+		AddHandler("POST  /shares", handler.CreateShare).
+		AddHandler("GET   /shares", handler.ListShares).
+		AddHandler("GET   /shares/received", handler.ListReceivedShares).
+		AddHandler("PATCH /shares/{id}", handler.UpdateShare).
+		AddHandler("DELETE /shares/{id}", handler.DeleteShare)
 
 	admin := routy.NewRouter()
 	admin.

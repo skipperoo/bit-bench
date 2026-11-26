@@ -45,9 +45,13 @@ func InitServices(cfg *config.Config, db *pgxpool.Pool, rdb *redis.Client) {
 var UserRepo *repository.UserRepository
 var GroupRepo *repository.GroupRepository
 var BenchRepo *repository.BenchmarkRepository
+var ShareRepo *repository.ShareRepository
+var PackageRepo *repository.CompressorPackageRepository
 
 func InitRepos(db *pgxpool.Pool) {
 	UserRepo = repository.NewUserRepository(db)
 	GroupRepo = repository.NewGroupRepository(db)
 	BenchRepo = repository.NewBenchmarkRepository(db)
+	ShareRepo = repository.NewShareRepository(db)
+	PackageRepo = repository.NewCompressorPackageRepository(db)
 }

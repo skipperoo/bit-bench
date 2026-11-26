@@ -21,12 +21,13 @@ export function loadPackageColors(): Promise<void> {
   return loading
 }
 
-/** Re-renders the caller once package colours are known. */
-export function usePackageColors(): void {
+/** Re-renders the caller once package colours are known (skipped when disabled, e.g. logged out). */
+export function usePackageColors(enabled = true): void {
   const [, setReady] = useState(false)
   useEffect(() => {
+    if (!enabled) return
     let alive = true
     loadPackageColors().then(() => { if (alive) setReady(true) })
     return () => { alive = false }
-  }, [])
+  }, [enabled])
 }

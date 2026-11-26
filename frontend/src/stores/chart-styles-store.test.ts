@@ -49,4 +49,13 @@ describe('chart styles store', () => {
     expect(useChartStyles.getState().colors).toEqual({})
     expect(useChartStyles.getState().error).toBe('colour must be #rrggbb')
   })
+
+  it('keeps changes in memory in local mode (shared links)', async () => {
+    useChartStyles.getState().useLocal({ colors: { gzip: '#123456' } })
+    await useChartStyles.getState().setShape('Gzip', 'star')
+    await useChartStyles.getState().setName('Gzip', 'Mine')
+    expect(useChartStyles.getState().shapes).toEqual({ gzip: 'star' })
+    expect(useChartStyles.getState().colors).toEqual({ gzip: '#123456' })
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
 })
