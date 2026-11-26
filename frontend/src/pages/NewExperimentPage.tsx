@@ -383,7 +383,8 @@ export default function NewExperimentPage() {
   const handleLoadPreset = useCallback((preset: BenchmarkPreset) => {
     if (instances.length > 0 && !confirm(`Replace the current configuration with "${preset.name}"?`)) return
     applyInstances(preset.compressors)
-  }, [instances.length, applyInstances])
+    if (phone) setLoadOpen(false)
+  }, [instances.length, applyInstances, phone])
 
   const handleDeletePreset = useCallback(async (preset: BenchmarkPreset) => {
     if (!confirm(`Delete preset "${preset.name}"?`)) return
@@ -421,15 +422,17 @@ export default function NewExperimentPage() {
   const handleHistoryLoad = useCallback((entry: ConfigHistoryEntry) => {
     if (instances.length > 0 && !confirm('Replace the current configuration with this saved one?')) return
     applyInstances(entry.compressors)
-  }, [instances.length, applyInstances])
+    if (phone) setLoadOpen(false)
+  }, [instances.length, applyInstances, phone])
 
   const handleHistoryToPreset = useCallback((entry: ConfigHistoryEntry) => {
     applyInstances(entry.compressors)
     setPresetError('')
+    if (phone) setLoadOpen(false)
     requestAnimationFrame(() => {
       document.getElementById('preset-name')?.focus()
     })
-  }, [applyInstances])
+  }, [applyInstances, phone])
 
   const handleFileChange = useCallback((selected: File[]) => {
     const { accepted: newFiles, rejected } = checkUploadFiles(selected, maxFileSizeMb)
@@ -691,6 +694,94 @@ export default function NewExperimentPage() {
   }, [compressors, customNames, search])
 
   const instanceCount = (compName: string) => instances.filter((i) => i.name === compName).length
+
+  // Presets and recent configurations: a panel on desktop, a sheet on phones.
+  const loadPanel = (
+            <div id="load-panel" className="mb-4">
+              <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Presets</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {presets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No presets yet. Configure the compressors below and save them for later.
+                  </p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto space-y-0.5">
+                    {presets.map((preset) => (
+                      <div key={preset.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">
+                            {preset.name}{' '}
+                            <Badge variant={preset.visibility === 'group' ? 'secondary' : 'outline'} className="text-xs">
+                              {preset.visibility === 'group' ? 'group' : 'private'}
+                            </Badge>
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">{summarizeInstances(preset.compressors)}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleLoadPreset(preset)}>
+                            Load
+                          </Button>
+                          {canManagePreset(role, userId, groupId, preset) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2"
+                              aria-label={`Delete ${preset.name}`}
+                              onClick={() => handleDeletePreset(preset)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Recent Configurations</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {history.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Configurations used in previous benchmarks appear here and can be promoted to presets.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-0.5">
+                    {history.map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
+                        <div className="min-w-0">
+                          <p className="text-xs font-mono truncate">{summarizeInstances(entry.compressors)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Last used {new Date(entry.last_used_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleHistoryLoad(entry)}>
+                            Load
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleHistoryToPreset(entry)}>
+                            Save as preset
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+            </div>
+  )
 
   // The algorithm picker: the left pane on desktop, a sheet on phones.
   const pickerPane = (
@@ -1004,92 +1095,9 @@ export default function NewExperimentPage() {
               </span>
             </div>
           </div>
-          {loadOpen && (
-            <div id="load-panel" className="mb-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Presets</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {presets.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No presets yet. Configure the compressors below and save them for later.
-                  </p>
-                ) : (
-                  <div className="max-h-56 overflow-y-auto space-y-0.5">
-                    {presets.map((preset) => (
-                      <div key={preset.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
-                        <div className="min-w-0">
-                          <p className="text-sm truncate">
-                            {preset.name}{' '}
-                            <Badge variant={preset.visibility === 'group' ? 'secondary' : 'outline'} className="text-xs">
-                              {preset.visibility === 'group' ? 'group' : 'private'}
-                            </Badge>
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">{summarizeInstances(preset.compressors)}</p>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleLoadPreset(preset)}>
-                            Load
-                          </Button>
-                          {canManagePreset(role, userId, groupId, preset) && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2"
-                              aria-label={`Delete ${preset.name}`}
-                              onClick={() => handleDeletePreset(preset)}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Recent Configurations</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {history.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Configurations used in previous benchmarks appear here and can be promoted to presets.
-                  </p>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto space-y-0.5">
-                    {history.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-secondary/40">
-                        <div className="min-w-0">
-                          <p className="text-xs font-mono truncate">{summarizeInstances(entry.compressors)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Last used {new Date(entry.last_used_at).toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => handleHistoryLoad(entry)}>
-                            Load
-                          </Button>
-                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => handleHistoryToPreset(entry)}>
-                            Save as preset
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-            </div>
-          )}
+          {phone ? (
+            <Sheet open={loadOpen} onClose={() => setLoadOpen(false)} title="Load preset or recent">{loadPanel}</Sheet>
+          ) : loadOpen && loadPanel}
 
           {emulatedSelected.length > 0 && (
             <div
