@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [smtpEnabled, setSmtpEnabled] = useState(false)
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const setToken = useAuthStore((s) => s.setToken)
 
   useEffect(() => {
@@ -34,7 +35,9 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       })
       setToken(res.token)
-      navigate('/experiments')
+      // Only same-origin paths, so ?next= cannot send users elsewhere.
+      const next = params.get('next') ?? ''
+      navigate(next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/experiments')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

@@ -204,3 +204,36 @@ export interface CompareResponse {
   benchmarks: Benchmark[]
   results: Record<string, BenchmarkResult[]>
 }
+
+export type ShareKind = 'private' | 'public'
+
+/** A read-only link to a set of benchmarks (owner view). */
+export interface Share {
+  id: string
+  kind: ShareKind
+  token: string
+  expires_at: string | null
+  revoked_at: string | null
+  created_at: string
+  benchmark_ids: string[]
+  recipients: string[]
+}
+
+/** A private link someone shared with the current user. */
+export interface ReceivedShare {
+  token: string
+  owner_email: string
+  benchmark_names: string[]
+  expires_at: string | null
+  created_at: string
+}
+
+/** GET /shared/{token}: everything the read-only view needs. */
+export interface SharedPage {
+  kind: ShareKind
+  owner_email?: string
+  expires_at: string | null
+  benchmarks: BenchmarkDetailResponse[]
+  chart_styles: { shapes?: Record<string, string>; colors?: Record<string, string>; names?: Record<string, string> }
+  package_colors: Record<string, string>
+}

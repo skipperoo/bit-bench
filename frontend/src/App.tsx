@@ -8,6 +8,7 @@ import ExperimentsPage from '@/pages/ExperimentsPage'
 import ExperimentView from '@/pages/ExperimentView'
 import DatasetsPage from '@/pages/DatasetsPage'
 import StatusPage from '@/pages/StatusPage'
+import SharedView from '@/pages/SharedView'
 
 /** Old /compare?ids=... links open the experiment view. */
 function LegacyCompareRedirect() {
@@ -33,6 +34,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/s/:token" element={<SharedView />} />
         <Route
           element={
             <ProtectedRoute>
